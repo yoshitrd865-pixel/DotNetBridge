@@ -115,8 +115,8 @@ export function initStripePay() {
         item_description: itemDescription
     };
 
-    // ★ 同一オリジン（自プロキシ）経由で安全にAPI呼び出し
-    fetch('/api/StripePayment/create-checkout', {
+    // window.location.origin を頭に付けて、必ず自プロキシ(.NET)へ送る
+    fetch('${window.location.origin}/api/StripePayment/create-checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(postData)

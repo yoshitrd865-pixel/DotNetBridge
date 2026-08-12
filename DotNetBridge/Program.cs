@@ -43,8 +43,11 @@ app.MapControllerRoute(
 // 2. リバースプロキシ用ミドルウェア（Account 以外のすべてのアクセスを安全に処理）
 app.Use(async (context, next) =>
 {
-    // /Account 宛てのリクエストは MVC 側のログイン画面へ流す
-    if (context.Request.Path.StartsWithSegments("/Account", StringComparison.OrdinalIgnoreCase))
+    var path = context.Request.Path;
+
+    // ★ Account 宛て、または /api 宛てのリクエストは MVC / API コントローラー側へ流す
+    if (path.StartsWithSegments("/Account", StringComparison.OrdinalIgnoreCase) ||
+        path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase))
     {
         await next();
         return;

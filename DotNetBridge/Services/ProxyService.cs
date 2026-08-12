@@ -1,13 +1,11 @@
 using System.Text;
 using System.Text.RegularExpressions;
-using Microsoft.AspNetCore.Mvc;
 
-namespace DotNetBridge.Controllers
+namespace DotNetBridge.Services
 {
-    [Route("proxy")]
-    public class ProxyController : ControllerBase
+    public class ProxyService
     {
-        private const string TargetBase = "https://hhc-eco11.com/";
+        private const string TargetBase = "https://hhc-eco11.com/EcoToubuF3/mobile60_ToubuF/";
 
         private static readonly string[] HopByHopHeaders =
         {
@@ -16,30 +14,27 @@ namespace DotNetBridge.Controllers
 
         private readonly IHttpClientFactory _httpClientFactory;
 
-        public ProxyController(IHttpClientFactory httpClientFactory)
+        public ProxyService(IHttpClientFactory httpClientFactory)
         {
             _httpClientFactory = httpClientFactory;
         }
 
-        // ⚠️重要: アクションに引数(string catchAll等)を持たせると、
-        // ASP.NET Core が POST ボディを自動消費してしまうため、引数は「絶対になし」にする。
-        [AcceptVerbs("GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS", "PATCH")]
-        [Route("")]
-        public Task ProxyRootAsync() => ProxyAsync();
-
-        [AcceptVerbs("GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS", "PATCH")]
-        [Route("{**path}")]
-        public async Task ProxyAsync()
+        public async Task ProcessProxyAsync(HttpContext context)
         {
-            // パスは RouteData から手動取得してボディの自動バインド・消費を防止
-            var path = RouteData.Values["path"] as string ?? string.Empty;
-            var targetUri = TargetBase + path + Request.QueryString.Value;
+            var path = context.Request.Path.Value?.TrimStart('/') ?? string.Empty;
+
+            if (string.IsNullOrEmpty(path))
+            {
+            path = "login.html";
+            }
+
+            var targetUri = TargetBase + path + context.Request.QueryString.Value;
 
             using var client = _httpClientFactory.CreateClient("NoRedirectClient");
-            using var upstreamRequest = new HttpRequestMessage(new HttpMethod(Request.Method), targetUri);
+            using var upstreamRequest = new HttpRequestMessage(new HttpMethod(context.Request.Method), targetUri);
 
-            // --- 1. リクエストヘッダーの転送 ＆ 変換 ---
-            foreach (var header in Request.Headers)
+            // --- 1. リクエストヘッダー転送 ---
+            foreach (var header in context.Request.Headers)
             {
                 var key = header.Key;
                 if (key.Equals("Host", StringComparison.OrdinalIgnoreCase)) continue;
@@ -48,14 +43,12 @@ namespace DotNetBridge.Controllers
                 if (key.StartsWith(":", StringComparison.Ordinal)) continue;
                 if (key.Equals("Content-Type", StringComparison.OrdinalIgnoreCase)) continue;
 
-                // Cookie（ASPSESSIONID等）の転送
                 if (key.Equals("Cookie", StringComparison.OrdinalIgnoreCase))
                 {
                     upstreamRequest.Headers.TryAddWithoutValidation(key, header.Value.ToArray());
                     continue;
                 }
 
-                // Referer / Origin の本家ドメイン書き換え（ASP側の直アクセス拒否を回避）
                 if (key.Equals("Referer", StringComparison.OrdinalIgnoreCase) ||
                     key.Equals("Origin", StringComparison.OrdinalIgnoreCase))
                 {
@@ -73,89 +66,86 @@ namespace DotNetBridge.Controllers
                 upstreamRequest.Headers.TryAddWithoutValidation(key, header.Value.ToArray());
             }
 
-            // --- 2. リクエストボディの転送（バイト列をそのまま生転送） ---
-            if (HttpMethods.IsPost(Request.Method) ||
-                HttpMethods.IsPut(Request.Method) ||
-                HttpMethods.IsPatch(Request.Method))
+            // --- 2. リクエストボディ転送 ---
+            if (HttpMethods.IsPost(context.Request.Method) ||
+                HttpMethods.IsPut(context.Request.Method) ||
+                HttpMethods.IsPatch(context.Request.Method))
             {
                 var memoryStream = new MemoryStream();
-                await Request.Body.CopyToAsync(memoryStream);
+                await context.Request.Body.CopyToAsync(memoryStream);
                 memoryStream.Position = 0;
 
                 var streamContent = new StreamContent(memoryStream);
-                if (Request.ContentType != null)
+                if (context.Request.ContentType != null)
                 {
-                    streamContent.Headers.TryAddWithoutValidation("Content-Type", Request.ContentType);
+                    streamContent.Headers.TryAddWithoutValidation("Content-Type", context.Request.ContentType);
                 }
                 upstreamRequest.Content = streamContent;
             }
 
-            // --- 3. アップストリーム通信の実行 ---
+            // --- 3. アップストリーム通信実行 ---
             HttpResponseMessage upstreamResponse;
             try
             {
-                upstreamResponse = await client.SendAsync(upstreamRequest, HttpCompletionOption.ResponseHeadersRead, HttpContext.RequestAborted);
+                upstreamResponse = await client.SendAsync(upstreamRequest, HttpCompletionOption.ResponseHeadersRead, context.RequestAborted);
             }
             catch (TaskCanceledException)
             {
                 return;
             }
 
-            // --- 4. レスポンスステータス ＆ ヘッダーの転送 ---
-            Response.StatusCode = (int)upstreamResponse.StatusCode;
+            // --- 4. レスポンスヘッダー転送 ---
+            context.Response.StatusCode = (int)upstreamResponse.StatusCode;
 
             foreach (var header in upstreamResponse.Headers)
             {
                 var key = header.Key;
                 if (HopByHopHeaders.Contains(key.ToLowerInvariant())) continue;
 
-                // Cookieのドメイン制限解除
                 if (key.Equals("Set-Cookie", StringComparison.OrdinalIgnoreCase))
                 {
                     var modifiedCookies = header.Value.Select(cookie =>
                         Regex.Replace(cookie, @"Domain=[^;]+;", string.Empty, RegexOptions.IgnoreCase)
                     ).ToArray();
-                    Response.Headers[key] = modifiedCookies;
+                    context.Response.Headers[key] = modifiedCookies;
                     continue;
                 }
 
-                Response.Headers[key] = header.Value.ToArray();
+                context.Response.Headers[key] = header.Value.ToArray();
             }
 
             foreach (var header in upstreamResponse.Content.Headers)
             {
                 var key = header.Key;
                 if (HopByHopHeaders.Contains(key.ToLowerInvariant())) continue;
-                Response.Headers[key] = header.Value.ToArray();
+                context.Response.Headers[key] = header.Value.ToArray();
             }
 
-            // --- 5. レスポンスボディの返却（旧ドメイン置換） ---
+            // --- 5. レスポンスボディ転送（Shift_JIS置換） ---
             var contentType = upstreamResponse.Content.Headers.ContentType?.ToString() ?? string.Empty;
 
             if (contentType.Contains("text/html", StringComparison.OrdinalIgnoreCase))
             {
                 var rawBytes = await upstreamResponse.Content.ReadAsByteArrayAsync();
                 
-                // Shift_JIS で読み込み
                 Encoding encoding;
                 try { encoding = Encoding.GetEncoding(932); }
                 catch { encoding = Encoding.UTF8; }
 
                 var htmlContent = encoding.GetString(rawBytes);
 
-                // 旧ドメイン(hhc-eco1.com)の遅延用置換
                 htmlContent = htmlContent.Replace("https://hhc-eco1.com", "https://hhc-eco11.com")
                                          .Replace("http://hhc-eco1.com", "https://hhc-eco11.com")
                                          .Replace("//hhc-eco1.com", "//hhc-eco11.com");
 
                 var modifiedBytes = encoding.GetBytes(htmlContent);
-                Response.ContentLength = modifiedBytes.Length;
+                context.Response.ContentLength = modifiedBytes.Length;
 
-                await Response.Body.WriteAsync(modifiedBytes, 0, modifiedBytes.Length);
+                await context.Response.Body.WriteAsync(modifiedBytes, 0, modifiedBytes.Length);
             }
             else
             {
-                await upstreamResponse.Content.CopyToAsync(Response.Body);
+                await upstreamResponse.Content.CopyToAsync(context.Response.Body);
             }
         }
     }

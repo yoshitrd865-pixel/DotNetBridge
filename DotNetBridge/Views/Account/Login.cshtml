@@ -1,0 +1,40 @@
+@{
+    Layout = null;
+}
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="utf-8" />
+    <title>DotNetBridge - ログイン</title>
+    <style>
+        body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; background: #f4f6f9; margin: 0; }
+        .login-card { background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); width: 320px; }
+        .field { margin-bottom: 1rem; }
+        label { display: block; margin-bottom: 0.5rem; font-size: 0.9rem; }
+        input[type="text"], input[type="password"] { width: 100%; padding: 0.5rem; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
+        button { width: 100%; padding: 0.6rem; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        button:hover { background: #0056b3; }
+        .error { color: red; font-size: 0.85rem; margin-bottom: 1rem; }
+    </style>
+</head>
+<body>
+    <div class="login-card">
+        <h2>DotNetBridge</h2>
+        @if (ViewBag.Error != null)
+        {
+            <div class="error">@ViewBag.Error</div>
+        }
+        <form method="post" action="/Account/Login">
+            <div class="field">
+                <label>ユーザー名</label>
+                <input type="text" name="username" required autofocus />
+            </div>
+            <div class="field">
+                <label>パスワード</label>
+                <input type="password" name="password" required />
+            </div>
+            <button type="submit">ログイン</button>
+        </form>
+    </div>
+</body>
+</html>

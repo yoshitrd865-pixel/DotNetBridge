@@ -1,21 +1,39 @@
-﻿using Xunit;
+﻿using System.Net;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Xunit;
 
 namespace DotNetBridge.Tests
 {
-    public class ProxyLogicTests
+    public class ProxyIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
     {
-        [Fact]
-        public void Test_OldDomainReplacement()
+        private readonly HttpClient _client;
+
+        public ProxyIntegrationTests(WebApplicationFactory<Program> factory)
         {
-            // テストデータ
-            string inputHtml = "<a href='https://hhc-eco1.com/index.asp'>Link</a>";
-            string expectedHtml = "<a href='https://hhc-eco11.com/index.asp'>Link</a>";
+            // 自動リダイレクトをオフにしたテスト用 Client
+            _client = factory.CreateClient(new WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false
+            });
+        }
 
-            // 置換処理のテスト
-            string resultHtml = inputHtml.Replace("https://hhc-eco1.com", "https://hhc-eco11.com");
+        [Fact]
+        public async Task UnauthenticatedUser_RedirectsToLogin()
+        {
+            // 未ログインでアクセスした場合、ログイン画面へ 302 リダイレクトされるかテスト
+            var response = await _client.GetAsync("/");
 
-            // 検証
-            Assert.Equal(expectedHtml, resultHtml);
+            Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+            Assert.Equal("/Account/Login", response.Headers.Location?.OriginalString);
+        }
+
+        [Fact]
+        public async Task AccountLoginPath_IsAccessibleWithoutAuth()
+        {
+            // ログイン画面（/Account/Login）には未ログインでもアクセスできるかテスト
+            var response = await _client.GetAsync("/Account/Login");
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         }
     }
 }

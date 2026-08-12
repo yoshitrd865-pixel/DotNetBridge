@@ -115,12 +115,13 @@ export function initStripePay() {
         item_description: itemDescription
     };
 
-    // window.location.origin を頭に付けて、必ず自プロキシ(.NET)へ送る
-    fetch('${window.location.origin}/api/StripePayment/create-checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(postData)
-    })
+    const apiUrl = window.location.origin + '/api/StripePayment/create-checkout';
+
+    fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(postData)
+        })
     .then(response => response.json())
     .then(data => {
         if(data.url) {

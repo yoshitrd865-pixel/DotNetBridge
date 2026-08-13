@@ -19,5 +19,8 @@ WORKDIR /app
 ENV ASPNETCORE_URLS=http://+:8080
 EXPOSE 8080
 
+# (ファイル監視機能）の上限エラー
+ENV DOTNET_USE_POLLING_FILE_WATCHER=1
+
 COPY --from=build /app/publish .
 ENTRYPOINT ["dotnet", "DotNetBridge.dll"]

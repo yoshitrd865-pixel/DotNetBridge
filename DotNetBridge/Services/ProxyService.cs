@@ -29,27 +29,33 @@ namespace DotNetBridge.Services
             }
 
             // --- パス正規化ロジック ---
-            // リクエストパスから不要な先頭プレフィックス（EcoToubuF3/, mobile60_ToubuF/, Mobile60/ 等）をすべて削る
-            while (true)
-            {
-                var prevPath = path;
-                if (path.StartsWith("EcoToubuF3/", StringComparison.OrdinalIgnoreCase))
-                    path = path.Substring("EcoToubuF3/".Length);
+// リクエストパスから不要な先頭プレフィックス（EcoToubuF3/ や mobile60_ToubuF/）を削る
+while (true)
+{
+    var prevPath = path;
+    if (path.StartsWith("EcoToubuF3/", StringComparison.OrdinalIgnoreCase))
+        path = path.Substring("EcoToubuF3/".Length);
 
-                if (path.StartsWith("mobile60_ToubuF/", StringComparison.OrdinalIgnoreCase))
-                    path = path.Substring("mobile60_ToubuF/".Length);
+    if (path.StartsWith("mobile60_ToubuF/", StringComparison.OrdinalIgnoreCase))
+        path = path.Substring("mobile60_ToubuF/".Length);
 
-                if (path.StartsWith("Mobile60/", StringComparison.OrdinalIgnoreCase))
-                    path = path.Substring("Mobile60/".Length);
+    if (path == prevPath) break;
+}
 
-                // 変化がなくなったらループ抜ける
-                if (path == prevPath) break;
-            }
+// 万が一パスの中に二重で mobile60_ToubuF/ や EcoToubuF3/ が含まれている場合の緊急補正
+path = Regex.Replace(path, @"(?i)(mobile60_ToubuF/|EcoToubuF3/)+", "");
 
-            // 万が一パスの中に二重で /mobile60_ToubuF/ や /Mobile60/ が含まれている場合の緊急補正
-            path = Regex.Replace(path, @"(?i)(mobile60_ToubuF/|Mobile60/|EcoToubuF3/)+", "");
+string targetUri;
 
-            var targetUri = TargetBase + path + context.Request.QueryString.Value;
+// ★画像のパス（Mobile60/tenken/... や Mobile60/kokyaku/...）の場合は EcoToubuF3/ 直下へつなぐ！
+if (path.StartsWith("Mobile60/", StringComparison.OrdinalIgnoreCase))
+{
+    targetUri = "https://hhc-eco11.com/EcoToubuF3/" + path + context.Request.QueryString.Value;
+}
+else
+{
+    targetUri = TargetBase + path + context.Request.QueryString.Value;
+}
 
             using var client = _httpClientFactory.CreateClient("NoRedirectClient");
             using var upstreamRequest = new HttpRequestMessage(new HttpMethod(context.Request.Method), targetUri);

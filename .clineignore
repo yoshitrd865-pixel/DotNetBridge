@@ -1,0 +1,65 @@
+# ==========================================
+# .NET Build & Binary Output
+# ==========================================
+bin/
+obj/
+out/
+[Bb]in/
+[Oo]bj/
+*.dll
+*.exe
+*.pdb
+*.cache
+
+# ==========================================
+# Entity Framework & Database
+# ==========================================
+# ローカルテスト用SQLiteデータベースファイルを除外
+*.db
+*.sqlite
+*.sqlite3
+*.db-shm
+*.db-wal
+
+# ※Migrationsフォルダを含めたい場合は以下の行をコメントアウトしてください
+# Migrations/
+
+# ==========================================
+# IDE & System Files
+# ==========================================
+.vs/
+.vscode/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# macOS / Windows
+.DS_Store
+Thumbs.db
+
+# ==========================================
+# Node.js & Web Assets (If applicable)
+# ==========================================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+wwwroot/lib/
+
+# ==========================================
+# Secrets & Environment Variables
+# ==========================================
+# APIキーや接続文字列などの秘密情報漏洩防止
+*.env
+*.env.local
+*.env.*.local
+appsettings.Secrets.json
+appsettings.Development.json
+
+# ==========================================
+# Docker & Render Logs
+# ==========================================
+*.log
+.docker/

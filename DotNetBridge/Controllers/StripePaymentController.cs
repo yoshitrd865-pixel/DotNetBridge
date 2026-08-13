@@ -79,6 +79,9 @@ namespace DotNetBridge.Controllers
                         { "invoice_no", invoiceNo },
                         { "item_description", itemDescription }
                     }
+                    // Stripeが自動で実際のSession IDに置き換えて渡してくれます
+                    SuccessUrl = $"{domain}/success?session_id={{CHECKOUT_SESSION_ID}}",
+                    CancelUrl = $"{domain}/cancel",
                 };
 
                 var service = new SessionService();
@@ -207,6 +210,27 @@ namespace DotNetBridge.Controllers
 
             return NotFound(new { success = false, error = "Log not found" });
         }
+        /// <summary>
+        /// 決済完了画面
+        /// </summary>
+        [HttpGet("/success")]
+        public IActionResult Success([FromQuery] string session_id)
+        {
+            // Stripeからリダイレクト時に渡される session_id をViewに渡す
+            ViewBag.SessionId = session_id;
+            return View();
+        }
+
+        /// <summary>
+        /// 決済キャンセル・失敗画面
+        /// </summary>
+        [HttpGet("/cancel")]
+        public IActionResult Cancel()
+        {
+            return View();
+        }
+
+
     }
 
     public class ProcessedRequest

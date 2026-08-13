@@ -70,7 +70,7 @@ namespace DotNetBridge.Controllers
                         }
                     },
                     Mode = "payment",
-                    SuccessUrl = $"{domain}/success",
+                    SuccessUrl = $"{domain}/success?session_id={{CHECKOUT_SESSION_ID}}",
                     CancelUrl = $"{domain}/cancel",
                     Metadata = new Dictionary<string, string>
                     {
@@ -78,10 +78,7 @@ namespace DotNetBridge.Controllers
                         { "customer_name", customerName },
                         { "invoice_no", invoiceNo },
                         { "item_description", itemDescription }
-                    }
-                    // Stripeが自動で実際のSession IDに置き換えて渡してくれます
-                    SuccessUrl = $"{domain}/success?session_id={{CHECKOUT_SESSION_ID}}",
-                    CancelUrl = $"{domain}/cancel",
+                    },
                 };
 
                 var service = new SessionService();

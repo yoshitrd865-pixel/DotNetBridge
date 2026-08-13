@@ -2,6 +2,8 @@ using Microsoft.AspNetCore.Mvc;
 using Stripe;
 using Stripe.Checkout;
 using System.Text.Json.Serialization;
+using Microsoft.EntityFrameworkCore;
+using DotNetBridge.Data;
 
 namespace DotNetBridge.Controllers
 {
@@ -11,13 +13,16 @@ namespace DotNetBridge.Controllers
     {
         private readonly IConfiguration _config;
         private readonly ILogger<StripePaymentController> _logger;
+        private readonly PaymentDbContext _dbContext;
 
         public StripePaymentController(
             IConfiguration config, 
-            ILogger<StripePaymentController> logger)
+            ILogger<StripePaymentController> logger,
+            PaymentDbContext dbContext)
         {
             _config = config;
             _logger = logger;
+            _dbContext = dbContext;
 
             var secretKey = Environment.GetEnvironmentVariable("Stripe__SecretKey") 
                             ?? Environment.GetEnvironmentVariable("STRIPE_SECRET_KEY")
@@ -26,7 +31,6 @@ namespace DotNetBridge.Controllers
             StripeConfiguration.ApiKey = secretKey;
         }       
 
-        // 1. QRコード生成用 Checkout Session 作成 (実装済み)
         [HttpPost("create-checkout")]
         public async Task<IActionResult> CreateCheckout([FromBody] CreateCheckoutRequest req)
         {
@@ -89,7 +93,6 @@ namespace DotNetBridge.Controllers
             }
         }
 
-        // 2. Stripeからの Webhook 受信＆署名検証（ログ確認版）
         [HttpPost("webhook")]
         public async Task<IActionResult> ReceiveWebhook()
         {
@@ -102,26 +105,43 @@ namespace DotNetBridge.Controllers
 
             try
             {
-                // ① Stripe.net による公式の改ざん・署名チェック
                 var stripeEvent = EventUtility.ConstructEvent(
                     json,
                     signatureHeader,
                     webhookSecret
                 );
 
-                // ② 決済完了（checkout.session.completed）の場合
-                // ★ EventTypes.CheckoutSessionCompleted を使用します
                 if (stripeEvent.Type == EventTypes.CheckoutSessionCompleted)
                 {
                     var session = stripeEvent.Data.Object as Session;
 
                     if (session != null)
                     {
-                        var invoiceNo = session.Metadata?.GetValueOrDefault("invoice_no") ?? "未指定";
-                        var customerCode = session.Metadata?.GetValueOrDefault("customer_code") ?? "未指定";
+                        // 二重書き込みチェック
+                        var existingLog = await _dbContext.PaymentLogs
+                            .FirstOrDefaultAsync(p => p.StripeSessionId == session.Id);
 
-                        // 受信成功ログを出力
-                        _logger.LogInformation($"[Stripe Webhook成功] 伝票No: {invoiceNo}, 顧客コード: {customerCode}, 金額: {session.AmountTotal}円");
+                        if (existingLog == null)
+                        {
+                            var invoiceNo = session.Metadata?.GetValueOrDefault("invoice_no") ?? "未指定";
+                            var customerCode = session.Metadata?.GetValueOrDefault("customer_code") ?? "未指定";
+
+                            // DB へ消込ログ保存
+                            var paymentLog = new PaymentLog
+                            {
+                                InvoiceNo = invoiceNo,
+                                CustomerCode = customerCode,
+                                Amount = session.AmountTotal ?? 0,
+                                StripeSessionId = session.Id,
+                                Status = "PAID",
+                                PaidAt = DateTime.UtcNow
+                            };
+
+                            _dbContext.PaymentLogs.Add(paymentLog);
+                            await _dbContext.SaveChangesAsync();
+
+                            _logger.LogInformation($"[DB保存成功] 伝票No: {invoiceNo}, 顧客コード: {customerCode}");
+                        }
                     }
                 }
 
@@ -137,6 +157,16 @@ namespace DotNetBridge.Controllers
                 _logger.LogError(ex, "Stripe Webhook 処理内部エラー");
                 return StatusCode(500, new { error = ex.Message });
             }
+        }
+
+        // 保存された消込データを一覧取得する確認用 API
+        [HttpGet("logs")]
+        public async Task<IActionResult> GetPaymentLogs()
+        {
+            var logs = await _dbContext.PaymentLogs
+                .OrderByDescending(p => p.PaidAt)
+                .ToListAsync();
+            return Ok(logs);
         }
     }
 

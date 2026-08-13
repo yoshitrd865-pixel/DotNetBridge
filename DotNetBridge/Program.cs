@@ -27,6 +27,21 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
 // ★ ここに1行追加 (Render の PORT 環境変数を読み込む)
 builder.WebHost.UseUrls($"http://*:{Environment.GetEnvironmentVariable("PORT") ?? "8080"}");
 
+// SQLite の接続設定
+builder.Services.AddDbContext<PaymentDbContext>(options =>
+    options.UseSqlite("Data Source=payment.db"));
+
+builder.Services.AddControllers();
+
+var app = builder.Build();
+
+// 起動時に DB テーブルが存在しなければ自動生成
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<PaymentDbContext>();
+    db.Database.EnsureCreated();
+}
+
 var app = builder.Build();
 
 app.UseStaticFiles(); // wwwroot配下の配信を許可

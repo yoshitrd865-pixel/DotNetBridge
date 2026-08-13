@@ -1,124 +1,58 @@
-# DotNetBridge プロジェクト概要・仕様書 (PROJECT_SUMMARY.md)
+# PROJECT_SUMMARY.md
 
-本ドキュメントは、**DotNetBridge**（ASP.NET Core Webアプリケーション）の全体アーキテクチャ、ルーティング、Stripe決済連携、リバースプロキシ動作、Tampermonkey（アシストくん）連携、および今後の課題についてまとめたプロジェクトサマリーです。
-
----
-
-## 1. プロジェクト概要・技術スタック
-
-### 概要
-`DotNetBridge` は、外部のレガシーWebシステム（`https://hhc-eco11.com/EcoToubuF3/mobile60_ToubuF/`）へのアクセスを独自認証で保護しながらリバースプロキシ経由で中継しつつ、特定のページ（請求画面等）に対して自動的に JavaScript（Stripe決済QR生成機能）をインジェクション・統合するシステムです。また、Stripe Checkoutを用いたクレジットカード決済のWebhook処理および、業務効率化アシスタント（Tampermonkey「アシストくん」）向けの消込データ連携APIを提供します。
-
-### 技術スタック
-- **フレームワーク**: ASP.NET Core (C# / .NET 8.0)
-- **データベース**: SQLite (`PaymentDbContext`, `payment.db`)
-- **ORマッパー**: Entity Framework Core 8.0
-- **認証**: ASP.NET Core Cookie認証 (`/Account/Login`)
-- **決済プラットフォーム**: Stripe API (Stripe.net SDK, Checkout Sessions, Webhooks)
-- **インフラ・デプロイ**: Docker対応、Renderなどのクラウド環境対応 (`PORT` 環境変数対応、`DOTNET_USE_POLLING_FILE_WATCHER` 設定済)
-- **フロントエンド / 拡張**: バニラJavaScript (ES Modules)、Tampermonkey連携用API
+## 1. プロジェクト概要
+上流ASPシステム（`hhc-eco11.com`）のモバイル版画面に対し、ASP.NET Core（.NET 10）によるリバースプロキシ（`DotNetBridge`）を経由させることで、端末側（ブラウザ）へStripe決済機能（決済QRコード生成・消込管理）を自動追加・連携するシステム。
 
 ---
 
-## 2. ルーティング・エンドポイント一覧
+## 2. システム構成・アーキテクチャ
 
-| パス / パターン | HTTP メソッド | コントローラー / ハンドラー | 説明 |
-| :--- | :--- | :--- | :--- |
-| `/` | GET | ProxyService (リバースプロキシ) | 認証済みユーザーのルートアクセスを上流システムへプロキシ（未認証時は `/Account/Login` へリダイレクト） |
-| `/Account/Login` | GET / POST | `AccountController` | 独自のログイン画面および認証処理 (`admin` / `password123`) |
-| `/Account/Logout` | GET | `AccountController` | ログアウト処理およびCookie破棄 |
-| `/admin/payments` | GET | `PaymentAdminController` (`Index`) | 入金消込データ一覧の管理画面（DB保存されたStripe決済ログの確認） |
-| `/api/StripePayment/create-checkout` | POST | `StripePaymentController` | Stripe Checkout Sessionを生成し、決済用URLを返すAPI |
-| `/api/StripePayment/webhook` | POST | `StripePaymentController` | StripeからのWebhookを受信し、決済完了時にDBへ消込ログ (`PaymentLog`) を保存 |
-| `/api/StripePayment/logs` | GET | `StripePaymentController` | 保存された消込データ一覧をJSON形式で取得する確認用API |
-| `/api/StripePayment/get_unprocessed` | GET | `StripePaymentController` | 未処理（ステータス `completed` / `PAID`）の消込データをTampermonkey（アシストくん）向けに返却 |
-| `/api/StripePayment/get_unprocessed` | POST | `StripePaymentController` | 指定されたIDの消込データステータスを `processed` に更新 |
-| `/proxy/*` (その他すべてのパス) | ALL | `ProxyService` | `/Account`, `/api`, `/admin` 以外のパスに対するリバースプロキシ中継 |
+* **バックエンド**: ASP.NET Core (.NET 10) / C#
+* **DB**: SQLite (`PaymentDbContext`) - 決済ログ・消込データ保持
+* **インフラ**: Render (Dockerコンテナデプロイ)
+* **決済連携**: Stripe API (Checkout / Webhook)
+* **プロキシ**: `ProxyService.cs` (上流システムとの通信中継およびJS自動挿入)
+* **フロントエンド拡張**: `wwwroot/js/custom-inject.js` (ブラウザ側で動的UI追加・アシスト機能の提供)
 
 ---
 
-## 3. Stripe連携の実装状況
+## 3. これまでの障害対応と解消経緯
 
-- **ファイル名**: `DotNetBridge/Controllers/StripePaymentController.cs`
-- **処理概要**:
-  1. **Checkout Session 生成 (`POST /api/StripePayment/create-checkout`)**:
-     - フロントエンドからのリクエスト（金額、顧客名、顧客コード、伝票番号、明細名）を受け取り、Stripe API (`SessionService`) を呼び出して Checkout Session を作成。
-     - メタデータ (`customer_code`, `customer_name`, `invoice_no`, `item_description`) を付与。
-     - `SuccessUrl = "{domain}/success"`、`CancelUrl = "{domain}/cancel"` を設定（※現状の未実装課題あり）。
-  2. **Webhook 受信・DB消込 (`POST /api/StripePayment/webhook`)**:
-     - `Stripe-Signature` とシークレットによる署名検証 (`EventUtility.ConstructEvent`)。
-     - `checkout.session.completed` イベントを検知した場合、`PaymentDbContext` を用いて `StripeSessionId` による二重書き込みチェックを実施。
-     - 支払い完了ログ (`PaymentLog`) をデータベースに保存。
+### ① C# 構文エラー & MVC構造の修正
+* **発生現象**: Build失敗 (`CS1003`, `CS0103` エラー)
+* **原因**: 
+  * `StripePaymentController.cs` の `SessionCreateOptions` でのカンマ欠落・重複プロパティ。
+  * `View()` / `ViewBag` 呼び出し箇所で、コントローラーが `ControllerBase` を継承していたこと。
+* **対処**: `Metadata` オプションの整形、重複プロパティの削除、継承元を `Controller` に変更してビルドを正常化。
 
----
+### ② Render (Linux) 起動障害（inotify制限）
+* **発生現象**: コンテナ起動直後に `System.IO.IOException: The configured user limit (128) on the number of inotify instances has been reached` でプロセス強制終了 (Exit Status 139)。
+* **原因**: .NETの `appsettings.json` 自動リロード機能が Linux のファイル監視上限（inotify）を使い果たしていたため。
+* **対処**: `Program.cs` 内の `CreateBuilder` 設定で `reloadOnChange: false` を明示指定し、不要なファイル監視を停止。
 
-## 4. データベース構造・EF Coreエンティティの一覧
+### ③ 一部画面（点検・清掃・し尿一覧）の読み込み停止（OLE DBエラー）
+* **発生現象**: 「設置先一覧」は動くが、日付検索を伴う特定の3画面で「読み込み中」のまま止まり、コンソールに `SyntaxError: Unexpected identifier 'OLE'` や `varchar` が出力される。
+* **原因**: 
+  * プロキシ側で上流の JSONP / API 通信（`json_*.asp`）までUTF-8テキスト変換・文字コード置換を適用しようとしたため、クエリやデータ構造が破綻。
+  * 上流ASP側でSQL/OLE DBエラーが発生し、HTML形式のエラー文が返却されたことでJS構文エラーを誘発していた。
+* **対処**: `ProxyService.cs` を画面ごとの個別対応から **Pass-through（透過スルー）方式** へ方針変更。API通信はバイトデータのまま完全素通りさせ、上流データの非破壊転送を実現。
 
-- **DBコンテキスト**: `DotNetBridge.Data.PaymentDbContext` (SQLite: `payment.db`)
-- **エンティティ**: `DotNetBridge.Data.PaymentLog`
-
-### `PaymentLog` テーブル構造
-| カラム名 | 型 | 説明 |
-| :--- | :--- | :--- |
-| `Id` | `int` (PK, Identity) | 主キー |
-| `InvoiceNo` | `string` | 伝票番号（例: 売上番号、請求番号） |
-| `CustomerCode` | `string` | 顧客コード / お客様番号 |
-| `Amount` | `long` | 請求金額（円単位） |
-| `StripeSessionId` | `string` | Stripe Checkout Session ID |
-| `Status` | `string` | ステータス（初期値 `"PAID"` / `"completed"` → 処理後 `"processed"`） |
-| `PaidAt` | `DateTime` | 決済日時（UTC） |
+### ④ 顧客BOXなどの写真・画像表示エラー (404 Not Found)
+* **発生現象**: 顧客BOXの写真（`jpg`等）がリンク切れ・表示不可になる。
+* **原因**: 
+  * パス結合時の `mobile60_ToubuF/` の二重重複。
+  * 上流の旧ドメイン（`hhc-eco1.com`）の画像URLがそのまま残り、プロキシを通過せず直接参照しようとしていた。
+* **対処**: `ProxyService.cs` でパス先頭の重複除去（正規化）ロジックを追加し、HTML応答時のみ `hhc-eco1.com` → `hhc-eco11.com` へのドメイン補正を実施。
 
 ---
 
-## 5. ProxyService（リバースプロキシ）の動作仕様・設定ターゲット
+## 4. 現在の「Pass-through型プロキシ」基本設計方針（遵守事項）
 
-- **ファイル名**: `DotNetBridge/Services/ProxyService.cs`
-- **ターゲットベースURL**: `https://hhc-eco11.com/EcoToubuF3/mobile60_ToubuF/`
-- **主な動作仕様**:
-  1. **リクエスト中継**:
-     - クライアントからのリクエストメソッド、クエリ文字列、ボディ（POST/PUT/PATCH）をそのままアップストリームへ転送。
-     - `Host`, `Content-Length`, `Accept-Encoding`, `Content-Type` などのヘッダーを適切に調整。
-     - `Referer` / `Origin` ヘッダーに含まれる `/proxy/` などのプレフィックスをターゲットURLに置換。
-  2. **レスポンスヘッダー調整**:
-     - `transfer-encoding`, `content-length` などのホップバイホップヘッダーを除外。
-     - `Set-Cookie` ヘッダーから `Domain=` 属性を削除し、プロキシ経由でもCookieが正しく機能するように調整。
-  3. **HTML書き換え・JSインジェクション**:
-     - レスポンスが `text/html` の場合、Shift_JIS (CP932) または UTF-8 としてパース。
-     - 上流システムのドメイン参照（`hhc-eco1.com`）を `hhc-eco11.com` に置換。
-     - レスポンスの `</body>` 直前に `<script type="module" src="/js/custom-inject.js"></script>` タグを自動挿入し、ブラウザ側で拡張スクリプトが動作するように統合。
+今後コードを変更・拡張する際は、以下の基本設計方針を絶対に崩さないでください。
 
----
-
-## 6. アシストくん（Tampermonkey）連携APIの仕様
-
-- **対象ファイル**: `DotNetBridge/Controllers/StripePaymentController.cs` (および `wwwroot/js/`)
-- **仕様概要**:
-  1. **未処理データ取得 (`GET /api/StripePayment/get_unprocessed`)**:
-     - データベースからステータスが `completed` または `PAID` であり、かつ顧客コード・伝票番号が有効なレコードを一覧で返却。
-     - レスポンス構造:
-       ```json
-       [
-         {
-           "id": 1,
-           "customer_code": "12345",
-           "invoice_no": "67890",
-           "amount_total": 5500,
-           "status": "completed"
-         }
-       ]
-       ```
-  2. **消込完了ステータス更新 (`POST /api/StripePayment/get_unprocessed`)**:
-     - 処理済みにマークするため、リクエストボディに `{ "id": 1 }` を送信。
-     - 対象ログの `Status` を `"processed"` に更新し、成功時は `{ "success": true }` を返却。
-
----
-
-## 7. 未実装・今後対応が必要な課題
-
-1. **サクセス・キャンセルURLのハンドリングビュー (`/success` / `/cancel`)**:
-   - `StripePaymentController` 内で `SuccessUrl = "{domain}/success"`, `CancelUrl = "{domain}/cancel"` が指定されているが、現時点でこれらのルーティングやビュー (`/success`, `/cancel`) が未実装。決済完了後・キャンセル後のユーザー向け専用画面（Razor Viewまたは静的ページ）の作成が必要。
-2. **エラーハンドリング・ログ出力の強化**:
-   - ネットワーク障害やStripe API通信エラー発生時のユーザーフィードバックやリトライ機構の改善。
-3. **本番環境用セキュリティ設定**:
-   - 簡易ハードコードされているログイン情報 (`admin` / `password123`) のハッシュ化やデータベース管理、環境変数化。
-   - WebhookシークレットやStripe APIシークレットキーの厳格な環境変数運用チェック。
+1. **API・画像データ等の通信 (`json_*.asp`, 画像, JS等)**
+   * **完全スルー（Pass-through）**: レスポンスを一切加工せず、生のバイトデータ（バイナリ）のままブラウザへそのまま流す（AndroidのWebView直通と同等の安定性を確保）。
+2. **HTML画面応答 (`text/html`)**
+   * Shift_JIS(CP932)として解読し、旧ドメイン表記の補正と、`</body>` 直前への `<script src="/js/custom-inject.js"></script>` タグ1行挿入のみを行う。画面ごとの個別処理や複雑な文字コード変換ロジックは追加しないこと。
+3. **Cookieの扱い**
+   * 上流からの `Set-Cookie` の `Domain` と `Path` 属性を削り（`Path=/;` に統一）、プロキシ配下の全パスでセッション（ASPSESSIONID）が正しくブラウザから送信されるように維持すること。

@@ -110,8 +110,8 @@ namespace DotNetBridge.Controllers
                 );
 
                 // ② 決済完了（checkout.session.completed）の場合
-                // ★ Events.CheckoutSessionCompleted と記述します
-                if (stripeEvent.Type == Events.CheckoutSessionCompleted)
+                // ★ EventTypes.CheckoutSessionCompleted を使用します
+                if (stripeEvent.Type == EventTypes.CheckoutSessionCompleted)
                 {
                     var session = stripeEvent.Data.Object as Session;
 

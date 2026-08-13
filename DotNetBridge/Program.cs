@@ -3,9 +3,21 @@ using Microsoft.EntityFrameworkCore;
 using DotNetBridge.Services;
 using DotNetBridge.Data;
 
+// Linux環境(Render)での inotify ハンドル上限到達によるエラーを防止
+Environment.SetEnvironmentVariable("DOTNET_USE_POLLING_FILE_WATCHER", "false");
+
 System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
 
-var builder = WebApplication.CreateBuilder(args);
+var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+{
+    Args = args
+});
+
+// reloadOnChange: false にしてファイル監視を停止
+builder.Configuration.Sources.Clear();
+builder.Configuration.AddJsonFile("appsettings.json", optional: true, reloadOnChange: false);
+builder.Configuration.AddJsonFile($"appsettings.{builder.Environment.EnvironmentName}.json", optional: true, reloadOnChange: false);
+builder.Configuration.AddEnvironmentVariables();
 
 builder.Services.AddControllersWithViews();
 builder.Services.AddScoped<ProxyService>();
@@ -55,12 +67,11 @@ app.MapControllerRoute(
     pattern: "Account/{action=Login}/{id?}",
     defaults: new { controller = "Account" });
 
-// 2. リバースプロキシ用ミドルウェア（Account 以外のすべてのアクセスを安全に処理）
+// 2. リバースプロキシ用ミドルウェア
 app.Use(async (context, next) =>
 {
     var path = context.Request.Path;
 
-    // ★ /admin を追加してプロキシ処理を回避させます
     if (path.StartsWithSegments("/Account", StringComparison.OrdinalIgnoreCase) ||
         path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase) ||
         path.StartsWithSegments("/admin", StringComparison.OrdinalIgnoreCase))
@@ -69,14 +80,12 @@ app.Use(async (context, next) =>
         return;
     }
 
-    // 未ログイン時は確実に 302 リダイレクトを発行してログイン画面へ
     if (context.User.Identity?.IsAuthenticated != true)
     {
         context.Response.Redirect("/Account/Login");
         return;
     }
 
-    // ログイン済みならプロキシ処理を実行
     var proxyService = context.RequestServices.GetRequiredService<ProxyService>();
     await proxyService.ProcessProxyAsync(context);
 });

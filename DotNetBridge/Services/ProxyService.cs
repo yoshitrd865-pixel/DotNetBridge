@@ -124,9 +124,14 @@ namespace DotNetBridge.Services
             // --- 5. レスポンスボディ転送（Shift_JIS置換） ---
             var contentType = upstreamResponse.Content.Headers.ContentType?.ToString() ?? string.Empty;
 
-            if (contentType.Contains("text/html", StringComparison.OrdinalIgnoreCase))
-            {
-                var rawBytes = await upstreamResponse.Content.ReadAsByteArrayAsync();
+            // json_ で始まるAPI（JSONP等）を判定して書き換え対象外にする
+            var isJsonApi = path.Contains("json_", StringComparison.OrdinalIgnoreCase) || 
+                 contentType.Contains("json", StringComparison.OrdinalIgnoreCase) ||
+                 contentType.Contains("javascript", StringComparison.OrdinalIgnoreCase);
+
+            if (contentType.Contains("text/html", StringComparison.OrdinalIgnoreCase) && !isJsonApi)
+{
+    var rawBytes = await upstreamResponse.Content.ReadAsByteArrayAsync();
                 
                 Encoding encoding;
                 try { encoding = Encoding.GetEncoding(932); }

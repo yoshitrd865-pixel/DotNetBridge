@@ -133,7 +133,7 @@ namespace DotNetBridge.Controllers
                                 CustomerCode = customerCode,
                                 Amount = session.AmountTotal ?? 0,
                                 StripeSessionId = session.Id,
-                                Status = "PAID",
+                                Status = "completed",
                                 PaidAt = DateTime.UtcNow
                             };
 
@@ -168,6 +168,51 @@ namespace DotNetBridge.Controllers
                 .ToListAsync();
             return Ok(logs);
         }
+
+        // ─── 以下、Tampermonkey アシストくん用連携 API ───
+
+        // 1. 未処理データ取得 (GET)
+        [HttpGet("get_unprocessed")]
+        public async Task<IActionResult> GetUnprocessed()
+        {
+            var logs = await _dbContext.PaymentLogs
+                .Where(p => (p.Status == "completed" || p.Status == "PAID") && p.CustomerCode != "未指定" && p.InvoiceNo != "未指定")
+                .OrderBy(p => p.Id)
+                .Select(p => new
+                {
+                    id = p.Id,
+                    customer_code = p.CustomerCode,
+                    invoice_no = p.InvoiceNo,
+                    amount_total = p.Amount,
+                    status = p.Status
+                })
+                .ToListAsync();
+
+            return Ok(logs);
+        }
+
+        // 2. 消込完了ステータス更新 (POST)
+        [HttpPost("get_unprocessed")]
+        public async Task<IActionResult> UpdateProcessed([FromBody] ProcessedRequest req)
+        {
+            if (req.Id <= 0) return BadRequest(new { success = false, error = "Missing ID" });
+
+            var log = await _dbContext.PaymentLogs.FindAsync(req.Id);
+            if (log != null)
+            {
+                log.Status = "processed";
+                await _dbContext.SaveChangesAsync();
+                return Ok(new { success = true });
+            }
+
+            return NotFound(new { success = false, error = "Log not found" });
+        }
+    }
+
+    public class ProcessedRequest
+    {
+        [JsonPropertyName("id")]
+        public int Id { get; set; }
     }
 
     public class CreateCheckoutRequest

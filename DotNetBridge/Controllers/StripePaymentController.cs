@@ -2,7 +2,6 @@ using Microsoft.AspNetCore.Mvc;
 using Stripe;
 using Stripe.Checkout;
 using System.Text.Json.Serialization;
-using Microsoft.EntityFrameworkCore; // DB連携用
 
 namespace DotNetBridge.Controllers
 {
@@ -12,18 +11,15 @@ namespace DotNetBridge.Controllers
     {
         private readonly IConfiguration _config;
         private readonly ILogger<StripePaymentController> _logger;
-        private readonly PaymentDbContext _dbContext; // DB文脈をインジェクション
 
+        // ★ コンストラクタから PaymentDbContext を削除し、構成とロガーのみ受け取ります
         public StripePaymentController(
             IConfiguration config, 
-            ILogger<StripePaymentController> logger,
-            PaymentDbContext dbContext)
+            ILogger<StripePaymentController> logger)
         {
             _config = config;
             _logger = logger;
-            _dbContext = dbContext;
 
-            // Renderの環境変数(OS環境変数) または appsettings.json からAPIキーを取得
             var secretKey = Environment.GetEnvironmentVariable("Stripe__SecretKey") 
                             ?? Environment.GetEnvironmentVariable("STRIPE_SECRET_KEY")
                             ?? _config["Stripe:SecretKey"];
@@ -31,9 +27,7 @@ namespace DotNetBridge.Controllers
             StripeConfiguration.ApiKey = secretKey;
         }       
 
-        // ==========================================
         // 1. QRコード生成用 Checkout Session 作成 (実装済み)
-        // ==========================================
         [HttpPost("create-checkout")]
         public async Task<IActionResult> CreateCheckout([FromBody] CreateCheckoutRequest req)
         {
@@ -85,7 +79,7 @@ namespace DotNetBridge.Controllers
                 };
 
                 var service = new SessionService();
-                Session session = await service.CreateAsync(options);
+                Stripe.Checkout.Session session = await service.CreateAsync(options);
 
                 return Ok(new { url = session.Url });
             }
@@ -96,18 +90,14 @@ namespace DotNetBridge.Controllers
             }
         }
 
-        // ==========================================
-        // 2. Stripeからの Webhook 受信＆署名検証＆DB消込処理 (新規追加)
-        // ==========================================
+        // 2. Stripeからの Webhook 受信＆署名検証（DB未作成のためログ出力のみ）
         [HttpPost("webhook")]
         public async Task<IActionResult> ReceiveWebhook()
         {
-            // Render環境変数 (STRIPE_WEBHOOK_SECRET) または appsettings.json から署名シークレットを取得
             var webhookSecret = Environment.GetEnvironmentVariable("STRIPE_WEBHOOK_SECRET")
                                 ?? Environment.GetEnvironmentVariable("Stripe__WebhookSecret")
                                 ?? _config["Stripe:WebhookSecret"];
 
-            // Raw Body（生のJSON文字列）を取得
             var json = await new StreamReader(HttpContext.Request.Body).ReadToEndAsync();
             var signatureHeader = Request.Headers["Stripe-Signature"];
 
@@ -121,42 +111,20 @@ namespace DotNetBridge.Controllers
                 );
 
                 // ② 決済完了（checkout.session.completed）の場合
-                if (stripeEvent.Type == Events.CheckoutSessionCompleted)
+                if (stripeEvent.Type == Stripe.Events.CheckoutSessionCompleted)
                 {
-                    var session = stripeEvent.Data.Object as Session;
+                    var session = stripeEvent.Data.Object as Stripe.Checkout.Session;
 
                     if (session != null)
                     {
-                        // 二重処理防止チェック
-                        var existingLog = await _dbContext.PaymentLogs
-                            .FirstOrDefaultAsync(p => p.StripeSessionId == session.Id);
+                        var invoiceNo = session.Metadata?.GetValueOrDefault("invoice_no") ?? "未指定";
+                        var customerCode = session.Metadata?.GetValueOrDefault("customer_code") ?? "未指定";
 
-                        if (existingLog == null)
-                        {
-                            // Metadataから伝票番号・顧客コードを抽出
-                            var invoiceNo = session.Metadata?.GetValueOrDefault("invoice_no") ?? "未指定";
-                            var customerCode = session.Metadata?.GetValueOrDefault("customer_code") ?? "未指定";
-
-                            // ③ PaymentDbContext へ決済ログ保存（消込処理）
-                            var paymentLog = new PaymentLog
-                            {
-                                InvoiceNo = invoiceNo,
-                                CustomerCode = customerCode,
-                                Amount = session.AmountTotal ?? 0,
-                                StripeSessionId = session.Id,
-                                Status = "PAID",
-                                PaidAt = DateTime.UtcNow
-                            };
-
-                            _dbContext.PaymentLogs.Add(paymentLog);
-                            await _dbContext.SaveChangesAsync();
-
-                            _logger.LogInformation($"[Stripe Webhook] 決済成功＆DB保存完了: 伝票No={invoiceNo}, 顧客コード={customerCode}");
-                        }
+                        // 受信成功ログを出力
+                        _logger.LogInformation($"[Stripe Webhook成功] 伝票No: {invoiceNo}, 顧客コード: {customerCode}, 金額: {session.AmountTotal}円");
                     }
                 }
 
-                // Stripeへ成功レスポンスを返答
                 return Ok();
             }
             catch (StripeException ex)

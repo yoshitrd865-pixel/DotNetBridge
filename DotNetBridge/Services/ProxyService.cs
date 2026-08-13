@@ -28,13 +28,18 @@ namespace DotNetBridge.Services
                 path = "login.html";
             }
 
-            // パス先頭の重複（mobile60_ToubuF/ や Mobile60/ など）を確実に削る
+            // パス先頭の重複パターン（EcoToubuF3/ や mobile60_ToubuF/ や Mobile60/）をすべて綺麗に除去
+            while (path.StartsWith("EcoToubuF3/", StringComparison.OrdinalIgnoreCase) ||
+                    path.StartsWith("mobile60_ToubuF/", StringComparison.OrdinalIgnoreCase) ||
+                    path.StartsWith("Mobile60/", StringComparison.OrdinalIgnoreCase))
+            {
+            if (path.StartsWith("EcoToubuF3/", StringComparison.OrdinalIgnoreCase))
+                path = path.Substring("EcoToubuF3/".Length);
+
             if (path.StartsWith("mobile60_ToubuF/", StringComparison.OrdinalIgnoreCase))
-            {
                 path = path.Substring("mobile60_ToubuF/".Length);
-            }
+
             if (path.StartsWith("Mobile60/", StringComparison.OrdinalIgnoreCase))
-            {
                 path = path.Substring("Mobile60/".Length);
             }
 

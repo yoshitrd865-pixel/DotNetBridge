@@ -28,6 +28,12 @@ namespace DotNetBridge.Services
                 path = "login.html";
             }
 
+            // パス先頭の重複（mobile60_ToubuF/ または Mobile60/）を正規化して画像の404エラーを防止
+            if (path.StartsWith("mobile60_ToubuF/", StringComparison.OrdinalIgnoreCase))
+            {
+                path = path.Substring("mobile60_ToubuF/".Length);
+            }
+
             var targetUri = TargetBase + path + context.Request.QueryString.Value;
 
             using var client = _httpClientFactory.CreateClient("NoRedirectClient");
@@ -118,7 +124,7 @@ namespace DotNetBridge.Services
                 context.Response.Headers[key] = header.Value.ToArray();
             }
 
-            // --- 5. レスポンス処理 (画面ごとの判定を廃止した極小Pass-through) ---
+            // --- 5. レスポンス処理 (極小Pass-through) ---
             var contentType = upstreamResponse.Content.Headers.ContentType?.ToString() ?? string.Empty;
 
             // json_ や .asp のAPI類は一切触らずそのままバイナリストリーム転送
@@ -135,7 +141,12 @@ namespace DotNetBridge.Services
 
                 var htmlContent = encoding.GetString(rawBytes);
 
-                // JSタグの挿入のみ実施
+                // 画像等の旧ドメイン（hhc-eco1.com）を現行ドメイン（hhc-eco11.com）へ置換
+                htmlContent = htmlContent.Replace("https://hhc-eco1.com", "https://hhc-eco11.com")
+                                         .Replace("http://hhc-eco1.com", "https://hhc-eco11.com")
+                                         .Replace("//hhc-eco1.com", "//hhc-eco11.com");
+
+                // JSタグの挿入
                 var scriptTag = "<script type=\"module\" src=\"/js/custom-inject.js\"></script>";
                 if (htmlContent.Contains("</body>", StringComparison.OrdinalIgnoreCase))
                 {

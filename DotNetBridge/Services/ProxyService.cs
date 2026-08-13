@@ -25,7 +25,7 @@ namespace DotNetBridge.Services
 
             if (string.IsNullOrEmpty(path))
             {
-            path = "login.html";
+                path = "login.html";
             }
 
             var targetUri = TargetBase + path + context.Request.QueryString.Value;
@@ -33,7 +33,7 @@ namespace DotNetBridge.Services
             using var client = _httpClientFactory.CreateClient("NoRedirectClient");
             using var upstreamRequest = new HttpRequestMessage(new HttpMethod(context.Request.Method), targetUri);
 
-            // --- 1. リクエストヘッダー転送 ---
+            // --- 1. リクエストヘッダー転送 (無加工) ---
             foreach (var header in context.Request.Headers)
             {
                 var key = header.Key;
@@ -42,12 +42,6 @@ namespace DotNetBridge.Services
                 if (key.Equals("Accept-Encoding", StringComparison.OrdinalIgnoreCase)) continue;
                 if (key.StartsWith(":", StringComparison.Ordinal)) continue;
                 if (key.Equals("Content-Type", StringComparison.OrdinalIgnoreCase)) continue;
-
-                if (key.Equals("Cookie", StringComparison.OrdinalIgnoreCase))
-                {
-                    upstreamRequest.Headers.TryAddWithoutValidation(key, header.Value.ToArray());
-                    continue;
-                }
 
                 if (key.Equals("Referer", StringComparison.OrdinalIgnoreCase) ||
                     key.Equals("Origin", StringComparison.OrdinalIgnoreCase))
@@ -66,7 +60,7 @@ namespace DotNetBridge.Services
                 upstreamRequest.Headers.TryAddWithoutValidation(key, header.Value.ToArray());
             }
 
-            // --- 2. リクエストボディ転送 ---
+            // --- 2. リクエストボディ転送 (生バイナリ無加工) ---
             if (HttpMethods.IsPost(context.Request.Method) ||
                 HttpMethods.IsPut(context.Request.Method) ||
                 HttpMethods.IsPatch(context.Request.Method))
@@ -83,7 +77,7 @@ namespace DotNetBridge.Services
                 upstreamRequest.Content = streamContent;
             }
 
-            // --- 3. アップストリーム通信実行 ---
+            // --- 3. 通信実行 ---
             HttpResponseMessage upstreamResponse;
             try
             {
@@ -104,9 +98,12 @@ namespace DotNetBridge.Services
 
                 if (key.Equals("Set-Cookie", StringComparison.OrdinalIgnoreCase))
                 {
+                    // クッキーのDomainとPath制限を解除してすべてのリクエストで送信可能にする
                     var modifiedCookies = header.Value.Select(cookie =>
-                        Regex.Replace(cookie, @"Domain=[^;]+;", string.Empty, RegexOptions.IgnoreCase)
-                    ).ToArray();
+                    {
+                        var c = Regex.Replace(cookie, @"Domain=[^;]+;?", string.Empty, RegexOptions.IgnoreCase);
+                        return Regex.Replace(c, @"Path=[^;]+;?", "Path=/;", RegexOptions.IgnoreCase);
+                    }).ToArray();
                     context.Response.Headers[key] = modifiedCookies;
                     continue;
                 }
@@ -121,17 +118,16 @@ namespace DotNetBridge.Services
                 context.Response.Headers[key] = header.Value.ToArray();
             }
 
-            // --- 5. レスポンスボディ転送（Shift_JIS置換） ---
+            // --- 5. レスポンス処理 (画面ごとの判定を廃止した極小Pass-through) ---
             var contentType = upstreamResponse.Content.Headers.ContentType?.ToString() ?? string.Empty;
 
-            // json_ で始まるAPI（JSONP等）を判定して書き換え対象外にする
-            var isJsonApi = path.Contains("json_", StringComparison.OrdinalIgnoreCase) || 
-                 contentType.Contains("json", StringComparison.OrdinalIgnoreCase) ||
-                 contentType.Contains("javascript", StringComparison.OrdinalIgnoreCase);
+            // json_ や .asp のAPI類は一切触らずそのままバイナリストリーム転送
+            bool isHtml = contentType.Contains("text/html", StringComparison.OrdinalIgnoreCase);
+            bool isApiCall = path.Contains("json_", StringComparison.OrdinalIgnoreCase);
 
-            if (contentType.Contains("text/html", StringComparison.OrdinalIgnoreCase) && !isJsonApi)
-{
-    var rawBytes = await upstreamResponse.Content.ReadAsByteArrayAsync();
+            if (isHtml && !isApiCall)
+            {
+                var rawBytes = await upstreamResponse.Content.ReadAsByteArrayAsync();
                 
                 Encoding encoding;
                 try { encoding = Encoding.GetEncoding(932); }
@@ -139,11 +135,7 @@ namespace DotNetBridge.Services
 
                 var htmlContent = encoding.GetString(rawBytes);
 
-                htmlContent = htmlContent.Replace("https://hhc-eco1.com", "https://hhc-eco11.com")
-                                         .Replace("http://hhc-eco1.com", "https://hhc-eco11.com")
-                                         .Replace("//hhc-eco1.com", "//hhc-eco11.com");
-
-                                         // ★ ここに追加！ (窓口JSを1本だけ注入)
+                // JSタグの挿入のみ実施
                 var scriptTag = "<script type=\"module\" src=\"/js/custom-inject.js\"></script>";
                 if (htmlContent.Contains("</body>", StringComparison.OrdinalIgnoreCase))
                 {
@@ -156,11 +148,11 @@ namespace DotNetBridge.Services
 
                 var modifiedBytes = encoding.GetBytes(htmlContent);
                 context.Response.ContentLength = modifiedBytes.Length;
-
                 await context.Response.Body.WriteAsync(modifiedBytes, 0, modifiedBytes.Length);
             }
             else
             {
+                // APIや画像などは生データを完全無加工でスルー
                 await upstreamResponse.Content.CopyToAsync(context.Response.Body);
             }
         }

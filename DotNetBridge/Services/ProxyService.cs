@@ -28,10 +28,14 @@ namespace DotNetBridge.Services
                 path = "login.html";
             }
 
-            // パス先頭の重複（mobile60_ToubuF/ または Mobile60/）を正規化して画像の404エラーを防止
+            // パス先頭の重複（mobile60_ToubuF/ や Mobile60/ など）を確実に削る
             if (path.StartsWith("mobile60_ToubuF/", StringComparison.OrdinalIgnoreCase))
             {
                 path = path.Substring("mobile60_ToubuF/".Length);
+            }
+            if (path.StartsWith("Mobile60/", StringComparison.OrdinalIgnoreCase))
+            {
+                path = path.Substring("Mobile60/".Length);
             }
 
             var targetUri = TargetBase + path + context.Request.QueryString.Value;

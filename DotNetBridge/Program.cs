@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.EntityFrameworkCore;
 using DotNetBridge.Services;
-using DotNetBridge.Data; // DB文幕用
+using DotNetBridge.Data;
 
 System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
 
@@ -26,7 +26,7 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         options.Cookie.HttpOnly = true;
     });
 
-// ★ ここに1行追加 (Render の PORT 環境変数を読み込む)
+// Render の PORT 環境変数を読み込む
 builder.WebHost.UseUrls($"http://*:{Environment.GetEnvironmentVariable("PORT") ?? "8080"}");
 
 // SQLite の接続設定
@@ -45,10 +45,10 @@ using (var scope = app.Services.CreateScope())
 }
 
 app.UseStaticFiles(); // wwwroot配下の配信を許可
-app.UseStaticFiles();
 app.UseRouting();
 app.UseAuthentication();
 app.UseAuthorization();
+
 // 1. AccountController（ログイン画面）のルーティング
 app.MapControllerRoute(
     name: "default",
@@ -60,9 +60,10 @@ app.Use(async (context, next) =>
 {
     var path = context.Request.Path;
 
-    // ★ Account 宛て、または /api 宛てのリクエストは MVC / API コントローラー側へ流す
+    // ★ /admin を追加してプロキシ処理を回避させます
     if (path.StartsWithSegments("/Account", StringComparison.OrdinalIgnoreCase) ||
-        path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase))
+        path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase) ||
+        path.StartsWithSegments("/admin", StringComparison.OrdinalIgnoreCase))
     {
         await next();
         return;

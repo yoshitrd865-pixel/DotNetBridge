@@ -28,20 +28,26 @@ namespace DotNetBridge.Services
                 path = "login.html";
             }
 
-            // パス先頭の重複パターン（EcoToubuF3/ や mobile60_ToubuF/ や Mobile60/）をすべて綺麗に除去
-            while (path.StartsWith("EcoToubuF3/", StringComparison.OrdinalIgnoreCase) ||
-                    path.StartsWith("mobile60_ToubuF/", StringComparison.OrdinalIgnoreCase) ||
-                    path.StartsWith("Mobile60/", StringComparison.OrdinalIgnoreCase))
+            // --- パス正規化ロジック ---
+            // リクエストパスから不要な先頭プレフィックス（EcoToubuF3/, mobile60_ToubuF/, Mobile60/ 等）をすべて削る
+            while (true)
             {
-            if (path.StartsWith("EcoToubuF3/", StringComparison.OrdinalIgnoreCase))
-                path = path.Substring("EcoToubuF3/".Length);
+                var prevPath = path;
+                if (path.StartsWith("EcoToubuF3/", StringComparison.OrdinalIgnoreCase))
+                    path = path.Substring("EcoToubuF3/".Length);
 
-            if (path.StartsWith("mobile60_ToubuF/", StringComparison.OrdinalIgnoreCase))
-                path = path.Substring("mobile60_ToubuF/".Length);
+                if (path.StartsWith("mobile60_ToubuF/", StringComparison.OrdinalIgnoreCase))
+                    path = path.Substring("mobile60_ToubuF/".Length);
 
-            if (path.StartsWith("Mobile60/", StringComparison.OrdinalIgnoreCase))
-                path = path.Substring("Mobile60/".Length);
+                if (path.StartsWith("Mobile60/", StringComparison.OrdinalIgnoreCase))
+                    path = path.Substring("Mobile60/".Length);
+
+                // 変化がなくなったらループ抜ける
+                if (path == prevPath) break;
             }
+
+            // 万が一パスの中に二重で /mobile60_ToubuF/ や /Mobile60/ が含まれている場合の緊急補正
+            path = Regex.Replace(path, @"(?i)(mobile60_ToubuF/|Mobile60/|EcoToubuF3/)+", "");
 
             var targetUri = TargetBase + path + context.Request.QueryString.Value;
 

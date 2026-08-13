@@ -12,7 +12,6 @@ namespace DotNetBridge.Controllers
         private readonly IConfiguration _config;
         private readonly ILogger<StripePaymentController> _logger;
 
-        // ★ コンストラクタから PaymentDbContext を削除し、構成とロガーのみ受け取ります
         public StripePaymentController(
             IConfiguration config, 
             ILogger<StripePaymentController> logger)
@@ -79,7 +78,7 @@ namespace DotNetBridge.Controllers
                 };
 
                 var service = new SessionService();
-                Stripe.Checkout.Session session = await service.CreateAsync(options);
+                Session session = await service.CreateAsync(options);
 
                 return Ok(new { url = session.Url });
             }
@@ -90,7 +89,7 @@ namespace DotNetBridge.Controllers
             }
         }
 
-        // 2. Stripeからの Webhook 受信＆署名検証（DB未作成のためログ出力のみ）
+        // 2. Stripeからの Webhook 受信＆署名検証（ログ確認版）
         [HttpPost("webhook")]
         public async Task<IActionResult> ReceiveWebhook()
         {
@@ -111,9 +110,10 @@ namespace DotNetBridge.Controllers
                 );
 
                 // ② 決済完了（checkout.session.completed）の場合
-                if (stripeEvent.Type == Stripe.Events.CheckoutSessionCompleted)
+                // ★ Events.CheckoutSessionCompleted と記述します
+                if (stripeEvent.Type == Events.CheckoutSessionCompleted)
                 {
-                    var session = stripeEvent.Data.Object as Stripe.Checkout.Session;
+                    var session = stripeEvent.Data.Object as Session;
 
                     if (session != null)
                     {

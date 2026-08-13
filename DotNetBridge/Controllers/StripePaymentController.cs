@@ -9,7 +9,7 @@ namespace DotNetBridge.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    public class StripePaymentController : ControllerBase
+    public class StripePaymentController : Controller
     {
         private readonly IConfiguration _config;
         private readonly ILogger<StripePaymentController> _logger;

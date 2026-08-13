@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.EntityFrameworkCore;
 using DotNetBridge.Services;
+using DotNetBridge.Data; // DB文幕用
 
 System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
 
@@ -33,7 +35,6 @@ builder.Services.AddDbContext<PaymentDbContext>(options =>
 
 builder.Services.AddControllers();
 
-var app = builder.Build();
 
 // 起動時に DB テーブルが存在しなければ自動生成
 using (var scope = app.Services.CreateScope())

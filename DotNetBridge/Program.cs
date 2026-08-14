@@ -16,7 +16,6 @@ var builder = WebApplication.CreateBuilder(new WebApplicationOptions
     Args = args
 });
 
-// reloadOnChange: false にしてファイル監視(inotify)を停止
 builder.Configuration.Sources.Clear();
 builder.Configuration.AddJsonFile("appsettings.json", optional: true, reloadOnChange: false);
 builder.Configuration.AddJsonFile($"appsettings.{builder.Environment.EnvironmentName}.json", optional: true, reloadOnChange: false);
@@ -98,11 +97,12 @@ app.MapControllerRoute(
     pattern: "Account/{action=Login}/{id?}",
     defaults: new { controller = "Account" });
 
-// 2. リバースプロキシ用ミドルウェア
+// ★ リバースプロキシ用ミドルウェア（絶対防衛ガード）
 app.Use(async (context, next) =>
 {
     var path = context.Request.Path;
 
+    // DotNetBridge 独自の認証・管理パスはプロキシを通さない
     if (path.StartsWithSegments("/Account", StringComparison.OrdinalIgnoreCase) ||
         path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase) ||
         path.StartsWithSegments("/admin", StringComparison.OrdinalIgnoreCase) ||
@@ -114,6 +114,7 @@ app.Use(async (context, next) =>
         return;
     }
 
+    // ガード1: Google 未認証ならログイン画面へ
     if (context.User.Identity?.IsAuthenticated != true)
     {
         context.Response.Redirect("/Account/Login");
@@ -129,6 +130,7 @@ app.Use(async (context, next) =>
         var accountDb = context.RequestServices.GetRequiredService<AccountDbContext>();
         var credential = await accountDb.UserLegacyCredentials.FindAsync(googleEmail);
 
+        // ガード2: 紐付けデータ未登録なら LinkAccount へ
         if (credential == null)
         {
             context.Response.Redirect("/Account/LinkAccount");
@@ -138,12 +140,11 @@ app.Use(async (context, next) =>
         var legacyAuthService = context.RequestServices.GetRequiredService<LegacyAuthService>();
         var legacyCookie = await legacyAuthService.GetLegacySessionCookieAsync(googleEmail);
 
+        // ガード3: 代理ログインで有効なCookie（PersonCode）が取れた時だけ通過許可！
         if (!string.IsNullOrEmpty(legacyCookie))
         {
             context.Items["LegacyCookie"] = legacyCookie;
 
-            // ★★★ 決定的な修正ポイント ★★★
-            // 代理ログインで得た Cookie (PersonCode=1等) を、ブラウザの JS (document.cookie) でも読めるようにレスポンス発行する！
             var cookieParts = legacyCookie.Split(';');
             foreach (var part in cookieParts)
             {
@@ -157,12 +158,20 @@ app.Use(async (context, next) =>
                         context.Response.Cookies.Append(cName, cVal, new CookieOptions
                         {
                             Path = "/",
-                            HttpOnly = false, // JSが document.cookie で読み取れるように false に設定！
+                            HttpOnly = false,
                             SameSite = SameSiteMode.Lax
                         });
                     }
                 }
             }
+        }
+        else
+        {
+            // ★★★ 鉄壁ガード ★★★
+            // ID/PWが間違っていて代理ログイン Cookie が取れない場合は、
+            // エコマスター側の全ページ・全APIへのアクセスを一切許さず即リダイレクト！
+            context.Response.Redirect("/Account/LinkAccount");
+            return;
         }
     }
 

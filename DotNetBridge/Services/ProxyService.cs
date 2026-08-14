@@ -83,11 +83,16 @@ namespace DotNetBridge.Services
                 upstreamRequest.Headers.TryAddWithoutValidation(key, header.Value.ToArray());
             }
 
-            // ★ 代理ログイン等で取得した EcoMaster 用 Cookie が存在すれば優先セット
+            // ★★★ 修正: ブラウザの既存Cookieと代理ログインCookieを合成して両方生かす ★★★
+            var clientCookies = context.Request.Headers["Cookie"].ToString();
             if (context.Items.TryGetValue("LegacyCookie", out var cookieObj) && cookieObj is string legacyCookie)
             {
+                var mergedCookie = string.IsNullOrEmpty(clientCookies) 
+                    ? legacyCookie 
+                    : $"{clientCookies}; {legacyCookie}";
+
                 upstreamRequest.Headers.Remove("Cookie");
-                upstreamRequest.Headers.TryAddWithoutValidation("Cookie", legacyCookie);
+                upstreamRequest.Headers.TryAddWithoutValidation("Cookie", mergedCookie);
             }
 
             // --- 2. リクエストボディ転送 ---

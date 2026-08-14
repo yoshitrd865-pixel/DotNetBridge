@@ -61,6 +61,9 @@ builder.WebHost.UseUrls($"http://*:{Environment.GetEnvironmentVariable("PORT") ?
 builder.Services.AddDbContext<PaymentDbContext>(options =>
     options.UseSqlite("Data Source=payment.db"));
 
+builder.Services.AddDbContext<AccountDbContext>(options =>
+    options.UseSqlite("Data Source=account.db"));
+
 var app = builder.Build();
 
 // ★ 追加：Renderなどのプロキシ環境下で https を正しく認識させる設定
@@ -74,11 +77,14 @@ forwardedHeadersOptions.KnownProxies.Clear();
 
 app.UseForwardedHeaders(forwardedHeadersOptions);
 
-// 起動時に DB テーブルが存在しなければ自動生成
+// 起動時に DB テーブルが存在しなければ自動生成 ( payment.db / account.db )
 using (var scope = app.Services.CreateScope())
 {
-    var db = scope.ServiceProvider.GetRequiredService<PaymentDbContext>();
-    db.Database.EnsureCreated();
+    var paymentDb = scope.ServiceProvider.GetRequiredService<PaymentDbContext>();
+    paymentDb.Database.EnsureCreated();
+
+    var accountDb = scope.ServiceProvider.GetRequiredService<AccountDbContext>();
+    accountDb.Database.EnsureCreated(); // ★ account.db を自動作成
 }
 
 app.UseStaticFiles(); // wwwroot配下の配信を許可

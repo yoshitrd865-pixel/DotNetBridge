@@ -3,13 +3,26 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authentication.Cookies;
-using Microsoft.AspNetCore.Authentication.Google; // ★ Google認証用に追加
+using Microsoft.AspNetCore.Authentication.Google;
+using Microsoft.AspNetCore.DataProtection; // ★追加
+using DotNetBridge.Data; // ★追加
 
 namespace DotNetBridge.Controllers
 {
     [AllowAnonymous]
     public class AccountController : Controller
     {
+        private readonly AccountDbContext _accountDb; // ★追加
+        private readonly IDataProtector _protector;    // ★追加
+
+        // DIコンストラクタ
+        public AccountController(AccountDbContext accountDb, IDataProtectionProvider provider)
+        {
+            _accountDb = accountDb;
+            // 復号可能な暗号化プロテクター（用途識別子を指定）
+            _protector = provider.CreateProtector("DotNetBridge.LegacyCredentials");
+        }
+
         [HttpGet]
         public IActionResult Login()
         {
@@ -44,37 +57,94 @@ namespace DotNetBridge.Controllers
             return View();
         }
 
-        // ★ 1. 「Googleでログイン」ボタンが押された時の処理
         [HttpGet]
         public IActionResult GoogleLogin()
         {
             var properties = new AuthenticationProperties
             {
-                // 認証成功後に戻ってくるアクション（GoogleResponse）を指定
                 RedirectUri = Url.Action("GoogleResponse")
             };
-
-            // ★ 追加: Google側に「アカウント選択または生体認証による再確認」を促す
             properties.Items["prompt"] = "select_account";
 
-            // Googleのログイン画面へリダイレクト（チャレンジ）
             return Challenge(properties, GoogleDefaults.AuthenticationScheme);
         }
 
-        // ★ 2. Google側の認証完了後に戻ってくる場所
+        // ★ 変更: Google認証レスポンス処理で紐付けチェックを入れる
         [HttpGet]
         public async Task<IActionResult> GoogleResponse()
         {
-            // Cookie認証の結果を取得して成功したか確認
             var result = await HttpContext.AuthenticateAsync(CookieAuthenticationDefaults.AuthenticationScheme);
             
             if (!result.Succeeded)
             {
-                // 認証失敗した場合は再度ログイン画面へ
                 return RedirectToAction("Login");
             }
 
-            // 成功したらトップページ（プロキシ画面等）へ転送
+            // Googleから取得したメールアドレスを取得
+            var googleEmail = User.FindFirstValue(ClaimTypes.Email);
+
+            if (string.IsNullOrEmpty(googleEmail))
+            {
+                // メールアドレスが取れなかった場合はエラー扱い
+                await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+                ViewBag.Error = "Googleアカウントからメールアドレスを取得できませんでした。";
+                return View("Login");
+            }
+
+            // account.db に連携データが存在するか確認
+            var credential = await _accountDb.UserLegacyCredentials.FindAsync(googleEmail);
+
+            if (credential == null)
+            {
+                // 未連携なら紐付け入力画面へ
+                return RedirectToAction("LinkAccount");
+            }
+
+            // 連携済みならトップページへ
+            return Redirect("/");
+        }
+
+        // ★ 追加: アカウント紐付け画面（GET）
+        [Authorize] // Googleログイン完了済みのユーザーのみアクセス可
+        [HttpGet]
+        public IActionResult LinkAccount()
+        {
+            return View();
+        }
+
+        // ★ 追加: アカウント紐付け処理（POST）
+        [Authorize]
+        [HttpPost]
+        public async Task<IActionResult> LinkAccount(string legacyUserId, string legacyPassword)
+        {
+            var googleEmail = User.FindFirstValue(ClaimTypes.Email);
+
+            if (string.IsNullOrEmpty(googleEmail))
+            {
+                return RedirectToAction("Login");
+            }
+
+            if (string.IsNullOrWhiteSpace(legacyUserId) || string.IsNullOrWhiteSpace(legacyPassword))
+            {
+                ViewBag.Error = "IDとパスワードの両方を入力してください。";
+                return View();
+            }
+
+            // パスワードを可逆暗号化
+            var encryptedPassword = _protector.Protect(legacyPassword);
+
+            var credential = new UserLegacyCredential
+            {
+                GoogleEmail = googleEmail,
+                LegacyUserId = legacyUserId,
+                EncryptedLegacyPassword = encryptedPassword,
+                UpdatedAt = DateTime.UtcNow
+            };
+
+            _accountDb.UserLegacyCredentials.Add(credential);
+            await _accountDb.SaveChangesAsync();
+
+            // 登録完了後トップへ
             return Redirect("/");
         }
 

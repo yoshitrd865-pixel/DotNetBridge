@@ -58,6 +58,17 @@ builder.Services.AddDbContext<PaymentDbContext>(options =>
 
 var app = builder.Build();
 
+// ★ 追加：Renderなどのプロキシ環境下で https を正しく認識させる設定
+var forwardedHeadersOptions = new ForwardedHeadersOptions
+{
+    ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto
+};
+// Renderからのプロキシヘッダーを無条件で信頼する設定
+forwardedHeadersOptions.KnownNetworks.Clear();
+forwardedHeadersOptions.KnownProxies.Clear();
+
+app.UseForwardedHeaders(forwardedHeadersOptions);
+
 // 起動時に DB テーブルが存在しなければ自動生成
 using (var scope = app.Services.CreateScope())
 {

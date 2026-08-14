@@ -41,9 +41,16 @@ export function initAutoLogin() {
             console.error("[AutoLogin] エラー:", e);
         }
     } 
+    // wwwroot/js/modules/auto-login.js の一部
+
+// ...（前半省略）...
+
     // 💾 記憶モード：データがなければ送信イベントをフック
     else {
-        const saveCredentials = () => {
+        const handleSaveAndSubmit = (e) => {
+            // 一旦フォームのデフォルト送信を完全にストップする！
+            e.preventDefault();
+
             const inputs = form.querySelectorAll('input[type="text"], input[type="number"], input[type="email"], input[type="password"]');
             const data = {};
 
@@ -54,17 +61,18 @@ export function initAutoLogin() {
             });
 
             if (Object.keys(data).length > 0) {
+                // 確認ダイアログを表示
                 if (confirm('🔒 このログイン情報を端末に記憶して、次回から自動でログインしますか？')) {
                     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
                 }
             }
+
+            // 保存処理完了後、本来のフォーム送信を実行！
+            form.submit();
         };
 
-        const submitBtn = form.querySelector('input[type="submit"], button[type="submit"], input[value*="ログイン"], input[value*="ﾛｸﾞｲﾝ"], a[href*="login"]');
-        if (submitBtn) {
-            submitBtn.addEventListener('click', saveCredentials);
-        }
-        form.addEventListener('submit', saveCredentials);
+        // フォームの submit イベントを捕捉
+        form.addEventListener('submit', handleSaveAndSubmit);
     }
 }
 

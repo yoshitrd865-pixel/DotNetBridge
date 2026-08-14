@@ -25,7 +25,7 @@ namespace DotNetBridge.Services
 
             if (string.IsNullOrEmpty(path))
             {
-                path = "menu.asp"; // ★ ログイン成功後の初期画面である menu.asp に変更！
+                path = "menu.asp"; // ★ ログイン成功後の初期画面である menu.asp
             }
 
             // --- パス正規化ロジック ---
@@ -87,7 +87,7 @@ namespace DotNetBridge.Services
                 upstreamRequest.Headers.TryAddWithoutValidation(key, header.Value.ToArray());
             }
 
-            // ★★★ 追加: 代理ログインで取得した EcoMaster 用 Cookie が存在すれば優先セット ★★★
+            // ★★★ 代理ログインで取得した EcoMaster 用 Cookie が存在すれば優先セット ★★★
             if (context.Items.TryGetValue("LegacyCookie", out var cookieObj) && cookieObj is string legacyCookie)
             {
                 // 既存の Cookie ヘッダーを上書き/追記
@@ -156,16 +156,19 @@ namespace DotNetBridge.Services
             // --- 5. レスポンス処理 (極小Pass-through) ---
             var contentType = upstreamResponse.Content.Headers.ContentType?.ToString() ?? string.Empty;
 
-            // json_ や .asp のAPI類は一切触らずそのままバイナリストリーム転送
             bool isHtml = contentType.Contains("text/html", StringComparison.OrdinalIgnoreCase);
-            bool isApiCall = path.Contains("json_", StringComparison.OrdinalIgnoreCase);
+            
+            // ★ 強化修正: json_ を含むAPI、または json で始まるファイル通信は 100% 完全スルー対象にする
+            bool isJsonApi = path.Contains("json_", StringComparison.OrdinalIgnoreCase) || 
+                             path.StartsWith("json", StringComparison.OrdinalIgnoreCase);
 
-            if (isHtml && !isApiCall)
+            // HTML かつ API通信 ではない純粋な画面表示時のみ HTML 改変（JS注入）を行う
+            if (isHtml && !isJsonApi)
             {
                 var rawBytes = await upstreamResponse.Content.ReadAsByteArrayAsync();
                 
                 Encoding encoding;
-                try { encoding = Encoding.GetEncoding(932); }
+                try { encoding = Encoding.GetEncoding(932); } // Shift-JIS (CP932)
                 catch { encoding = Encoding.UTF8; }
 
                 var htmlContent = encoding.GetString(rawBytes);
@@ -192,7 +195,7 @@ namespace DotNetBridge.Services
             }
             else
             {
-                // APIや画像などは生データを完全無加工でスルー
+                // ★ API通信 (json_listCheck.asp 等) や画像・JSアセットなどは完全無加工で生ストリーム転送！
                 await upstreamResponse.Content.CopyToAsync(context.Response.Body);
             }
         }

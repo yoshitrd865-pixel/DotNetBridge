@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.Google; // ★ Google認証用に追加
+using Microsoft.AspNetCore.DataProtection; // ★ 先頭に追加
 using Microsoft.EntityFrameworkCore;
 using DotNetBridge.Services;
 using DotNetBridge.Data;
@@ -19,6 +20,10 @@ builder.Configuration.Sources.Clear();
 builder.Configuration.AddJsonFile("appsettings.json", optional: true, reloadOnChange: false);
 builder.Configuration.AddJsonFile($"appsettings.{builder.Environment.EnvironmentName}.json", optional: true, reloadOnChange: false);
 builder.Configuration.AddEnvironmentVariables();
+
+// --- 暗号キーの保存先を永続化（再デプロイしてもログイン状態を維持） ---
+builder.Services.AddDataProtection()
+    .PersistKeysToFileSystem(new DirectoryInfo(@"./keys"));
 
 builder.Services.AddControllersWithViews();
 builder.Services.AddScoped<ProxyService>();

@@ -8,20 +8,16 @@ namespace DotNetBridge.Services
     {
         private readonly AccountDbContext _accountDb;
         private readonly IDataProtector _protector;
-        private readonly IHttpClientFactory _httpClientFactory;
 
         // EcoMaster のログイン処理 URL
         private const string LoginUrl = "https://hhc-eco11.com/EcoToubuF3/mobile60_ToubuF/login.asp";
-        private const string BaseDomainUri = "https://hhc-eco11.com";
 
         public LegacyAuthService(
             AccountDbContext accountDb, 
-            IDataProtectionProvider provider,
-            IHttpClientFactory httpClientFactory)
+            IDataProtectionProvider provider)
         {
             _accountDb = accountDb;
             _protector = provider.CreateProtector("DotNetBridge.LegacyCredentials");
-            _httpClientFactory = httpClientFactory;
         }
 
         public async Task<string?> GetLegacySessionCookieAsync(string googleEmail)
@@ -46,41 +42,51 @@ namespace DotNetBridge.Services
             using var handler = new HttpClientHandler
             {
                 CookieContainer = cookieContainer,
-                AllowAutoRedirect = true // ★ リダイレクト追従を許可してセッションCookieを確実に確定させる
+                AllowAutoRedirect = false // リダイレクトさせずに 302 レスポンス時の Set-Cookie を直接奪取する
             };
             using var client = new HttpClient(handler);
 
-            // POSTフォームデータ (ボタン押下パラメータも追加)
+            // スクショで確認した正確なパラメータ (txtUserID, txtPassword)
             var content = new FormUrlEncodedContent(new[]
             {
                 new KeyValuePair<string, string>("txtUserID", credential.LegacyUserId),
-                new KeyValuePair<string, string>("txtPassword", rawPassword),
-                new KeyValuePair<string, string>("btnLogin", "ログイン") // ★ 追加
+                new KeyValuePair<string, string>("txtPassword", rawPassword)
             });
 
             try
             {
                 var response = await client.PostAsync(LoginUrl, content);
 
-                // 4. 発行された Cookie をドメイン全体から取得
-                var baseUri = new Uri(BaseDomainUri);
-                var loginUri = new Uri(LoginUrl);
+                // 4. レスポンスヘッダーから Set-Cookie を直接すべて抽出（PersonCode, SessionMobile等）
+                if (response.Headers.TryGetValues("Set-Cookie", out var rawSetCookies))
+                {
+                    var cookiePairs = new List<string>();
+                    foreach (var setCookie in rawSetCookies)
+                    {
+                        // "SessionMobile=z1I12mT; Path=/; ..." から "SessionMobile=z1I12mT" だけを取り出す
+                        var mainPart = setCookie.Split(';')[0].Trim();
+                        if (!string.IsNullOrEmpty(mainPart))
+                        {
+                            cookiePairs.Add(mainPart);
+                        }
+                    }
 
-                var cookies = cookieContainer.GetCookies(baseUri);
-                var loginCookies = cookieContainer.GetCookies(loginUri);
+                    if (cookiePairs.Count > 0)
+                    {
+                        // "PersonCode=1; SessionMobile=z1I12mT; PersonHistoryCode=1" の形式に組み立て
+                        return string.Join("; ", cookiePairs);
+                    }
+                }
 
-                // 両方のCookieをマージ
-                var allCookies = cookies.Cast<Cookie>()
-                    .Concat(loginCookies.Cast<Cookie>())
-                    .GroupBy(c => c.Name)
-                    .Select(g => g.First())
-                    .ToList();
+                // ヘッダー直接取得で万が一漏れた場合、CookieContainer からも補完
+                var uri = new Uri(LoginUrl);
+                var cookies = cookieContainer.GetCookies(uri);
+                if (cookies.Count > 0)
+                {
+                    return string.Join("; ", cookies.Cast<Cookie>().Select(c => $"{c.Name}={c.Value}"));
+                }
 
-                if (allCookies.Count == 0) return null;
-
-                // Cookieヘッダー文字列を生成
-                var cookieHeader = string.Join("; ", allCookies.Select(c => $"{c.Name}={c.Value}"));
-                return cookieHeader;
+                return null;
             }
             catch
             {

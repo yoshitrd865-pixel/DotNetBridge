@@ -25,7 +25,7 @@ namespace DotNetBridge.Services
 
             if (string.IsNullOrEmpty(path))
             {
-                path = "login.html";
+                path = "menu.asp"; // ★ ログイン成功後の初期画面である menu.asp に変更！
             }
 
             // --- パス正規化ロジック ---

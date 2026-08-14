@@ -25,11 +25,10 @@ namespace DotNetBridge.Services
 
             if (string.IsNullOrEmpty(path))
             {
-                path = "menu.asp"; // ★ ログイン成功後の初期画面である menu.asp
+                path = "menu.asp"; // ログイン成功後の初期画面
             }
 
             // --- パス正規化ロジック ---
-            // リクエストパスから不要な先頭プレフィックス（EcoToubuF3/ や mobile60_ToubuF/）を削る
             while (true)
             {
                 var prevPath = path;
@@ -42,12 +41,9 @@ namespace DotNetBridge.Services
                 if (path == prevPath) break;
             }
 
-            // 万が一パスの中に二重で mobile60_ToubuF/ や EcoToubuF3/ が含まれている場合の緊急補正
             path = Regex.Replace(path, @"(?i)(mobile60_ToubuF/|EcoToubuF3/)+", "");
 
             string targetUri;
-
-            // ★画像のパス（Mobile60/tenken/... や Mobile60/kokyaku/...）の場合は EcoToubuF3/ 直下へつなぐ！
             if (path.StartsWith("Mobile60/", StringComparison.OrdinalIgnoreCase))
             {
                 targetUri = "https://hhc-eco11.com/EcoToubuF3/" + path + context.Request.QueryString.Value;
@@ -60,7 +56,7 @@ namespace DotNetBridge.Services
             using var client = _httpClientFactory.CreateClient("NoRedirectClient");
             using var upstreamRequest = new HttpRequestMessage(new HttpMethod(context.Request.Method), targetUri);
 
-            // --- 1. リクエストヘッダー転送 (無加工) ---
+            // --- 1. リクエストヘッダー転送 ---
             foreach (var header in context.Request.Headers)
             {
                 var key = header.Key;
@@ -87,15 +83,14 @@ namespace DotNetBridge.Services
                 upstreamRequest.Headers.TryAddWithoutValidation(key, header.Value.ToArray());
             }
 
-            // ★★★ 代理ログインで取得した EcoMaster 用 Cookie が存在すれば優先セット ★★★
+            // ★ 代理ログイン等で取得した EcoMaster 用 Cookie が存在すれば優先セット
             if (context.Items.TryGetValue("LegacyCookie", out var cookieObj) && cookieObj is string legacyCookie)
             {
-                // 既存の Cookie ヘッダーを上書き/追記
                 upstreamRequest.Headers.Remove("Cookie");
                 upstreamRequest.Headers.TryAddWithoutValidation("Cookie", legacyCookie);
             }
 
-            // --- 2. リクエストボディ転送 (生バイナリ無加工) ---
+            // --- 2. リクエストボディ転送 ---
             if (HttpMethods.IsPost(context.Request.Method) ||
                 HttpMethods.IsPut(context.Request.Method) ||
                 HttpMethods.IsPatch(context.Request.Method))
@@ -123,7 +118,7 @@ namespace DotNetBridge.Services
                 return;
             }
 
-            // --- 4. レスポンスヘッダー転送 ---
+            // --- 4. レスポンスヘッダー転送 (★ CookieのDomain/Path書き換えを厳修) ---
             context.Response.StatusCode = (int)upstreamResponse.StatusCode;
 
             foreach (var header in upstreamResponse.Headers)
@@ -133,7 +128,7 @@ namespace DotNetBridge.Services
 
                 if (key.Equals("Set-Cookie", StringComparison.OrdinalIgnoreCase))
                 {
-                    // クッキーのDomainとPath制限を解除してすべてのリクエストで送信可能にする
+                    // 設計方針通り: Domainを消去し Path=/; に統一して全パスでセッションを有効化
                     var modifiedCookies = header.Value.Select(cookie =>
                     {
                         var c = Regex.Replace(cookie, @"Domain=[^;]+;?", string.Empty, RegexOptions.IgnoreCase);
@@ -153,32 +148,30 @@ namespace DotNetBridge.Services
                 context.Response.Headers[key] = header.Value.ToArray();
             }
 
-            // --- 5. レスポンス処理 (極小Pass-through) ---
+            // --- 5. レスポンス処理 (設計方針①: 完全Pass-through制御) ---
             var contentType = upstreamResponse.Content.Headers.ContentType?.ToString() ?? string.Empty;
 
             bool isHtml = contentType.Contains("text/html", StringComparison.OrdinalIgnoreCase);
             
-            // ★ 強化修正: json_ を含むAPI、または json で始まるファイル通信は 100% 完全スルー対象にする
+            // ★ json_ から始まるAPI通信はレスポンスヘッダーに関わらず絶対加工禁止（Pass-through）
             bool isJsonApi = path.Contains("json_", StringComparison.OrdinalIgnoreCase) || 
                              path.StartsWith("json", StringComparison.OrdinalIgnoreCase);
 
-            // HTML かつ API通信 ではない純粋な画面表示時のみ HTML 改変（JS注入）を行う
             if (isHtml && !isJsonApi)
             {
+                // 純粋なHTML画面のみ: Shift_JIS(CP932)解読 ➔ ドメイン補正 ➔ script注入
                 var rawBytes = await upstreamResponse.Content.ReadAsByteArrayAsync();
                 
                 Encoding encoding;
-                try { encoding = Encoding.GetEncoding(932); } // Shift-JIS (CP932)
+                try { encoding = Encoding.GetEncoding(932); }
                 catch { encoding = Encoding.UTF8; }
 
                 var htmlContent = encoding.GetString(rawBytes);
 
-                // 画像等の旧ドメイン（hhc-eco1.com）を現行ドメイン（hhc-eco11.com）へ置換
                 htmlContent = htmlContent.Replace("https://hhc-eco1.com", "https://hhc-eco11.com")
                                          .Replace("http://hhc-eco1.com", "https://hhc-eco11.com")
                                          .Replace("//hhc-eco1.com", "//hhc-eco11.com");
 
-                // JSタグの挿入
                 var scriptTag = "<script type=\"module\" src=\"/js/custom-inject.js\"></script>";
                 if (htmlContent.Contains("</body>", StringComparison.OrdinalIgnoreCase))
                 {
@@ -195,7 +188,7 @@ namespace DotNetBridge.Services
             }
             else
             {
-                // ★ API通信 (json_listCheck.asp 等) や画像・JSアセットなどは完全無加工で生ストリーム転送！
+                // API・画像・JS等は一切加工せず生のバイトデータをそのまま流す (Pass-through)
                 await upstreamResponse.Content.CopyToAsync(context.Response.Body);
             }
         }

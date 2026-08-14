@@ -27,6 +27,7 @@ builder.Services.AddDataProtection()
 
 builder.Services.AddControllersWithViews();
 builder.Services.AddScoped<ProxyService>();
+builder.Services.AddScoped<LegacyAuthService>(); // ★追加
 
 builder.Services.AddHttpClient("NoRedirectClient", client => { })
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
@@ -104,13 +105,13 @@ app.Use(async (context, next) =>
 {
     var path = context.Request.Path;
 
-    // 先ほど作成した /success と /cancel、および Google 認証コールバック (/signin-google) をプロキシから除外
+    // プロキシ除外パスの判定
     if (path.StartsWithSegments("/Account", StringComparison.OrdinalIgnoreCase) ||
         path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase) ||
         path.StartsWithSegments("/admin", StringComparison.OrdinalIgnoreCase) ||
         path.StartsWithSegments("/success", StringComparison.OrdinalIgnoreCase) ||
         path.StartsWithSegments("/cancel", StringComparison.OrdinalIgnoreCase) ||
-        path.StartsWithSegments("/signin-google", StringComparison.OrdinalIgnoreCase)) // ★ Google認証応答パスを除外
+        path.StartsWithSegments("/signin-google", StringComparison.OrdinalIgnoreCase))
     {
         await next();
         return;
@@ -120,6 +121,20 @@ app.Use(async (context, next) =>
     {
         context.Response.Redirect("/Account/Login");
         return;
+    }
+
+    // ★追加: ログイン中ユーザーの Google Email から EcoMaster の Cookie を取得してコンテキストに保持させる
+    var googleEmail = context.User.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value;
+    if (!string.IsNullOrEmpty(googleEmail))
+    {
+        var legacyAuthService = context.RequestServices.GetRequiredService<LegacyAuthService>();
+        var legacyCookie = await legacyAuthService.GetLegacySessionCookieAsync(googleEmail);
+
+        if (!string.IsNullOrEmpty(legacyCookie))
+        {
+            // プロキシ送信時に中継ヘッダーへ追加できるように HttpContext.Items に格納
+            context.Items["LegacyCookie"] = legacyCookie;
+        }
     }
 
     var proxyService = context.RequestServices.GetRequiredService<ProxyService>();

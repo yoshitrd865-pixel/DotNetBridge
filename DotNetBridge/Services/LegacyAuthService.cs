@@ -37,16 +37,15 @@ namespace DotNetBridge.Services
                 return null;
             }
 
-            // 3. CookieContainer を準備して POST 送信
+            // 3. CookieContainer を準備 (リダイレクト追従でセッションCookieを確実に確定させる)
             var cookieContainer = new CookieContainer();
             using var handler = new HttpClientHandler
             {
                 CookieContainer = cookieContainer,
-                AllowAutoRedirect = false // リダイレクトさせずに 302 レスポンス時の Set-Cookie を直接奪取する
+                AllowAutoRedirect = true // ★ リダイレクトを許可して Cookie を確実に確立させる
             };
             using var client = new HttpClient(handler);
 
-            // スクショで確認した正確なパラメータ (txtUserID, txtPassword)
             var content = new FormUrlEncodedContent(new[]
             {
                 new KeyValuePair<string, string>("txtUserID", credential.LegacyUserId),
@@ -57,36 +56,20 @@ namespace DotNetBridge.Services
             {
                 var response = await client.PostAsync(LoginUrl, content);
 
-                // 4. レスポンスヘッダーから Set-Cookie を直接すべて抽出（PersonCode, SessionMobile等）
-                if (response.Headers.TryGetValues("Set-Cookie", out var rawSetCookies))
-                {
-                    var cookiePairs = new List<string>();
-                    foreach (var setCookie in rawSetCookies)
-                    {
-                        // "SessionMobile=z1I12mT; Path=/; ..." から "SessionMobile=z1I12mT" だけを取り出す
-                        var mainPart = setCookie.Split(';')[0].Trim();
-                        if (!string.IsNullOrEmpty(mainPart))
-                        {
-                            cookiePairs.Add(mainPart);
-                        }
-                    }
+                // 4. ログイン完了後に発行されたすべての Cookie を一括取得
+                var baseUri = new Uri("https://hhc-eco11.com");
+                var loginUri = new Uri(LoginUrl);
 
-                    if (cookiePairs.Count > 0)
-                    {
-                        // "PersonCode=1; SessionMobile=z1I12mT; PersonHistoryCode=1" の形式に組み立て
-                        return string.Join("; ", cookiePairs);
-                    }
-                }
+                var cookies = cookieContainer.GetCookies(baseUri).Cast<Cookie>()
+                    .Concat(cookieContainer.GetCookies(loginUri).Cast<Cookie>())
+                    .GroupBy(c => c.Name)
+                    .Select(g => g.First())
+                    .ToList();
 
-                // ヘッダー直接取得で万が一漏れた場合、CookieContainer からも補完
-                var uri = new Uri(LoginUrl);
-                var cookies = cookieContainer.GetCookies(uri);
-                if (cookies.Count > 0)
-                {
-                    return string.Join("; ", cookies.Cast<Cookie>().Select(c => $"{c.Name}={c.Value}"));
-                }
+                if (cookies.Count == 0) return null;
 
-                return null;
+                // Cookie ヘッダー文字列 (PersonCode=1; SessionMobile=... 等) を生成
+                return string.Join("; ", cookies.Select(c => $"{c.Name}={c.Value}"));
             }
             catch
             {

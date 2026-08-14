@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication.Google; // ★ Google認証用に追加
 using Microsoft.EntityFrameworkCore;
 using DotNetBridge.Services;
 using DotNetBridge.Data;
@@ -28,7 +29,11 @@ builder.Services.AddHttpClient("NoRedirectClient", client => { })
         AllowAutoRedirect = false
     });
 
-builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+// --- 認証設定 ---
+builder.Services.AddAuthentication(options =>
+    {
+        options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+    })
     .AddCookie(options =>
     {
         options.LoginPath = "/Account/Login";
@@ -36,6 +41,12 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         options.ExpireTimeSpan = TimeSpan.FromHours(8);
         options.Cookie.SameSite = SameSiteMode.Lax;
         options.Cookie.HttpOnly = true;
+        options.SlidingExpiration = true;
+    })
+    .AddGoogle(options => // ★ Google 認証設定を追加
+    {
+        options.ClientId = builder.Configuration["GOOGLE_CLIENT_ID"] ?? "";
+        options.ClientSecret = builder.Configuration["GOOGLE_CLIENT_SECRET"] ?? "";
     });
 
 // Render の PORT 環境変数を読み込む
@@ -71,12 +82,13 @@ app.Use(async (context, next) =>
 {
     var path = context.Request.Path;
 
-    // 先ほど作成した /success と /cancel もプロキシから除外
+    // 先ほど作成した /success と /cancel、および Google 認証コールバック (/signin-google) をプロキシから除外
     if (path.StartsWithSegments("/Account", StringComparison.OrdinalIgnoreCase) ||
         path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase) ||
         path.StartsWithSegments("/admin", StringComparison.OrdinalIgnoreCase) ||
         path.StartsWithSegments("/success", StringComparison.OrdinalIgnoreCase) ||
-        path.StartsWithSegments("/cancel", StringComparison.OrdinalIgnoreCase))
+        path.StartsWithSegments("/cancel", StringComparison.OrdinalIgnoreCase) ||
+        path.StartsWithSegments("/signin-google", StringComparison.OrdinalIgnoreCase)) // ★ Google認証応答パスを除外
     {
         await next();
         return;

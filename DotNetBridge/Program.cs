@@ -1,7 +1,8 @@
 using Microsoft.AspNetCore.Authentication.Cookies;
-using Microsoft.AspNetCore.Authentication.Google; // ★ Google認証用に追加
-using Microsoft.AspNetCore.DataProtection; // ★ 先頭に追加
+using Microsoft.AspNetCore.Authentication.Google;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Claims;
 using DotNetBridge.Services;
 using DotNetBridge.Data;
 
@@ -27,7 +28,7 @@ builder.Services.AddDataProtection()
 
 builder.Services.AddControllersWithViews();
 builder.Services.AddScoped<ProxyService>();
-builder.Services.AddScoped<LegacyAuthService>(); // ★追加
+builder.Services.AddScoped<LegacyAuthService>();
 
 builder.Services.AddHttpClient("NoRedirectClient", client => { })
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
@@ -49,16 +50,20 @@ builder.Services.AddAuthentication(options =>
         options.Cookie.HttpOnly = true;
         options.SlidingExpiration = true;
     })
-    .AddGoogle(options => // ★ Google 認証設定を追加
+    .AddGoogle(options =>
     {
         options.ClientId = builder.Configuration["GOOGLE_CLIENT_ID"] ?? "";
         options.ClientSecret = builder.Configuration["GOOGLE_CLIENT_SECRET"] ?? "";
+        
+        // ★ 追加: メールアドレスと基本プロフィール情報を確実に要求する設定
+        options.Scope.Add("email");
+        options.Scope.Add("profile");
     });
 
 // Render の PORT 環境変数を読み込む
 builder.WebHost.UseUrls($"http://*:{Environment.GetEnvironmentVariable("PORT") ?? "8080"}");
 
-// SQLite の接続設定
+// SQLite の接続設定 (payment.db / account.db)
 builder.Services.AddDbContext<PaymentDbContext>(options =>
     options.UseSqlite("Data Source=payment.db"));
 
@@ -67,12 +72,11 @@ builder.Services.AddDbContext<AccountDbContext>(options =>
 
 var app = builder.Build();
 
-// ★ 追加：Renderなどのプロキシ環境下で https を正しく認識させる設定
+// Renderなどのプロキシ環境下で https を正しく認識させる設定
 var forwardedHeadersOptions = new ForwardedHeadersOptions
 {
     ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto
 };
-// Renderからのプロキシヘッダーを無条件で信頼する設定
 forwardedHeadersOptions.KnownNetworks.Clear();
 forwardedHeadersOptions.KnownProxies.Clear();
 
@@ -85,7 +89,7 @@ using (var scope = app.Services.CreateScope())
     paymentDb.Database.EnsureCreated();
 
     var accountDb = scope.ServiceProvider.GetRequiredService<AccountDbContext>();
-    accountDb.Database.EnsureCreated(); // ★ account.db を自動作成
+    accountDb.Database.EnsureCreated();
 }
 
 app.UseStaticFiles(); // wwwroot配下の配信を許可
@@ -105,7 +109,7 @@ app.Use(async (context, next) =>
 {
     var path = context.Request.Path;
 
-    // プロキシ除外パスの判定
+    // プロキシ除外パスの判定 (/Account 配下は絶対にプロキシさせない)
     if (path.StartsWithSegments("/Account", StringComparison.OrdinalIgnoreCase) ||
         path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase) ||
         path.StartsWithSegments("/admin", StringComparison.OrdinalIgnoreCase) ||
@@ -117,22 +121,37 @@ app.Use(async (context, next) =>
         return;
     }
 
+    // 未ログイン時はログイン画面へ
     if (context.User.Identity?.IsAuthenticated != true)
     {
         context.Response.Redirect("/Account/Login");
         return;
     }
 
-    // ★追加: ログイン中ユーザーの Google Email から EcoMaster の Cookie を取得してコンテキストに保持させる
-    var googleEmail = context.User.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value;
+    // ★ 修正: 複数のパターンから確実に Google Email を取得する
+    var googleEmail = context.User.FindFirstValue(ClaimTypes.Email)
+                   ?? context.User.FindFirstValue("email")
+                   ?? context.User.Claims.FirstOrDefault(c => c.Type.EndsWith("emailaddress", StringComparison.OrdinalIgnoreCase))?.Value;
+
     if (!string.IsNullOrEmpty(googleEmail))
     {
+        // ★ 追加ガード: account.db に紐付けデータがあるかチェック
+        var accountDb = context.RequestServices.GetRequiredService<AccountDbContext>();
+        var credential = await accountDb.UserLegacyCredentials.FindAsync(googleEmail);
+
+        if (credential == null)
+        {
+            // DBに紐付け情報が存在しない場合は強行で初回連携画面へリダイレクト
+            context.Response.Redirect("/Account/LinkAccount");
+            return;
+        }
+
+        // 代理ログインを行って EcoMaster 用の Session Cookie を取得
         var legacyAuthService = context.RequestServices.GetRequiredService<LegacyAuthService>();
         var legacyCookie = await legacyAuthService.GetLegacySessionCookieAsync(googleEmail);
 
         if (!string.IsNullOrEmpty(legacyCookie))
         {
-            // プロキシ送信時に中継ヘッダーへ追加できるように HttpContext.Items に格納
             context.Items["LegacyCookie"] = legacyCookie;
         }
     }

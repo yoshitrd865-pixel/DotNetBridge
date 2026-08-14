@@ -4,16 +4,16 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.Google;
-using Microsoft.AspNetCore.DataProtection; // ★追加
-using DotNetBridge.Data; // ★追加
+using Microsoft.AspNetCore.DataProtection;
+using DotNetBridge.Data;
 
 namespace DotNetBridge.Controllers
 {
     [AllowAnonymous]
     public class AccountController : Controller
     {
-        private readonly AccountDbContext _accountDb; // ★追加
-        private readonly IDataProtector _protector;    // ★追加
+        private readonly AccountDbContext _accountDb;
+        private readonly IDataProtector _protector;
 
         // DIコンストラクタ
         public AccountController(AccountDbContext accountDb, IDataProtectionProvider provider)
@@ -69,7 +69,7 @@ namespace DotNetBridge.Controllers
             return Challenge(properties, GoogleDefaults.AuthenticationScheme);
         }
 
-        // ★ 変更: Google認証レスポンス処理で紐付けチェックを入れる
+        // ★ 修正: Emailの取得精度を上げ、紐付けチェックを確実に実行する
         [HttpGet]
         public async Task<IActionResult> GoogleResponse()
         {
@@ -80,12 +80,12 @@ namespace DotNetBridge.Controllers
                 return RedirectToAction("Login");
             }
 
-            // Googleから取得したメールアドレスを取得
-            var googleEmail = User.FindFirstValue(ClaimTypes.Email);
+            // Googleから取得したメールアドレスを取得（複数パターンで確実にチェック）
+            var googleEmail = GetUserEmail(result.Principal ?? User);
 
             if (string.IsNullOrEmpty(googleEmail))
             {
-                // メールアドレスが取れなかった場合はエラー扱い
+                // メールアドレスが取れなかった場合はエラーを表示してログインへ
                 await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
                 ViewBag.Error = "Googleアカウントからメールアドレスを取得できませんでした。";
                 return View("Login");
@@ -96,7 +96,7 @@ namespace DotNetBridge.Controllers
 
             if (credential == null)
             {
-                // 未連携なら紐付け入力画面へ
+                // 未連携なら紐付け入力画面へ転送
                 return RedirectToAction("LinkAccount");
             }
 
@@ -104,20 +104,32 @@ namespace DotNetBridge.Controllers
             return Redirect("/");
         }
 
-        // ★ 追加: アカウント紐付け画面（GET）
-        [Authorize] // Googleログイン完了済みのユーザーのみアクセス可
+        // ★ アカウント紐付け画面（GET）
+        [Authorize]
         [HttpGet]
-        public IActionResult LinkAccount()
+        public async Task<IActionResult> LinkAccount()
         {
+            var googleEmail = GetUserEmail(User);
+
+            // すでに連携済みの場合はトップ画面へ
+            if (!string.IsNullOrEmpty(googleEmail))
+            {
+                var credential = await _accountDb.UserLegacyCredentials.FindAsync(googleEmail);
+                if (credential != null)
+                {
+                    return Redirect("/");
+                }
+            }
+
             return View();
         }
 
-        // ★ 追加: アカウント紐付け処理（POST）
+        // ★ アカウント紐付け処理（POST）
         [Authorize]
         [HttpPost]
         public async Task<IActionResult> LinkAccount(string legacyUserId, string legacyPassword)
         {
-            var googleEmail = User.FindFirstValue(ClaimTypes.Email);
+            var googleEmail = GetUserEmail(User);
 
             if (string.IsNullOrEmpty(googleEmail))
             {
@@ -153,6 +165,16 @@ namespace DotNetBridge.Controllers
         {
             await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
             return RedirectToAction("Login");
+        }
+
+        // 💡 共通ヘルパー: Claimからメールアドレスを強力に探して取得する
+        private string? GetUserEmail(ClaimsPrincipal? principal)
+        {
+            if (principal == null) return null;
+
+            return principal.FindFirstValue(ClaimTypes.Email)
+                ?? principal.FindFirstValue("email")
+                ?? principal.Claims.FirstOrDefault(c => c.Type.EndsWith("emailaddress", StringComparison.OrdinalIgnoreCase))?.Value;
         }
     }
 }

@@ -53,6 +53,10 @@ namespace DotNetBridge.Controllers
                 // 認証成功後に戻ってくるアクション（GoogleResponse）を指定
                 RedirectUri = Url.Action("GoogleResponse")
             };
+
+            // ★ 追加: Google側に「アカウント選択または生体認証による再確認」を促す
+            properties.Items["prompt"] = "select_account";
+
             // Googleのログイン画面へリダイレクト（チャレンジ）
             return Challenge(properties, GoogleDefaults.AuthenticationScheme);
         }

@@ -19,7 +19,7 @@ namespace DotNetBridge.Controllers
         public AccountController(AccountDbContext accountDb, IDataProtectionProvider provider)
         {
             _accountDb = accountDb;
-            // 復号可能な暗号化プロテクター（用途識別子を指定）
+            // 復号可能な暗号化プロテクター
             _protector = provider.CreateProtector("DotNetBridge.LegacyCredentials");
         }
 
@@ -69,7 +69,6 @@ namespace DotNetBridge.Controllers
             return Challenge(properties, GoogleDefaults.AuthenticationScheme);
         }
 
-        // ★ 修正: Emailの取得精度を上げ、紐付けチェックを確実に実行する
         [HttpGet]
         public async Task<IActionResult> GoogleResponse()
         {
@@ -80,51 +79,47 @@ namespace DotNetBridge.Controllers
                 return RedirectToAction("Login");
             }
 
-            // Googleから取得したメールアドレスを取得（複数パターンで確実にチェック）
             var googleEmail = GetUserEmail(result.Principal ?? User);
 
             if (string.IsNullOrEmpty(googleEmail))
             {
-                // メールアドレスが取れなかった場合はエラーを表示してログインへ
                 await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
                 ViewBag.Error = "Googleアカウントからメールアドレスを取得できませんでした。";
                 return View("Login");
             }
 
-            // account.db に連携データが存在するか確認
             var credential = await _accountDb.UserLegacyCredentials.FindAsync(googleEmail);
 
             if (credential == null)
             {
-                // 未連携なら紐付け入力画面へ転送
                 return RedirectToAction("LinkAccount");
             }
 
-            // 連携済みならトップページへ
             return Redirect("/");
         }
 
-        // ★ アカウント紐付け画面（GET）
+        // ★ アカウント紐付け・再設定画面（GET）
         [Authorize]
         [HttpGet]
         public async Task<IActionResult> LinkAccount()
         {
             var googleEmail = GetUserEmail(User);
 
-            // すでに連携済みの場合はトップ画面へ
             if (!string.IsNullOrEmpty(googleEmail))
             {
                 var credential = await _accountDb.UserLegacyCredentials.FindAsync(googleEmail);
                 if (credential != null)
                 {
-                    return Redirect("/");
+                    // 登録済みの場合は現在のIDを画面に渡し、再設定モードとして表示できるようにする
+                    ViewBag.CurrentLegacyUserId = credential.LegacyUserId;
+                    ViewBag.IsUpdate = true;
                 }
             }
 
             return View();
         }
 
-        // ★ アカウント紐付け処理（POST）
+        // ★ アカウント紐付け・再設定処理（POST）
         [Authorize]
         [HttpPost]
         public async Task<IActionResult> LinkAccount(string legacyUserId, string legacyPassword)
@@ -145,18 +140,34 @@ namespace DotNetBridge.Controllers
             // パスワードを可逆暗号化
             var encryptedPassword = _protector.Protect(legacyPassword);
 
-            var credential = new UserLegacyCredential
-            {
-                GoogleEmail = googleEmail,
-                LegacyUserId = legacyUserId,
-                EncryptedLegacyPassword = encryptedPassword,
-                UpdatedAt = DateTime.UtcNow
-            };
+            var existingCredential = await _accountDb.UserLegacyCredentials.FindAsync(googleEmail);
 
-            _accountDb.UserLegacyCredentials.Add(credential);
+            if (existingCredential != null)
+            {
+                // ★ 既存データがある場合は上書き更新（再設定）
+                existingCredential.LegacyUserId = legacyUserId;
+                existingCredential.EncryptedLegacyPassword = encryptedPassword;
+                existingCredential.UpdatedAt = DateTime.UtcNow;
+
+                _accountDb.UserLegacyCredentials.Update(existingCredential);
+            }
+            else
+            {
+                // ★ 初回は新規追加
+                var credential = new UserLegacyCredential
+                {
+                    GoogleEmail = googleEmail,
+                    LegacyUserId = legacyUserId,
+                    EncryptedLegacyPassword = encryptedPassword,
+                    UpdatedAt = DateTime.UtcNow
+                };
+
+                _accountDb.UserLegacyCredentials.Add(credential);
+            }
+
             await _accountDb.SaveChangesAsync();
 
-            // 登録完了後トップへ
+            // 保存完了後はトップへ
             return Redirect("/");
         }
 
@@ -167,7 +178,6 @@ namespace DotNetBridge.Controllers
             return RedirectToAction("Login");
         }
 
-        // 💡 共通ヘルパー: Claimからメールアドレスを強力に探して取得する
         private string? GetUserEmail(ClaimsPrincipal? principal)
         {
             if (principal == null) return null;

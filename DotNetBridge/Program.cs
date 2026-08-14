@@ -22,7 +22,7 @@ builder.Configuration.AddJsonFile("appsettings.json", optional: true, reloadOnCh
 builder.Configuration.AddJsonFile($"appsettings.{builder.Environment.EnvironmentName}.json", optional: true, reloadOnChange: false);
 builder.Configuration.AddEnvironmentVariables();
 
-// --- 暗号キーの保存先を永続化（再デプロイしてもログイン状態を維持） ---
+// --- 暗号キーの保存先を永続化 ---
 builder.Services.AddDataProtection()
     .PersistKeysToFileSystem(new DirectoryInfo(@"./keys"));
 
@@ -55,15 +55,12 @@ builder.Services.AddAuthentication(options =>
         options.ClientId = builder.Configuration["GOOGLE_CLIENT_ID"] ?? "";
         options.ClientSecret = builder.Configuration["GOOGLE_CLIENT_SECRET"] ?? "";
         
-        // ★ 追加: メールアドレスと基本プロフィール情報を確実に要求する設定
         options.Scope.Add("email");
         options.Scope.Add("profile");
     });
 
-// Render の PORT 環境変数を読み込む
 builder.WebHost.UseUrls($"http://*:{Environment.GetEnvironmentVariable("PORT") ?? "8080"}");
 
-// SQLite の接続設定 (payment.db / account.db)
 builder.Services.AddDbContext<PaymentDbContext>(options =>
     options.UseSqlite("Data Source=payment.db"));
 
@@ -72,7 +69,6 @@ builder.Services.AddDbContext<AccountDbContext>(options =>
 
 var app = builder.Build();
 
-// Renderなどのプロキシ環境下で https を正しく認識させる設定
 var forwardedHeadersOptions = new ForwardedHeadersOptions
 {
     ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto
@@ -82,7 +78,6 @@ forwardedHeadersOptions.KnownProxies.Clear();
 
 app.UseForwardedHeaders(forwardedHeadersOptions);
 
-// 起動時に DB テーブルが存在しなければ自動生成 ( payment.db / account.db )
 using (var scope = app.Services.CreateScope())
 {
     var paymentDb = scope.ServiceProvider.GetRequiredService<PaymentDbContext>();
@@ -92,12 +87,11 @@ using (var scope = app.Services.CreateScope())
     accountDb.Database.EnsureCreated();
 }
 
-app.UseStaticFiles(); // wwwroot配下の配信を許可
+app.UseStaticFiles();
 app.UseRouting();
 app.UseAuthentication();
 app.UseAuthorization();
 
-// 1. 各コントローラーの属性ルーティングと標準ルートの有効化
 app.MapControllers();
 app.MapControllerRoute(
     name: "default",
@@ -109,7 +103,6 @@ app.Use(async (context, next) =>
 {
     var path = context.Request.Path;
 
-    // プロキシ除外パスの判定 (/Account 配下は絶対にプロキシさせない)
     if (path.StartsWithSegments("/Account", StringComparison.OrdinalIgnoreCase) ||
         path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase) ||
         path.StartsWithSegments("/admin", StringComparison.OrdinalIgnoreCase) ||
@@ -121,38 +114,55 @@ app.Use(async (context, next) =>
         return;
     }
 
-    // 未ログイン時はログイン画面へ
     if (context.User.Identity?.IsAuthenticated != true)
     {
         context.Response.Redirect("/Account/Login");
         return;
     }
 
-    // ★ 修正: 複数のパターンから確実に Google Email を取得する
     var googleEmail = context.User.FindFirstValue(ClaimTypes.Email)
                    ?? context.User.FindFirstValue("email")
                    ?? context.User.Claims.FirstOrDefault(c => c.Type.EndsWith("emailaddress", StringComparison.OrdinalIgnoreCase))?.Value;
 
     if (!string.IsNullOrEmpty(googleEmail))
     {
-        // ★ 追加ガード: account.db に紐付けデータがあるかチェック
         var accountDb = context.RequestServices.GetRequiredService<AccountDbContext>();
         var credential = await accountDb.UserLegacyCredentials.FindAsync(googleEmail);
 
         if (credential == null)
         {
-            // DBに紐付け情報が存在しない場合は強行で初回連携画面へリダイレクト
             context.Response.Redirect("/Account/LinkAccount");
             return;
         }
 
-        // 代理ログインを行って EcoMaster 用の Session Cookie を取得
         var legacyAuthService = context.RequestServices.GetRequiredService<LegacyAuthService>();
         var legacyCookie = await legacyAuthService.GetLegacySessionCookieAsync(googleEmail);
 
         if (!string.IsNullOrEmpty(legacyCookie))
         {
             context.Items["LegacyCookie"] = legacyCookie;
+
+            // ★★★ 決定的な修正ポイント ★★★
+            // 代理ログインで得た Cookie (PersonCode=1等) を、ブラウザの JS (document.cookie) でも読めるようにレスポンス発行する！
+            var cookieParts = legacyCookie.Split(';');
+            foreach (var part in cookieParts)
+            {
+                var kv = part.Trim().Split('=', 2);
+                if (kv.Length == 2)
+                {
+                    var cName = kv[0].Trim();
+                    var cVal = kv[1].Trim();
+                    if (!string.IsNullOrEmpty(cName))
+                    {
+                        context.Response.Cookies.Append(cName, cVal, new CookieOptions
+                        {
+                            Path = "/",
+                            HttpOnly = false, // JSが document.cookie で読み取れるように false に設定！
+                            SameSite = SameSiteMode.Lax
+                        });
+                    }
+                }
+            }
         }
     }
 

@@ -251,21 +251,21 @@ export function initContinuousUpload() {
   const originalSubmit = form ? form.querySelector('input[type="submit"], button[type="submit"]') : null;
   if (originalSubmit) originalSubmit.style.display = 'none';
 
- // 🏛️ 下部タブを隠さないスリム化レイアウト
+// 🏛️ シックデザイン × 撮影ボタン連打位置を復元したレイアウト
   const panel = document.createElement('div');
   panel.id = 'my-panel';
   panel.style.cssText = `
     position: fixed;
-    bottom: 75px; /* ★ 元のタブバーより上に配置 */
+    bottom: 75px;
     left: 50%;
     transform: translateX(-50%);
     background: #ffffff;
-    padding: 10px 14px; /* ★ 余白を詰めてスリム化 */
-    border-radius: 12px;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
+    padding: 14px;
+    border-radius: 16px;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.15);
     z-index: 100000;
-    width: 90%;
-    max-width: 380px;
+    width: 92%;
+    max-width: 400px;
     border: 1px solid #cbd5e1;
     text-align: center;
     box-sizing: border-box;
@@ -273,23 +273,26 @@ export function initContinuousUpload() {
   `;
 
   panel.innerHTML = `
-    <div id="my-st" style="font-weight:600; margin-bottom:12px; font-size:15px; color:#334155;">写真を撮影・選択してください</div>
-    <div id="my-previews" style="display:none; gap:10px; overflow-x:auto; margin-bottom:12px; padding-bottom:6px; scroll-behavior: smooth;"></div>
+    <div id="my-st" style="font-weight:600; margin-bottom:10px; font-size:15px; color:#334155;">📸 写真を撮影してください</div>
+    <div id="my-previews" style="display:none; gap:10px; overflow-x:auto; margin-bottom:10px; padding-bottom:6px; scroll-behavior: smooth;"></div>
     
-    <div id="my-progress-container" style="display:none; width:100%; height:8px; background:#f1f5f9; border-radius:4px; margin-bottom:12px; overflow:hidden;">
+    <div id="my-progress-container" style="display:none; width:100%; height:8px; background:#f1f5f9; border-radius:4px; margin-bottom:10px; overflow:hidden;">
       <div id="my-progress-bar" style="width:0%; height:100%; background:#0284c7; transition: width 0.3s ease;"></div>
     </div>
     
-    <button id="my-resend-btn" style="display:none; width:100%; padding:12px; background:#ef4444; color:#fff; border:none; border-radius:8px; font-weight:600; font-size:14px; margin-bottom:8px; cursor:pointer;">未送信画像を再送信</button>
+    <!-- 🔄 未送信データ専用の再送ボタン -->
+    <button id="my-resend-btn" style="display:none; width:100%; padding:14px; background:#ef4444; color:#fff; border:none; border-radius:10px; font-weight:600; font-size:15px; margin-bottom:8px; cursor:pointer;">未送信画像を再送信</button>
 
-    <div style="display:flex; gap:8px;">
-      <button id="my-add" style="flex:1; padding:12px; background:#f8fafc; color:#0f172a; border:1px solid #cbd5e1; border-radius:8px; font-weight:600; font-size:14px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:4px;">
-        <span>📷</span> 写真を追加
-      </button>
-      <button id="my-up" style="flex:1; padding:12px; background:#e2e8f0; color:#94a3b8; border:none; border-radius:8px; font-weight:600; font-size:14px; cursor:pointer;" disabled>
-        送信する
-      </button>
-    </div>
+    <!-- 📷 メインの撮影追加ボタン（連打しやすい上部・フル幅位置） -->
+    <button id="my-add" style="width:100%; padding:16px; background:#0f172a; color:#ffffff; border:none; border-radius:12px; font-weight:700; font-size:17px; margin-bottom:8px; cursor:pointer; box-shadow: 0 4px 12px rgba(15,23,42,0.15); display:flex; align-items:center; justify-content:center; gap:6px;">
+      <span>📷</span> 写真を撮影 (追加)
+    </button>
+
+    <!-- 📤 下部の送信ボタン -->
+    <button id="my-up" style="width:100%; padding:12px; background:#e2e8f0; color:#94a3b8; border:none; border-radius:10px; font-weight:600; font-size:15px; cursor:pointer;" disabled>
+      まとめて送信
+    </button>
+
     <input id="my-input" type="file" accept="image/*" capture="environment" style="display:none;">
   `;
   document.body.appendChild(panel);

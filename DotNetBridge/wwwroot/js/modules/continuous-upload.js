@@ -251,22 +251,22 @@ export function initContinuousUpload() {
   const originalSubmit = form ? form.querySelector('input[type="submit"], button[type="submit"]') : null;
   if (originalSubmit) originalSubmit.style.display = 'none';
 
-  // 🏛️ 洗練された「シックモダン」なパネルレイアウト
+ // 🏛️ 下部タブを隠さないスリム化レイアウト
   const panel = document.createElement('div');
   panel.id = 'my-panel';
   panel.style.cssText = `
     position: fixed;
-    bottom: 24px;
+    bottom: 75px; /* ★ 元のタブバーより上に配置 */
     left: 50%;
     transform: translateX(-50%);
     background: #ffffff;
-    padding: 16px;
-    border-radius: 16px;
-    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+    padding: 10px 14px; /* ★ 余白を詰めてスリム化 */
+    border-radius: 12px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
     z-index: 100000;
-    width: 92%;
-    max-width: 420px;
-    border: 1px solid #e2e8f0;
+    width: 90%;
+    max-width: 380px;
+    border: 1px solid #cbd5e1;
     text-align: center;
     box-sizing: border-box;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;

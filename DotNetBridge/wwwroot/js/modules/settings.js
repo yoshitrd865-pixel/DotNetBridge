@@ -39,9 +39,18 @@ function saveSettings(settings) {
 export function initSettingsMenu() {
     if (document.getElementById('tfk-custom-settings-card')) return;
 
-    // 「ログアウト」ボタンまたはフォームを探す
-    const logoutBtn = document.querySelector('input[value*="ログアウト"], button:contains("ログアウト")') || document.querySelector('form');
-    if (!logoutBtn) return;
+    // ログアウト要素をVanilla JSで安全に取得
+    let logoutBtn = document.querySelector('input[value*="ログアウト"]');
+
+    if (!logoutBtn) {
+        const candidates = Array.from(document.querySelectorAll('button, a, div, input'));
+        logoutBtn = candidates.find(el => el.textContent && el.textContent.includes('ログアウト'));
+    }
+
+    // 万が一ログアウトボタンが見つからない場合のフォールバック（form要素など）
+    if (!logoutBtn) {
+        logoutBtn = document.querySelector('form');
+    }
 
     const currentSettings = getSettings();
 
@@ -79,8 +88,12 @@ export function initSettingsMenu() {
         </div>
     `;
 
-    // ログアウト要素の後ろに挿入
-    logoutBtn.parentNode.insertBefore(card, logoutBtn.nextSibling);
+    // 安全にカードを挿入
+    if (logoutBtn && logoutBtn.parentNode) {
+        logoutBtn.parentNode.insertBefore(card, logoutBtn.nextSibling);
+    } else {
+        document.body.appendChild(card);
+    }
 
     // スイッチ変更時の即時保存イベント
     card.querySelectorAll('input[type="checkbox"]').forEach(chk => {

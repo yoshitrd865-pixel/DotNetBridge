@@ -324,7 +324,7 @@ export function initContinuousUpload() {
   const hi = document.getElementById('my-input');
   document.getElementById('my-add').onclick = (e) => { e.preventDefault(); hi.click(); };
 
-  // 🔄 未送信再送ボタンのクリックイベント
+  // 🔄 未送信再送ボタンのクリックイベント（確実リフレッシュ版）
   document.getElementById('my-resend-btn').onclick = async (e) => {
     e.preventDefault();
     const savedImages = await getSavedImages();
@@ -336,8 +336,6 @@ export function initContinuousUpload() {
     const pb = document.getElementById('my-progress-bar');
     document.getElementById('my-progress-container').style.display = 'block';
 
-    let successCount = 0;
-
     for (let i = 0; i < savedImages.length; i++) {
       const item = savedImages[i];
       const fd = new FormData(form);
@@ -346,7 +344,7 @@ export function initContinuousUpload() {
       try {
         const xhr = new XMLHttpRequest();
         xhr.open('POST', item.formAction || form.action || window.location.href);
-        const uploadPromise = new Promise((res, rej) => {
+        await new Promise((res, rej) => {
           xhr.upload.onprogress = (ev) => {
             const filePercent = ev.loaded / ev.total;
             const totalPercent = ((i + filePercent) / savedImages.length) * 100;
@@ -355,13 +353,11 @@ export function initContinuousUpload() {
           };
           xhr.onload = () => {
             if (xhr.status >= 200 && xhr.status < 300) res();
-            else rej();
+            else rej(new Error('HTTP ' + xhr.status));
           };
-          xhr.onerror = () => rej();
+          xhr.onerror = () => rej(new Error('Network Error'));
           xhr.send(fd);
         });
-        await uploadPromise;
-        successCount++;
       } catch (err) {
         alert("再送信に失敗しました。電波状態を確認してください。");
         document.getElementById('my-resend-btn').disabled = false;
@@ -371,11 +367,20 @@ export function initContinuousUpload() {
       }
     }
 
-    // 全て成功したらDBを削除してリロード
-    await clearSavedImages();
+    // 🎉 送信完了後：DBを完全に消去してから確実に画面リフレッシュ！
     pb.style.width = '100%';
     document.getElementById('my-st').innerHTML = '🎉 再送信が完了しました！';
-    setTimeout(() => location.reload(), 800);
+
+    try {
+      await clearSavedImages();
+    } catch (e) {
+      console.error("DB削除エラー", e);
+    }
+
+    // 0.5秒後に確実に画面を更新！
+    setTimeout(() => {
+      window.location.href = window.location.href;
+    }, 500);
   };
 
   hi.onchange = async (e) => {
@@ -436,9 +441,9 @@ export function initContinuousUpload() {
           };
           xhr.onload = () => {
             if (xhr.status >= 200 && xhr.status < 300) res();
-            else rej();
+            else rej(new Error('HTTP ' + xhr.status));
           };
-          xhr.onerror = () => rej();
+          xhr.onerror = () => rej(new Error('Network Error'));
           xhr.send(fd);
         });
         await uploadPromise;
@@ -451,10 +456,12 @@ export function initContinuousUpload() {
     pb.style.width = '100%';
     if (failedCount > 0) {
       alert(`⚠️ 電波状態の影響で ${failedCount} 枚の送信に失敗しました。\n写真はスマホ内に自動保護されました。電波の良い場所で再送信できます。`);
-      location.reload();
+      window.location.href = window.location.href;
     } else {
       document.getElementById('my-st').innerHTML = '🎉 全ての送信が完了！';
-      setTimeout(() => location.reload(), 800);
+      setTimeout(() => {
+        window.location.href = window.location.href;
+      }, 500);
     }
   };
 

@@ -1,8 +1,14 @@
 // wwwroot/js/modules/auto-login.js
 
+import { getSettings } from './settings.js';
+
 const STORAGE_KEY = 'tfk_auto_login_data';
+let isEventListenerAttached = false; // ★ 二重リスナー登録＆ダイアログ無限ループ防止フラグ
 
 export function initAutoLogin() {
+    // ⚙️ 設定で「自動ログイン」がOFFになっている場合は発動させない
+    if (!getSettings().auto_login) return;
+
     const pwInput = document.querySelector('input[type="password"]');
     if (!pwInput) return;
 
@@ -35,20 +41,19 @@ export function initAutoLogin() {
                     } else {
                         form.submit();
                     }
-                }, 800);
+                }, 1200);
             }
         } catch (e) {
             console.error("[AutoLogin] エラー:", e);
         }
     } 
-    // wwwroot/js/modules/auto-login.js の一部
-
-// ...（前半省略）...
-
     // 💾 記憶モード：データがなければ送信イベントをフック
     else {
+        // すでにリスナーをセット済みの場合は重ねて登録しない（無限ループ防止）
+        if (isEventListenerAttached) return;
+
         const handleSaveAndSubmit = (e) => {
-            // 一旦フォームのデフォルト送信を完全にストップする！
+            // 一旦フォームのデフォルト送信をストップ
             e.preventDefault();
 
             const inputs = form.querySelectorAll('input[type="text"], input[type="number"], input[type="email"], input[type="password"]');
@@ -67,12 +72,13 @@ export function initAutoLogin() {
                 }
             }
 
-            // 保存処理完了後、本来のフォーム送信を実行！
+            // 保存処理完了後、イベントを取り除いて本来のフォーム送信を実行！
+            form.removeEventListener('submit', handleSaveAndSubmit);
             form.submit();
         };
 
-        // フォームの submit イベントを捕捉
         form.addEventListener('submit', handleSaveAndSubmit);
+        isEventListenerAttached = true; // ★ 登録済みフラグを立てる
     }
 }
 

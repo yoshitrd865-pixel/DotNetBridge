@@ -4,7 +4,6 @@ let imageQueue = [];
 let wakeLock = null;
 let compressingCount = 0;
 
-// 💾 IndexedDB 設定（オフライン永続化用）
 const DB_NAME = 'TFK_OfflineUploadDB';
 const STORE_NAME = 'failed_uploads';
 
@@ -22,25 +21,17 @@ function openDB() {
   });
 }
 
-// 未送信の写真をIndexedDBへ保存
 async function saveFailedImage(file, formAction, inputName) {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');
     const store = tx.objectStore(STORE_NAME);
-    store.add({
-      file: file,
-      fileName: file.name,
-      formAction: formAction,
-      inputName: inputName,
-      timestamp: Date.now()
-    });
+    store.add({ file, fileName: file.name, formAction, inputName, timestamp: Date.now() });
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
 }
 
-// 保存されている未送信写真を取得
 async function getSavedImages() {
   try {
     const db = await openDB();
@@ -51,12 +42,9 @@ async function getSavedImages() {
       req.onsuccess = () => resolve(req.result || []);
       req.onerror = () => resolve([]);
     });
-  } catch (e) {
-    return [];
-  }
+  } catch (e) { return []; }
 }
 
-// 未送信データをクリア
 async function clearSavedImages() {
   try {
     const db = await openDB();
@@ -70,7 +58,6 @@ async function clearSavedImages() {
   } catch (e) {}
 }
 
-// ⚙️ Web Worker & OffscreenCanvas ロジック
 const workerScript = `
   self.onmessage = async function(e) {
     const { file, maxSide } = e.data;
@@ -78,20 +65,17 @@ const workerScript = `
       const bitmap = await createImageBitmap(file);
       let width = bitmap.width;
       let height = bitmap.height;
-
       if (width > height) {
         if (width > maxSide) { height *= maxSide / width; width = maxSide; }
       } else {
         if (height > maxSide) { width *= maxSide / height; height = maxSide; }
       }
-
       const offscreen = new OffscreenCanvas(width, height);
       const ctx = offscreen.getContext('2d');
       ctx.drawImage(bitmap, 0, 0, width, height);
       bitmap.close();
-
       const blob = await offscreen.convertToBlob({ type: 'image/jpeg', quality: 0.85 });
-      self.postMessage({ success: true, blob: blob });
+      self.postMessage({ success: true, blob });
     } catch (error) {
       self.postMessage({ success: false, error: error.message });
     }
@@ -109,9 +93,7 @@ async function requestWakeLockIfNeeded() {
       wakeLock = await navigator.wakeLock.request('screen');
       wakeLock.addEventListener('release', () => { wakeLock = null; });
     }
-  } catch (e) {
-    wakeLock = null;
-  }
+  } catch (e) { wakeLock = null; }
 }
 
 function releaseWakeLockIfDone() {
@@ -133,27 +115,15 @@ function formatBytes(bytes) {
 function compressImage(file) {
   return new Promise((resolve, reject) => {
     const worker = new Worker(workerUrl);
-
     worker.onmessage = (e) => {
       if (e.data.success) {
-        const compressedFile = new File(
-          [e.data.blob],
-          file.name.replace(/\.[^/.]+$/, "") + ".jpg",
-          { type: 'image/jpeg' }
-        );
+        const compressedFile = new File([e.data.blob], file.name.replace(/\.[^/.]+$/, "") + ".jpg", { type: 'image/jpeg' });
         resolve(compressedFile);
-      } else {
-        reject(new Error(e.data.error));
-      }
+      } else { reject(new Error(e.data.error)); }
       worker.terminate();
     };
-
-    worker.onerror = (err) => {
-      reject(err);
-      worker.terminate();
-    };
-
-    worker.postMessage({ file: file, maxSide: 1280 });
+    worker.onerror = (err) => { reject(err); worker.terminate(); };
+    worker.postMessage({ file, maxSide: 1280 });
   });
 }
 
@@ -163,21 +133,21 @@ function addPlaceholder(index) {
 
   const wrapper = document.createElement('div');
   wrapper.id = 'img-wrapper-' + index;
-  wrapper.style.cssText = 'position:relative; width:120px; height:145px; flex-shrink:0; display:flex; flex-direction:column; align-items:center;';
+  wrapper.style.cssText = 'position:relative; width:100px; height:125px; flex-shrink:0; display:flex; flex-direction:column; align-items:center;';
 
   const img = document.createElement('div');
   img.id = 'img-view-' + index;
-  img.style.cssText = 'width:110px; height:110px; border-radius:8px; border:2px dashed #ccc; background:#f9f9f9; display:flex; align-items:center; justify-content:center; font-size:10px; color:#999;';
-  img.innerText = '⏳ 圧縮中...';
+  img.style.cssText = 'width:90px; height:90px; border-radius:10px; border:1px solid #cbd5e1; background:#f8fafc; display:flex; align-items:center; justify-content:center; font-size:11px; color:#64748b;';
+  img.innerText = '処理中...';
 
   const sizeLabel = document.createElement('div');
   sizeLabel.id = 'size-label-' + index;
-  sizeLabel.innerText = 'WAIT...';
-  sizeLabel.style.cssText = 'font-size:11px; color:#999; margin-top:4px;';
+  sizeLabel.innerText = 'WAIT';
+  sizeLabel.style.cssText = 'font-size:11px; color:#94a3b8; margin-top:4px; font-weight:500;';
 
   const deleteBtn = document.createElement('div');
-  deleteBtn.innerHTML = '×';
-  deleteBtn.style.cssText = 'position:absolute; top:2px; right:6px; background:rgba(0,0,0,0.5); color:#fff; width:26px; height:26px; border-radius:50%; text-align:center; line-height:22px; cursor:pointer; z-index:10;';
+  deleteBtn.innerHTML = '✕';
+  deleteBtn.style.cssText = 'position:absolute; top:-4px; right:2px; background:#475569; color:#fff; width:22px; height:22px; border-radius:50%; text-align:center; line-height:20px; cursor:pointer; z-index:10; font-size:11px; box-shadow: 0 2px 4px rgba(0,0,0,0.15);';
   deleteBtn.onclick = () => {
     if (imageQueue[index] && imageQueue[index].previewUrl) {
       URL.revokeObjectURL(imageQueue[index].previewUrl);
@@ -206,12 +176,11 @@ function finalizePreview(index, compressedFile) {
     imgView.innerText = '';
     imgView.style.backgroundImage = `url(${previewUrl})`;
     imgView.style.backgroundSize = 'cover';
-    imgView.style.borderStyle = 'solid';
-    imgView.style.borderColor = '#F39C12';
+    imgView.style.border = '1px solid #cbd5e1';
 
     sizeLabel.innerText = formatBytes(compressedFile.size);
-    sizeLabel.style.color = '#27AE60';
-    sizeLabel.style.fontWeight = 'bold';
+    sizeLabel.style.color = '#0284c7';
+    sizeLabel.style.fontWeight = '600';
     
     const panel = document.getElementById('my-panel');
     if (panel) panel.style.transform = 'translateX(-50%) translateZ(0)';
@@ -236,20 +205,19 @@ async function updateQueueStatus() {
     previewsContainer.style.display = 'none';
   }
 
-  // 🔄 未送信再送ボタンの表示切り替え
   if (savedImages.length > 0 && readyFiles.length === 0 && !isCompressing) {
     if (resendBtn) {
       resendBtn.style.display = 'block';
-      resendBtn.innerText = `🔄 未送信写真 (${savedImages.length}枚) を再送信`;
+      resendBtn.innerText = `未送信画像 (${savedImages.length}件) を再送信`;
     }
-    if (st) st.innerHTML = `⚠️ <span style="color:#e74c3c;font-weight:bold;">未送信が ${savedImages.length} 枚保存されています</span>`;
+    if (st) st.innerHTML = `<span style="color:#ef4444;font-weight:600;">未送信データが ${savedImages.length} 件あります</span>`;
   } else {
     if (resendBtn) resendBtn.style.display = 'none';
     if (st) {
       if (isCompressing) {
-        st.innerHTML = `⏳ <span style="color:#7f8c8d;">画像を処理中です...</span>`;
+        st.innerHTML = `<span style="color:#64748b;">画像を最適化中...</span>`;
       } else {
-        st.innerHTML = `📦 <span style="font-size:22px;color:#27AE60;font-weight:bold;">${readyFiles.length}</span> 枚 送信可能`;
+        st.innerHTML = `選択済み: <span style="font-size:18px;color:#0284c7;font-weight:700;">${readyFiles.length}</span> 件`;
       }
     }
   }
@@ -257,16 +225,17 @@ async function updateQueueStatus() {
   if (upBtn) {
     if (isCompressing) {
       upBtn.disabled = true;
-      upBtn.style.background = '#bdc3c7';
-      upBtn.innerText = '⏳ 準備中...';
+      upBtn.style.background = '#cbd5e1';
+      upBtn.innerText = '処理中...';
     } else if (readyFiles.length > 0) {
       upBtn.disabled = false;
-      upBtn.style.background = '#27AE60';
-      upBtn.innerText = `📤 ${readyFiles.length}枚 まとめて送信`;
+      upBtn.style.background = '#0284c7';
+      upBtn.innerText = `送信する (${readyFiles.length}件)`;
     } else {
       upBtn.disabled = true;
-      upBtn.style.background = '#bdc3c7';
-      upBtn.innerText = '📤 まとめて送信';
+      upBtn.style.background = '#e2e8f0';
+      upBtn.style.color = '#94a3b8';
+      upBtn.innerText = '送信する';
     }
   }
 }
@@ -282,33 +251,57 @@ export function initContinuousUpload() {
   const originalSubmit = form ? form.querySelector('input[type="submit"], button[type="submit"]') : null;
   if (originalSubmit) originalSubmit.style.display = 'none';
 
+  // 🏛️ 洗練された「シックモダン」なパネルレイアウト
   const panel = document.createElement('div');
   panel.id = 'my-panel';
-  panel.style.cssText = 'position:fixed; bottom:100px; left:50%; transform:translateX(-50%); background:#fff; padding:15px; border-radius:15px; box-shadow:0 8px 30px rgba(0,0,0,0.3); z-index:100000; width:95%; border:3px solid #F39C12; text-align:center; box-sizing:border-box;';
+  panel.style.cssText = `
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #ffffff;
+    padding: 16px;
+    border-radius: 16px;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+    z-index: 100000;
+    width: 92%;
+    max-width: 420px;
+    border: 1px solid #e2e8f0;
+    text-align: center;
+    box-sizing: border-box;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  `;
+
   panel.innerHTML = `
-    <div id="my-st" style="font-weight:bold;margin-bottom:10px;font-size:18px;padding-right:24px;">📸 写真を撮影してください</div>
-    <div id="my-previews" style="display:none; gap:12px; overflow-x:auto; margin-bottom:12px; padding-bottom:10px; scroll-behavior: smooth;"></div>
-    <div id="my-progress-container" style="display:none; width:100%; height:14px; background:#ecf0f1; border-radius:7px; margin-bottom:15px; overflow:hidden; border:1px solid #ccc;">
-      <div id="my-progress-bar" style="width:0%; height:100%; background:linear-gradient(90deg, #F39C12, #2ecc71); transition: width 0.3s ease-out;"></div>
+    <div id="my-st" style="font-weight:600; margin-bottom:12px; font-size:15px; color:#334155;">写真を撮影・選択してください</div>
+    <div id="my-previews" style="display:none; gap:10px; overflow-x:auto; margin-bottom:12px; padding-bottom:6px; scroll-behavior: smooth;"></div>
+    
+    <div id="my-progress-container" style="display:none; width:100%; height:8px; background:#f1f5f9; border-radius:4px; margin-bottom:12px; overflow:hidden;">
+      <div id="my-progress-bar" style="width:0%; height:100%; background:#0284c7; transition: width 0.3s ease;"></div>
     </div>
     
-    <!-- 🔄 未送信データ専用の再送ボタン -->
-    <button id="my-resend-btn" style="display:none; width:100%; padding:18px; background:#e74c3c; color:#fff; border:none; border-radius:10px; font-weight:bold; font-size:18px; margin-bottom:10px; box-shadow:0 4px 6px rgba(0,0,0,0.1); cursor:pointer;">🔄 未送信写真を再送信</button>
+    <button id="my-resend-btn" style="display:none; width:100%; padding:12px; background:#ef4444; color:#fff; border:none; border-radius:8px; font-weight:600; font-size:14px; margin-bottom:8px; cursor:pointer;">未送信画像を再送信</button>
 
-    <button id="my-add" style="width:100%;padding:18px;background:#F39C12;color:#fff;border:none;border-radius:10px;font-weight:bold;font-size:20px;margin-bottom:10px;box-shadow: 0 4px 6px rgba(0,0,0,0.1);">📷 写真を撮影 (追加)</button>
-    <button id="my-up" style="width:100%;padding:15px;background:#bdc3c7;color:#fff;border:none;border-radius:10px;font-weight:bold;font-size:18px;" disabled>📤 まとめて送信</button>
+    <div style="display:flex; gap:8px;">
+      <button id="my-add" style="flex:1; padding:12px; background:#f8fafc; color:#0f172a; border:1px solid #cbd5e1; border-radius:8px; font-weight:600; font-size:14px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:4px;">
+        <span>📷</span> 写真を追加
+      </button>
+      <button id="my-up" style="flex:1; padding:12px; background:#e2e8f0; color:#94a3b8; border:none; border-radius:8px; font-weight:600; font-size:14px; cursor:pointer;" disabled>
+        送信する
+      </button>
+    </div>
     <input id="my-input" type="file" accept="image/*" capture="environment" style="display:none;">
   `;
   document.body.appendChild(panel);
 
   const closePanelBtn = document.createElement('div');
   closePanelBtn.id = 'my-panel-close';
-  closePanelBtn.innerHTML = '×';
-  closePanelBtn.style.cssText = 'position:absolute; top:8px; right:10px; background:#7f8c8d; color:#fff; width:26px; height:26px; border-radius:50%; text-align:center; line-height:22px; cursor:pointer; font-weight:bold; font-size:18px; z-index:100001; box-shadow:0 2px 5px rgba(0,0,0,0.2);';
+  closePanelBtn.innerHTML = '✕';
+  closePanelBtn.style.cssText = 'position:absolute; top:12px; right:12px; color:#94a3b8; width:20px; height:20px; text-align:center; line-height:20px; cursor:pointer; font-size:12px; z-index:100001;';
 
   closePanelBtn.onclick = (e) => {
     e.preventDefault();
-    if (confirm('写真をすべてクリアして、この撮影パネルを閉じますか？\n（元の標準アップロードボタンに戻ります）')) {
+    if (confirm('追加した写真をクリアしてパネルを閉じますか？')) {
       window.myAppClosed = true;
       imageQueue.forEach(item => {
         if (item && item.previewUrl) URL.revokeObjectURL(item.previewUrl);
@@ -324,7 +317,6 @@ export function initContinuousUpload() {
   const hi = document.getElementById('my-input');
   document.getElementById('my-add').onclick = (e) => { e.preventDefault(); hi.click(); };
 
-  // 🔄 未送信再送ボタンのクリックイベント（確実リフレッシュ版）
   document.getElementById('my-resend-btn').onclick = async (e) => {
     e.preventDefault();
     const savedImages = await getSavedImages();
@@ -349,7 +341,7 @@ export function initContinuousUpload() {
             const filePercent = ev.loaded / ev.total;
             const totalPercent = ((i + filePercent) / savedImages.length) * 100;
             pb.style.width = totalPercent + '%';
-            document.getElementById('my-st').innerHTML = `⏳ 再送信中 (${i+1}/${savedImages.length})`;
+            document.getElementById('my-st').innerHTML = `<span style="color:#0284c7;">再送信中 (${i+1}/${savedImages.length})</span>`;
           };
           xhr.onload = () => {
             if (xhr.status >= 200 && xhr.status < 300) res();
@@ -367,20 +359,12 @@ export function initContinuousUpload() {
       }
     }
 
-    // 🎉 送信完了後：DBを完全に消去してから確実に画面リフレッシュ！
     pb.style.width = '100%';
-    document.getElementById('my-st').innerHTML = '🎉 再送信が完了しました！';
+    document.getElementById('my-st').innerHTML = '送信完了';
 
-    try {
-      await clearSavedImages();
-    } catch (e) {
-      console.error("DB削除エラー", e);
-    }
+    try { await clearSavedImages(); } catch (e) {}
 
-    // 0.5秒後に確実に画面を更新！
-    setTimeout(() => {
-      window.location.href = window.location.href;
-    }, 500);
+    setTimeout(() => { window.location.href = window.location.href; }, 400);
   };
 
   hi.onchange = async (e) => {
@@ -410,7 +394,6 @@ export function initContinuousUpload() {
     }
   };
 
-  // 📤 まとめて送信（エラー時にIndexedDBへ自動保存）
   document.getElementById('my-up').onclick = async (e) => {
     e.preventDefault();
     const activeItems = imageQueue.filter(i => i !== null && i.status === 'ready');
@@ -437,7 +420,7 @@ export function initContinuousUpload() {
             const filePercent = ev.loaded / ev.total;
             const totalPercent = ((i + filePercent) / activeItems.length) * 100;
             pb.style.width = totalPercent + '%';
-            document.getElementById('my-st').innerHTML = `⏳ 送信中 (${i+1}/${activeItems.length})`;
+            document.getElementById('my-st').innerHTML = `<span style="color:#0284c7;">送信中 (${i+1}/${activeItems.length})</span>`;
           };
           xhr.onload = () => {
             if (xhr.status >= 200 && xhr.status < 300) res();
@@ -455,16 +438,13 @@ export function initContinuousUpload() {
 
     pb.style.width = '100%';
     if (failedCount > 0) {
-      alert(`⚠️ 電波状態の影響で ${failedCount} 枚の送信に失敗しました。\n写真はスマホ内に自動保護されました。電波の良い場所で再送信できます。`);
+      alert(`通信環境の影響で ${failedCount} 件の送信に失敗しました。端末内に保護されました。`);
       window.location.href = window.location.href;
     } else {
-      document.getElementById('my-st').innerHTML = '🎉 全ての送信が完了！';
-      setTimeout(() => {
-        window.location.href = window.location.href;
-      }, 500);
+      document.getElementById('my-st').innerHTML = '送信完了';
+      setTimeout(() => { window.location.href = window.location.href; }, 400);
     }
   };
 
-  // 初期読み込み時のステータスチェック
   updateQueueStatus();
 }

@@ -16,6 +16,9 @@ observeDOM(() => {
         case "login": // ★ ログイン画面の識別名（または画面問わず常に実行）
             initAutoLogin();
             break;
+        case "upload": // ★ ここを追加！！
+            initContinuousUpload();
+            break;
     }
     // 2. 画面問わず、パスワード入力枠があれば自動ログイン処理を動かす
     initAutoLogin();

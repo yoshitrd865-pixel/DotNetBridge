@@ -3,27 +3,43 @@ import { getCurrentPage } from './modules/router.js';
 import { initStripePay } from './modules/stripe-pay.js';
 import { initAutoLogin } from './modules/auto-login.js';
 import { initContinuousUpload } from './modules/continuous-upload.js';
-import { initSettingsMenu } from './modules/settings.js'; // ★ 追加
+import { initSettingsMenu, getSettings } from './modules/settings.js';
 
-console.log("[ProxyInject] エンジン起動"); // ★ 復活！
+console.log("[ProxyInject] エンジン起動");
 
 const page = getCurrentPage();
 
+// 🛡️ 機能がONの時だけ安全に実行する一括ガード関数
+function runIfEnabled(featureId, action) {
+    const settings = getSettings();
+    if (settings[featureId]) {
+        action();
+    } else {
+        console.log(`[ProxyInject] ${featureId} は設定でOFFのためスキップ`);
+    }
+}
+
 observeDOM(() => {
+    // ⚙️ メニュー画面のカスタマイズカード表示（これは常に起動）
+    if (page === "menu") {
+        initSettingsMenu();
+    }
+
+    // 各機能の呼び出し（ここで一括判定！）
     switch (page) {
-        case "menu":
-            initSettingsMenu(); // ★ メニュー画面にカスタマイズカードを表示
-            break;
         case "receipt":
-            initStripePay();
+            runIfEnabled("hhc_pay_kun", initStripePay);
             break;
+
         case "login":
-            initAutoLogin();
+            runIfEnabled("auto_login", initAutoLogin);
             break;
+
         case "upload":
-            initContinuousUpload();
+            runIfEnabled("continuous_upload", initContinuousUpload);
             break;
     }
 
-    initAutoLogin();
+    // 画面問わず動作する自動ログイン
+    runIfEnabled("auto_login", initAutoLogin);
 });

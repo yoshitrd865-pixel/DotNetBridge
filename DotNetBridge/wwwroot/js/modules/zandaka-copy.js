@@ -206,7 +206,7 @@ function processDocument(doc) {
             const dm = text.match(/[0-9]{4}\/[0-9]{1,2}\/[0-9]{1,2}/);
             if (dm) currentSlipDate = toWareki(dm[0]);
         }
-        if (/[@＠][0-9０-警]/.test(text) && !tr.querySelector('input:not([type="hidden"]), select, textarea')) {
+        if (/[@＠][0-9０-９]/.test(text) && !tr.querySelector('input:not([type="hidden"]), select, textarea')) {
             if (!tr.dataset.cancelBtn) tr.dataset.cancelBtn = "false";
             if (!isRed) {
                 tr.dataset.slipDate = currentSlipDate;

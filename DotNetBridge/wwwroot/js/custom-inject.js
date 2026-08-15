@@ -5,6 +5,7 @@ import { initAutoLogin } from './modules/auto-login.js';
 import { initContinuousUpload } from './modules/continuous-upload.js';
 import { initSettingsMenu, getSettings } from './modules/settings.js';
 import { initInspectionWarp } from './modules/inspection-warp.js';
+import { initZandakaCopy } from './modules/zandaka-copy.js';
 
 console.log("[ProxyInject] エンジン起動");
 
@@ -45,4 +46,5 @@ observeDOM(() => {
     runIfEnabled("auto_login", initAutoLogin);
     // 📸 点検BOXワープ ＆ 戻るボタン修復（★ここに追加！）
     runIfEnabled("tenkenbox_worp", initInspectionWarp);
+    runIfEnabled("zandaka_copy", initZandakaCopy);
 });

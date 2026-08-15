@@ -1,25 +1,27 @@
 import { observeDOM } from './modules/common.js';
 import { getCurrentPage } from './modules/router.js';
 import { initStripePay } from './modules/stripe-pay.js';
-import { initAutoLogin } from './modules/auto-login.js'; // ★ 追加
-import { initContinuousUpload } from './modules/continuous-upload.js'; // ★ 追加
-
-console.log("[ProxyInject] エンジン起動");
+import { initAutoLogin } from './modules/auto-login.js';
+import { initContinuousUpload } from './modules/continuous-upload.js';
+import { initSettingsMenu } from './settings.js'; // ★ 追加
 
 const page = getCurrentPage();
 
 observeDOM(() => {
     switch (page) {
+        case "menu":
+            initSettingsMenu(); // ★ メニュー画面にカスタマイズカードを表示
+            break;
         case "receipt":
             initStripePay();
             break;
-        case "login": // ★ ログイン画面の識別名（または画面問わず常に実行）
+        case "login":
             initAutoLogin();
             break;
-        case "upload": // ★ ここを追加！！
+        case "upload":
             initContinuousUpload();
             break;
     }
-    // 2. 画面問わず、パスワード入力枠があれば自動ログイン処理を動かす
+
     initAutoLogin();
 });

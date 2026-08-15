@@ -251,12 +251,12 @@ export function initContinuousUpload() {
   const originalSubmit = form ? form.querySelector('input[type="submit"], button[type="submit"]') : null;
   if (originalSubmit) originalSubmit.style.display = 'none';
 
-// 🏛️ シックデザイン × 撮影ボタン連打位置を復元したレイアウト
+// 🏛️ カード位置を少しだけ上に持ち上げて完璧な余白へ！
   const panel = document.createElement('div');
   panel.id = 'my-panel';
   panel.style.cssText = `
     position: fixed;
-    bottom: 75px;
+    bottom: 92px; /* ★ 75px から 92px に持ち上げ！ */
     left: 50%;
     transform: translateX(-50%);
     background: #ffffff;

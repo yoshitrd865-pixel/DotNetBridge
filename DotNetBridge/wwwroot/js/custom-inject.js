@@ -16,8 +16,6 @@ observeDOM(() => {
             initAutoLogin();
             break;
     }
-    
-    // ※もしパスワード枠がある画面全てで自動判定させたい場合は、
-    // switchの外で以下のように直接呼び出してもOKです
-    // initAutoLogin();
+    // 2. 画面問わず、パスワード入力枠があれば自動ログイン処理を動かす
+    initAutoLogin();
 });

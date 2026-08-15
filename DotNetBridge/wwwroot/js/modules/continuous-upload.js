@@ -4,6 +4,58 @@ let imageQueue = [];
 let wakeLock = null;
 let compressingCount = 0;
 
+// 💾 IndexedDB 設定（オフライン永続化用）
+const DB_NAME = 'TFK_OfflineUploadDB';
+const STORE_NAME = 'failed_uploads';
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+// 未送信の写真をIndexedDBへ保存
+async function saveFailedImage(file, formAction, inputName) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    const store = tx.objectStore(STORE_NAME);
+    store.add({
+      file: file,
+      fileName: file.name,
+      formAction: formAction,
+      inputName: inputName,
+      timestamp: Date.now()
+    });
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+// 保存されている未送信写真の件数を取得
+async function getSavedCount() {
+  try {
+    const db = await openDB();
+    return new Promise((resolve) => {
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const store = tx.objectStore(STORE_NAME);
+      const req = store.count();
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => resolve(0);
+    });
+  } catch (e) {
+    return 0;
+  }
+}
+
 // ⚙️ Web Worker & OffscreenCanvas ロジック
 const workerScript = `
   self.onmessage = async function(e) {
@@ -77,14 +129,12 @@ function compressImage(file) {
         );
         resolve(compressedFile);
       } else {
-        console.error("[ContinuousUpload] Worker圧縮エラー:", e.data.error);
         reject(new Error(e.data.error));
       }
       worker.terminate();
     };
 
     worker.onerror = (err) => {
-      console.error("[ContinuousUpload] Worker致命的エラー:", err);
       reject(err);
       worker.terminate();
     };
@@ -154,7 +204,7 @@ function finalizePreview(index, compressedFile) {
   });
 }
 
-function updateQueueStatus() {
+async function updateQueueStatus() {
   const activeQueue = imageQueue.filter(i => i !== null);
   const readyFiles = activeQueue.filter(i => i.status === 'ready');
   const isCompressing = activeQueue.some(i => i.status === 'compressing');
@@ -162,6 +212,9 @@ function updateQueueStatus() {
   const st = document.getElementById('my-st');
   const upBtn = document.getElementById('my-up');
   const previewsContainer = document.getElementById('my-previews');
+
+  // 未送信DB件数を取得
+  const savedCount = await getSavedCount();
 
   if (activeQueue.length > 0) {
     previewsContainer.style.display = 'flex';
@@ -172,6 +225,8 @@ function updateQueueStatus() {
   if (st) {
     if (isCompressing) {
       st.innerHTML = `⏳ <span style="color:#7f8c8d;">画像を処理中です...</span>`;
+    } else if (savedCount > 0) {
+      st.innerHTML = `⚠️ <span style="color:#e74c3c;font-weight:bold;">未送信が ${savedCount} 枚保存されています</span>`;
     } else {
       st.innerHTML = `📦 <span style="font-size:22px;color:#27AE60;font-weight:bold;">${readyFiles.length}</span> 枚 送信可能`;
     }
@@ -194,7 +249,6 @@ function updateQueueStatus() {
   }
 }
 
-// 🚀 モジュール外部へ公開するメイン関数
 export function initContinuousUpload() {
   if (window.myAppClosed) return;
 
@@ -230,12 +284,10 @@ export function initContinuousUpload() {
     e.preventDefault();
     if (confirm('写真をすべてクリアして、この撮影パネルを閉じますか？\n（元の標準アップロードボタンに戻ります）')) {
       window.myAppClosed = true;
-
       imageQueue.forEach(item => {
         if (item && item.previewUrl) URL.revokeObjectURL(item.previewUrl);
       });
       imageQueue = [];
-
       panel.remove();
       targetInput.style.display = 'block';
       if (originalSubmit) originalSubmit.style.display = 'block';
@@ -256,7 +308,6 @@ export function initContinuousUpload() {
       updateQueueStatus();
 
       hi.value = '';
-
       await requestWakeLockIfNeeded();
 
       try {
@@ -274,6 +325,7 @@ export function initContinuousUpload() {
     }
   };
 
+  // 📤 まとめて送信（エラー時にIndexedDBへ自動保存）
   document.getElementById('my-up').onclick = async (e) => {
     e.preventDefault();
     const activeItems = imageQueue.filter(i => i !== null && i.status === 'ready');
@@ -284,6 +336,8 @@ export function initContinuousUpload() {
     closePanelBtn.style.display = 'none';
     const pb = document.getElementById('my-progress-bar');
     document.getElementById('my-progress-container').style.display = 'block';
+
+    let failedCount = 0;
 
     for (let i = 0; i < activeItems.length; i++) {
       const fd = new FormData(form);
@@ -302,20 +356,29 @@ export function initContinuousUpload() {
           };
           xhr.onload = () => {
             if (xhr.status >= 200 && xhr.status < 300) res();
-            else rej();
+            else rej(new Error('HTTP Error: ' + xhr.status));
           };
-          xhr.onerror = () => rej();
+          xhr.onerror = () => rej(new Error('Network Error'));
           xhr.send(fd);
         });
         await uploadPromise;
       } catch (err) {
-        alert("送信に失敗しました。電波の良い環境で再試行してください。");
-        location.reload();
-        return;
+        // 🛡️ 電波エラー！端末のIndexedDBへ保存！
+        failedCount++;
+        await saveFailedImage(fileObj, form.action || window.location.href, targetInput.name);
       }
     }
+
     pb.style.width = '100%';
-    document.getElementById('my-st').innerHTML = '🎉 全ての送信が完了！';
-    setTimeout(() => location.reload(), 800);
+    if (failedCount > 0) {
+      alert(`⚠️ 電波状態の影響で ${failedCount} 枚の送信に失敗しました。\n写真はスマホ内に自動保護されました。電波の良い場所で再送信できます。`);
+      location.reload();
+    } else {
+      document.getElementById('my-st').innerHTML = '🎉 全ての送信が完了！';
+      setTimeout(() => location.reload(), 800);
+    }
   };
+
+  // 初期読み込み時のステータスチェック
+  updateQueueStatus();
 }

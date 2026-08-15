@@ -1,14 +1,9 @@
 // wwwroot/js/modules/auto-login.js
 
-import { getSettings } from './settings.js';
-
 const STORAGE_KEY = 'tfk_auto_login_data';
-let isEventListenerAttached = false; // ★ 二重リスナー登録＆ダイアログ無限ループ防止フラグ
+let isEventListenerAttached = false; // 重複登録防止
 
 export function initAutoLogin() {
-    // ⚙️ 設定で「自動ログイン」がOFFになっている場合は発動させない
-    if (!getSettings().auto_login) return;
-
     const pwInput = document.querySelector('input[type="password"]');
     if (!pwInput) return;
 
@@ -17,7 +12,7 @@ export function initAutoLogin() {
 
     const savedDataJson = localStorage.getItem(STORAGE_KEY);
 
-    // 🚀 発動モード：記憶データがあれば自動入力して即送信
+    // 🚀 発動モード：記憶データがあればローディングを出して自動送信
     if (savedDataJson) {
         try {
             const data = JSON.parse(savedDataJson);
@@ -32,7 +27,8 @@ export function initAutoLogin() {
             }
 
             if (filled) {
-                showResetButton();
+                // 🎨 かっこいいローディング画面を最前面に表示！
+                showLoadingOverlay();
 
                 setTimeout(() => {
                     const submitBtn = form.querySelector('input[type="submit"], button[type="submit"], input[value*="ログイン"], input[value*="ﾛｸﾞｲﾝ"], a[href*="login"]');
@@ -41,7 +37,7 @@ export function initAutoLogin() {
                     } else {
                         form.submit();
                     }
-                }, 1200);
+                }, 800);
             }
         } catch (e) {
             console.error("[AutoLogin] エラー:", e);
@@ -49,11 +45,9 @@ export function initAutoLogin() {
     } 
     // 💾 記憶モード：データがなければ送信イベントをフック
     else {
-        // すでにリスナーをセット済みの場合は重ねて登録しない（無限ループ防止）
         if (isEventListenerAttached) return;
 
         const handleSaveAndSubmit = (e) => {
-            // 一旦フォームのデフォルト送信をストップ
             e.preventDefault();
 
             const inputs = form.querySelectorAll('input[type="text"], input[type="number"], input[type="email"], input[type="password"]');
@@ -66,38 +60,62 @@ export function initAutoLogin() {
             });
 
             if (Object.keys(data).length > 0) {
-                // 確認ダイアログを表示
                 if (confirm('🔒 このログイン情報を端末に記憶して、次回から自動でログインしますか？')) {
                     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
                 }
             }
 
-            // 保存処理完了後、イベントを取り除いて本来のフォーム送信を実行！
             form.removeEventListener('submit', handleSaveAndSubmit);
             form.submit();
         };
 
         form.addEventListener('submit', handleSaveAndSubmit);
-        isEventListenerAttached = true; // ★ 登録済みフラグを立てる
+        isEventListenerAttached = true;
     }
 }
 
-function showResetButton() {
-    if (document.getElementById('auto-login-reset-btn')) return;
+// 👑 アプリ風かっこいいローディング表示関数
+function showLoadingOverlay() {
+    if (document.getElementById('auto-login-loading-overlay')) return;
 
-    const resetBtn = document.createElement('div');
-    resetBtn.id = 'auto-login-reset-btn';
-    resetBtn.innerHTML = '🔄 自動ログインを解除';
-    resetBtn.style.cssText = 'position:fixed; top:15px; left:15px; background:rgba(231, 76, 60, 0.95); color:white; padding:10px 15px; border-radius:8px; z-index:999999; cursor:pointer; font-weight:bold; box-shadow: 0 4px 6px rgba(0,0,0,0.3);';
-    
-    resetBtn.onclick = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        localStorage.removeItem(STORAGE_KEY);
-        alert('自動ログイン設定を解除しました。次回から手動入力になります。');
-        resetBtn.remove();
-        window.location.reload();
-    };
+    const overlay = document.createElement('div');
+    overlay.id = 'auto-login-loading-overlay';
+    overlay.style.cssText = `
+        position: fixed;
+        top: 0; left: 0; width: 100vw; height: 100vh;
+        background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        z-index: 999999;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        color: #ffffff;
+        animation: fadeIn 0.2s ease-in-out;
+    `;
 
-    document.body.appendChild(resetBtn);
+    overlay.innerHTML = `
+        <style>
+            @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+            @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+            .tfk-spinner {
+                width: 48px;
+                height: 48px;
+                border: 4px solid rgba(255, 255, 255, 0.15);
+                border-left-color: #38bdf8;
+                border-radius: 50%;
+                animation: spin 0.8s linear infinite;
+                margin-bottom: 20px;
+            }
+        </style>
+        <div class="tfk-spinner"></div>
+        <div style="font-size: 18px; font-weight: bold; letter-spacing: 0.5px; margin-bottom: 8px;">
+            EcoMaster 接続中...
+        </div>
+        <div style="font-size: 13px; color: #94a3b8;">
+            🔒 セッションを安全に同期しています
+        </div>
+    `;
+
+    document.body.appendChild(overlay);
 }

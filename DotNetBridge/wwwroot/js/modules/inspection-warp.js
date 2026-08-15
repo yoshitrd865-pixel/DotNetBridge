@@ -3,26 +3,27 @@
 export function initInspectionWarp() {
     const url = window.location.href;
 
-    // 🛠️ 1. viewFile.asp 専用：戻るボタン修復パッチ（ボタン設置はせず即終了）
-    if (url.includes('viewFile.asp')) {
-        window.close = function() { window.history.back(); };
-
-        const fixBackButton = () => {
-            document.querySelectorAll('*').forEach(el => {
+    // 🛠️ 点検BOX（viewFile.asp）＆ 顧客BOX（viewInfo.asp）専用：戻るボタンを「閉じる(×)」化
+    if (url.includes('viewFile.asp') || url.includes('viewInfo.asp')) {
+        const fixBackButtonToClose = () => {
+            // 左上の「戻る」ボタンや、onclickに history.back() 等が仕込まれている要素を抽出して上書き
+            document.querySelectorAll('a, div, button, span, img').forEach(el => {
                 const oc = el.getAttribute('onclick') || "";
-                if (oc.includes('window.close') || oc.includes('self.close')) {
-                    el.setAttribute('onclick', 'window.history.back();');
+                
+                // 戻る挙動の onclick が設定されている要素を window.close() に変更
+                if (oc.includes('history.back') || oc.includes('viewInfo') || oc.includes('menu')) {
+                    el.setAttribute('onclick', 'window.close();');
                 }
             });
         };
 
-        fixBackButton();
-        setTimeout(fixBackButton, 500);
-        setInterval(fixBackButton, 2000);
-        return; // ★ viewFile.asp ではここで処理終了
+        fixBackButtonToClose();
+        setTimeout(fixBackButtonToClose, 500);
+        setInterval(fixBackButtonToClose, 2000);
+        return; // ワープボタン生成処理へは進ませない
     }
 
-    // 🎨 2. 顧客BOXリンク（a[href*="viewInfo.asp"]）の常時監視 ＆ ワープボタン生成
+    // 🎨 2. 顧客BOXリンクの常時監視 ＆ ワープボタン生成
     const checkAndApply = () => {
         const kokyakuLink = document.querySelector('a[href*="viewInfo.asp"]');
         if (kokyakuLink) {

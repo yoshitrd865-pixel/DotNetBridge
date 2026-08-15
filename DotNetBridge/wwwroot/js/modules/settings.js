@@ -6,7 +6,7 @@ export const FEATURES = [
     { id: "app_lock", name: "🔐 アプリ起動ロック", default: false, implemented: false },
     { id: "quick_tenken", name: "⚡ 超・クイック点検くん", default: false, implemented: false },
     { id: "zandaka_copy", name: "📋 残高コピーくん", default: false, implemented: false },
-    { id: "tenkenbox_worp", name: "📦 点検BOXワープくん", default: false, implemented: false },
+    { id: "tenkenbox_worp", name: "📦 点検BOXワープくん", default: true, implemented: true }, // ★ 初期ON
     { id: "auto_login", name: "🔑 自動ログインくん", default: true, implemented: true }, // ★ 初期ON
     { id: "claude_fusen", name: "📝 クラウド付箋くん", default: false, implemented: false },
     { id: "mitenken_map", name: "🗺️ 未点検マップ化くん", default: false, implemented: false },

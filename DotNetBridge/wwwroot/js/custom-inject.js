@@ -44,5 +44,5 @@ observeDOM(() => {
     // 画面問わず動作する自動ログイン
     runIfEnabled("auto_login", initAutoLogin);
     // 📸 点検BOXワープ ＆ 戻るボタン修復（★ここに追加！）
-    runIfEnabled("inspection_warp", initInspectionWarp);
+    runIfEnabled("tenkenbox_worp", initInspectionWarp);
 });

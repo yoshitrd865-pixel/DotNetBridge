@@ -40,20 +40,34 @@ async function saveFailedImage(file, formAction, inputName) {
   });
 }
 
-// 保存されている未送信写真の件数を取得
-async function getSavedCount() {
+// 保存されている未送信写真を取得
+async function getSavedImages() {
   try {
     const db = await openDB();
     return new Promise((resolve) => {
       const tx = db.transaction(STORE_NAME, 'readonly');
       const store = tx.objectStore(STORE_NAME);
-      const req = store.count();
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => resolve(0);
+      const req = store.getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => resolve([]);
     });
   } catch (e) {
-    return 0;
+    return [];
   }
+}
+
+// 未送信データをクリア
+async function clearSavedImages() {
+  try {
+    const db = await openDB();
+    return new Promise((resolve) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORE_NAME);
+      const req = store.clear();
+      req.oncomplete = () => resolve();
+      req.onerror = () => resolve();
+    });
+  } catch (e) {}
 }
 
 // ⚙️ Web Worker & OffscreenCanvas ロジック
@@ -211,10 +225,10 @@ async function updateQueueStatus() {
 
   const st = document.getElementById('my-st');
   const upBtn = document.getElementById('my-up');
+  const resendBtn = document.getElementById('my-resend-btn');
   const previewsContainer = document.getElementById('my-previews');
 
-  // 未送信DB件数を取得
-  const savedCount = await getSavedCount();
+  const savedImages = await getSavedImages();
 
   if (activeQueue.length > 0) {
     previewsContainer.style.display = 'flex';
@@ -222,13 +236,21 @@ async function updateQueueStatus() {
     previewsContainer.style.display = 'none';
   }
 
-  if (st) {
-    if (isCompressing) {
-      st.innerHTML = `⏳ <span style="color:#7f8c8d;">画像を処理中です...</span>`;
-    } else if (savedCount > 0) {
-      st.innerHTML = `⚠️ <span style="color:#e74c3c;font-weight:bold;">未送信が ${savedCount} 枚保存されています</span>`;
-    } else {
-      st.innerHTML = `📦 <span style="font-size:22px;color:#27AE60;font-weight:bold;">${readyFiles.length}</span> 枚 送信可能`;
+  // 🔄 未送信再送ボタンの表示切り替え
+  if (savedImages.length > 0 && readyFiles.length === 0 && !isCompressing) {
+    if (resendBtn) {
+      resendBtn.style.display = 'block';
+      resendBtn.innerText = `🔄 未送信写真 (${savedImages.length}枚) を再送信`;
+    }
+    if (st) st.innerHTML = `⚠️ <span style="color:#e74c3c;font-weight:bold;">未送信が ${savedImages.length} 枚保存されています</span>`;
+  } else {
+    if (resendBtn) resendBtn.style.display = 'none';
+    if (st) {
+      if (isCompressing) {
+        st.innerHTML = `⏳ <span style="color:#7f8c8d;">画像を処理中です...</span>`;
+      } else {
+        st.innerHTML = `📦 <span style="font-size:22px;color:#27AE60;font-weight:bold;">${readyFiles.length}</span> 枚 送信可能`;
+      }
     }
   }
 
@@ -269,6 +291,10 @@ export function initContinuousUpload() {
     <div id="my-progress-container" style="display:none; width:100%; height:14px; background:#ecf0f1; border-radius:7px; margin-bottom:15px; overflow:hidden; border:1px solid #ccc;">
       <div id="my-progress-bar" style="width:0%; height:100%; background:linear-gradient(90deg, #F39C12, #2ecc71); transition: width 0.3s ease-out;"></div>
     </div>
+    
+    <!-- 🔄 未送信データ専用の再送ボタン -->
+    <button id="my-resend-btn" style="display:none; width:100%; padding:18px; background:#e74c3c; color:#fff; border:none; border-radius:10px; font-weight:bold; font-size:18px; margin-bottom:10px; box-shadow:0 4px 6px rgba(0,0,0,0.1); cursor:pointer;">🔄 未送信写真を再送信</button>
+
     <button id="my-add" style="width:100%;padding:18px;background:#F39C12;color:#fff;border:none;border-radius:10px;font-weight:bold;font-size:20px;margin-bottom:10px;box-shadow: 0 4px 6px rgba(0,0,0,0.1);">📷 写真を撮影 (追加)</button>
     <button id="my-up" style="width:100%;padding:15px;background:#bdc3c7;color:#fff;border:none;border-radius:10px;font-weight:bold;font-size:18px;" disabled>📤 まとめて送信</button>
     <input id="my-input" type="file" accept="image/*" capture="environment" style="display:none;">
@@ -297,6 +323,60 @@ export function initContinuousUpload() {
 
   const hi = document.getElementById('my-input');
   document.getElementById('my-add').onclick = (e) => { e.preventDefault(); hi.click(); };
+
+  // 🔄 未送信再送ボタンのクリックイベント
+  document.getElementById('my-resend-btn').onclick = async (e) => {
+    e.preventDefault();
+    const savedImages = await getSavedImages();
+    if (savedImages.length === 0) return;
+
+    document.getElementById('my-resend-btn').disabled = true;
+    document.getElementById('my-add').disabled = true;
+    closePanelBtn.style.display = 'none';
+    const pb = document.getElementById('my-progress-bar');
+    document.getElementById('my-progress-container').style.display = 'block';
+
+    let successCount = 0;
+
+    for (let i = 0; i < savedImages.length; i++) {
+      const item = savedImages[i];
+      const fd = new FormData(form);
+      fd.set(targetInput.name, item.file, item.fileName);
+
+      try {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', item.formAction || form.action || window.location.href);
+        const uploadPromise = new Promise((res, rej) => {
+          xhr.upload.onprogress = (ev) => {
+            const filePercent = ev.loaded / ev.total;
+            const totalPercent = ((i + filePercent) / savedImages.length) * 100;
+            pb.style.width = totalPercent + '%';
+            document.getElementById('my-st').innerHTML = `⏳ 再送信中 (${i+1}/${savedImages.length})`;
+          };
+          xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) res();
+            else rej();
+          };
+          xhr.onerror = () => rej();
+          xhr.send(fd);
+        });
+        await uploadPromise;
+        successCount++;
+      } catch (err) {
+        alert("再送信に失敗しました。電波状態を確認してください。");
+        document.getElementById('my-resend-btn').disabled = false;
+        document.getElementById('my-add').disabled = false;
+        closePanelBtn.style.display = 'block';
+        return;
+      }
+    }
+
+    // 全て成功したらDBを削除してリロード
+    await clearSavedImages();
+    pb.style.width = '100%';
+    document.getElementById('my-st').innerHTML = '🎉 再送信が完了しました！';
+    setTimeout(() => location.reload(), 800);
+  };
 
   hi.onchange = async (e) => {
     if (e.target.files && e.target.files.length > 0) {
@@ -356,14 +436,13 @@ export function initContinuousUpload() {
           };
           xhr.onload = () => {
             if (xhr.status >= 200 && xhr.status < 300) res();
-            else rej(new Error('HTTP Error: ' + xhr.status));
+            else rej();
           };
-          xhr.onerror = () => rej(new Error('Network Error'));
+          xhr.onerror = () => rej();
           xhr.send(fd);
         });
         await uploadPromise;
       } catch (err) {
-        // 🛡️ 電波エラー！端末のIndexedDBへ保存！
         failedCount++;
         await saveFailedImage(fileObj, form.action || window.location.href, targetInput.name);
       }

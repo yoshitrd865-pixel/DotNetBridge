@@ -248,31 +248,51 @@ function processDocument(doc) {
 
         const isAlreadySaved = savedMemos.includes(formattedMemo);
         let btn = tr.querySelector('.hhc-copy-btn');
+
         if (!btn) {
-            firstTd.style.position = 'relative'; firstTd.style.paddingRight = '85px';
-            btn = doc.createElement('button'); btn.className = 'hhc-copy-btn';
+            firstTd.style.position = 'relative'; 
+            firstTd.style.paddingRight = '85px';
+            btn = doc.createElement('button'); 
+            btn.className = 'hhc-copy-btn';
             btn.style.cssText = 'position:absolute;right:10px;top:50%;transform:translateY(-50%);color:white;border:none;padding:6px 12px;border-radius:4px;font-size:12px;font-weight:bold;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,0.2);z-index:10;';
             firstTd.appendChild(btn);
         }
 
-        if (isAlreadySaved) {
-            btn.innerHTML = '✓ 追加済'; btn.style.background = '#95a5a6'; btn.style.cursor = 'default'; btn.disabled = true;
+        // 🛡️ すでにユーザーが追加済みの状態なら、再監視で上書きしないよう保護
+        if (btn.dataset.added === "true" || isAlreadySaved) {
+            btn.innerHTML = '✓ 追加済'; 
+            btn.style.background = '#95a5a6'; 
+            btn.style.cursor = 'default'; 
+            btn.disabled = true;
+            btn.dataset.added = "true";
         } else {
-            btn.innerHTML = '📋 Copy'; btn.style.background = '#0284c7'; btn.style.cursor = 'pointer'; btn.disabled = false;
+            btn.innerHTML = '📋 Copy'; 
+            btn.style.background = '#0284c7'; 
+            btn.style.cursor = 'pointer'; 
+            btn.disabled = false;
 
             btn.onclick = (e) => {
                 e.stopPropagation();
+                e.preventDefault(); // ★ イベントの連動（フォーム送信・ページ遷移等）を防止
+
                 const currentId = getCurrentId();
                 let data = Storage.load() || { id: currentId, timestamp: Date.now(), memos: [] };
                 if (!data.memos.includes(formattedMemo)) {
-                    data.memos.push(formattedMemo); data.timestamp = Date.now(); Storage.save(data);
+                    data.memos.push(formattedMemo); 
+                    data.timestamp = Date.now(); 
+                    Storage.save(data);
                 }
                 const count = data.memos.length;
                 const finalMemo = compressMemos(data.memos);
 
                 showToast(count === 1 ? `✅ コピーしました！\n${finalMemo}` : `✅ ${count}件目を追加・自動整理しました！\n${finalMemo}`);
 
-                btn.innerHTML = '✓ 追加済'; btn.style.background = '#95a5a6'; btn.style.cursor = 'default'; btn.disabled = true;
+                // 📌 ボタンの状態を確定して固定
+                btn.innerHTML = '✓ 追加済'; 
+                btn.style.background = '#95a5a6'; 
+                btn.style.cursor = 'default'; 
+                btn.disabled = true;
+                btn.dataset.added = "true"; // ★ 再判定での上書きをブロック！
             };
         }
     });

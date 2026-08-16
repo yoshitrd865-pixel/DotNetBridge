@@ -6,7 +6,7 @@ let isEventListenerAttached = false; // 重複登録防止
 export function initAutoLogin() {
     // 🚨 1. ログイン失敗画面（詰み防止）の判定
     const pageText = document.body ? document.body.innerText : '';
-    const isLoginErrorScreen = window.location.pathname.includes('login.asp') && pageText.includes('ログインに失敗しました');
+const isLoginErrorScreen = window.location.pathname.toLowerCase().includes('login.asp') || pageText.includes('ログインに失敗しました');
 
     if (isLoginErrorScreen) {
         handleLoginFailureUI();

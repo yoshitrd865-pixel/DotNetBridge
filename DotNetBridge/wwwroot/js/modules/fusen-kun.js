@@ -20,7 +20,13 @@ export function initFusenKun() {
     let isFetching = false;
     let currentTab = 'active';
 
-    const isMobileMode = (typeof window.AndroidGPS !== 'undefined') || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.location.pathname.includes('mobile');
+    // 💡 スマホ・PCハイブリッド画面（DOM要素）を考慮した判定
+    const isMobileMode = (typeof window.AndroidGPS !== 'undefined') 
+        || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) 
+        || window.location.pathname.toLowerCase().includes('mobile')
+        || window.location.pathname.toLowerCase().includes('listcheck.asp')
+        || !!document.querySelector('.ui-page, .taskItem, .pagetitle');
+
     const isPcMode = !isMobileMode;
 
     function isMobileDetailScreen() {
@@ -267,7 +273,7 @@ export function initFusenKun() {
 
         const notePreviewBox = document.createElement('div');
         notePreviewBox.id = 'tfk-remove-preview-box';
-        notePreviewBox.style.cssText = 'background:#FEF9E7; border:1px solid #F39C12; border-radius:8px; padding:10px 12px; margin-bottom:14px; font-size:14px; font-weight:bold; color:#D35400; word-break:break-all; max-height:100px; overflow-y:auto;';
+        notePreviewBox.style.cssText = 'background:#F0F9FF; border:1px solid #0284C7; border-radius:8px; padding:10px 12px; margin-bottom:14px; font-size:14px; font-weight:bold; color:#0369A1; word-break:break-all; max-height:100px; overflow-y:auto;';
 
         const removerRow = document.createElement('div');
         removerRow.style.cssText = 'display:flex; align-items:center; margin-bottom:12px; gap:8px;';
@@ -295,7 +301,7 @@ export function initFusenKun() {
                 const isSelected = selectedPresets.includes(text);
 
                 btn.style.cssText = isSelected
-                    ? 'padding:7px 12px; font-size:12px; background:#3498DB; border:1px solid #2980B9; border-radius:16px; cursor:pointer; font-weight:bold; color:#fff;'
+                    ? 'padding:7px 12px; font-size:12px; background:#0284C7; border:1px solid #0369A1; border-radius:16px; cursor:pointer; font-weight:bold; color:#fff;'
                     : 'padding:7px 12px; font-size:12px; background:#F1F5F9; border:1px solid #CBD5E1; border-radius:16px; cursor:pointer; font-weight:bold; color:#334155;';
 
                 btn.onclick = (e) => {
@@ -510,6 +516,7 @@ export function initFusenKun() {
         const colorRow = document.createElement('div');
         colorRow.style.cssText = 'display:flex; justify-content:space-around; margin-bottom:18px;';
 
+        // 📌 デフォルト先頭は黄色のまま保持
         const colors = [
             { id: 'yellow', code: '#fef08a', border: '#fde047' },
             { id: 'green', code: '#bbf7d0', border: '#86efac' },
@@ -543,9 +550,10 @@ export function initFusenKun() {
             modal.style.display = 'none';
         };
 
+        // 💡 ボタン背景色をブルー系(#0284C7)に変更
         const saveBtn = document.createElement('button');
         saveBtn.innerText = '付箋を貼る';
-        saveBtn.style.cssText = 'flex:1.5; padding:12px; border:none; background:#F39F12; color:#fff; border-radius:8px; font-size:14px; font-weight:bold; cursor:pointer; box-shadow:0 3px 8px rgba(0,0,0,0.15);';
+        saveBtn.style.cssText = 'flex:1.5; padding:12px; border:none; background:#0284C7; color:#fff; border-radius:8px; font-size:14px; font-weight:bold; cursor:pointer; box-shadow:0 3px 8px rgba(0,0,0,0.15);';
 
         btnRow.appendChild(cancelBtn);
         btnRow.appendChild(saveBtn);
@@ -634,8 +642,9 @@ export function initFusenKun() {
         const box = document.createElement('div');
         box.style.cssText = 'background:#fff; width:95%; max-width:480px; max-height:88vh; padding:20px; border-radius:16px; box-shadow:0 10px 30px rgba(0,0,0,0.35); display:flex; flex-direction:column; box-sizing:border-box;';
 
+        // 💡 モーダルヘッダー下線をブルー系(#0284C7)に変更
         const header = document.createElement('div');
-        header.style.cssText = 'display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:2px solid #F39C12; padding-bottom:8px;';
+        header.style.cssText = 'display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:2px solid #0284C7; padding-bottom:8px;';
 
         const title = document.createElement('div');
         title.id = 'tfk-my-fusen-title';
@@ -738,7 +747,8 @@ export function initFusenKun() {
             bulkLabel.innerText = `👥 画面上の表示件数: ${visibleCusts.length} 件`;
 
             if (currentTab === 'active') {
-                activeTabBtn.style.cssText = 'flex:1; padding:8px; font-size:13px; font-weight:bold; border:none; border-radius:8px; cursor:pointer; background:#FFF; color:#D35400; box-shadow:0 1px 4px rgba(0,0,0,0.12);';
+                // 💡 アクティブタブ文字色をブルー系(#0284C7)に変更
+                activeTabBtn.style.cssText = 'flex:1; padding:8px; font-size:13px; font-weight:bold; border:none; border-radius:8px; cursor:pointer; background:#FFF; color:#0284C7; box-shadow:0 1px 4px rgba(0,0,0,0.12);';
                 historyTabBtn.style.cssText = 'flex:1; padding:8px; font-size:13px; font-weight:bold; border:none; border-radius:8px; cursor:pointer; background:transparent; color:#64748B;';
 
                 let count = 0;
@@ -754,7 +764,7 @@ export function initFusenKun() {
                             if (displayName.includes('付箋') || displayName.includes('＋')) displayName = '';
 
                             let customerLabel = displayName
-                                ? `<div style="font-size:15px; font-weight:bold; color:#1A202C;">🏢 ${displayName}<span style="font-size:12px; color:#D35400;">${note.locationCity ? ' ('+note.locationCity+')' : ''}</span></div>`
+                                ? `<div style="font-size:15px; font-weight:bold; color:#1A202C;">🏢 ${displayName}<span style="font-size:12px; color:#0284C7;">${note.locationCity ? ' ('+note.locationCity+')' : ''}</span></div>`
                                 : `<div style="font-size:13px; font-weight:bold; color:#718096;">🏢 (お名前未登録)</div>`;
 
                             const topRow = document.createElement('div');
@@ -796,7 +806,7 @@ export function initFusenKun() {
                 }
 
             } else {
-                historyTabBtn.style.cssText = 'flex:1; padding:8px; font-size:13px; font-weight:bold; border:none; border-radius:8px; cursor:pointer; background:#FFF; color:#2980B9; box-shadow:0 1px 4px rgba(0,0,0,0.12);';
+                historyTabBtn.style.cssText = 'flex:1; padding:8px; font-size:13px; font-weight:bold; border:none; border-radius:8px; cursor:pointer; background:#FFF; color:#0284C7; box-shadow:0 1px 4px rgba(0,0,0,0.12);';
                 activeTabBtn.style.cssText = 'flex:1; padding:8px; font-size:13px; font-weight:bold; border:none; border-radius:8px; cursor:pointer; background:transparent; color:#64748B;';
 
                 let count = 0;
@@ -936,7 +946,8 @@ export function initFusenKun() {
                 if (!inlineBtn) {
                     inlineBtn = document.createElement('div');
                     inlineBtn.id = 'tfk-my-fusen-inline-btn';
-                    inlineBtn.style.cssText = 'margin:15px auto 5px auto; background:#F39C12; color:#fff; padding:8px 18px; border-radius:20px; font-size:13px; font-weight:bold; box-shadow:0 3px 8px rgba(0,0,0,0.2); cursor:pointer; display:inline-flex; align-items:center; gap:6px; border:2px solid #fff; text-align:center;';
+                    // 💡 ボタン背景色をブルー系(#0284C7)に変更
+                    inlineBtn.style.cssText = 'margin:15px auto 5px auto; background:#0284C7; color:#fff; padding:8px 18px; border-radius:20px; font-size:13px; font-weight:bold; box-shadow:0 3px 8px rgba(0,0,0,0.2); cursor:pointer; display:inline-flex; align-items:center; gap:6px; border:2px solid #fff; text-align:center;';
                     inlineBtn.onclick = (e) => {
                         e.preventDefault(); e.stopPropagation();
                         window.openMyFusenListModal();
@@ -972,7 +983,8 @@ export function initFusenKun() {
         if (!btn) {
             btn = document.createElement('div');
             btn.id = 'tfk-my-fusen-float-btn';
-            btn.style.cssText = 'position:fixed; bottom:30px; right:20px; background:#F39C12; color:#fff; padding:10px 18px; border-radius:24px; font-size:13px; font-weight:bold; box-shadow:0 4px 12px rgba(0,0,0,0.3); z-index:999999; cursor:pointer; display:flex; align-items:center; gap:6px; border:2px solid #fff;';
+            // 💡 スマホ用フローティングボタンの背景色をブルー系(#0284C7)に変更
+            btn.style.cssText = 'position:fixed; bottom:30px; right:20px; background:#0284C7; color:#fff; padding:10px 18px; border-radius:24px; font-size:13px; font-weight:bold; box-shadow:0 4px 12px rgba(0,0,0,0.3); z-index:999999; cursor:pointer; display:flex; align-items:center; gap:6px; border:2px solid #fff;';
             btn.onclick = (e) => {
                 e.preventDefault(); e.stopPropagation();
                 window.openMyFusenListModal();
@@ -1386,10 +1398,10 @@ export function initFusenKun() {
 
     setInterval(fetchFusenData, 30000);
 
-    // ★ 旧サーバー(tfkankyo.com)からのワンクリックデータ移行ユーティリティ
+    // ★ 旧サーバー(tfkankyo.com)からの本番キー指定型データ移行ユーティリティ
     window.migrateFusenData = async () => {
-        const oldApi = 'https://tfkankyo.com/fusenkun/fusen_api.php?domain=' + cleanDomain;
-        console.log(`[移行] 旧API (${oldApi}) からデータを取得中...`);
+        const oldApi = 'https://tfkankyo.com/fusenkun/fusen_api.php?domain=hhc-eco11.com_EcoToubuF3';
+        console.log(`[移行] 旧API (${oldApi}) から本番データを取得中...`);
         
         try {
             const res = await fetch(oldApi);

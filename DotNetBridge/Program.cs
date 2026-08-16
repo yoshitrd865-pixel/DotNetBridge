@@ -61,6 +61,10 @@ builder.WebHost.UseUrls($"http://*:{Environment.GetEnvironmentVariable("PORT") ?
 builder.Services.AddDbContext<PaymentDbContext>(options =>
     options.UseSqlite("Data Source=payment.db"));
 
+// 👇ここを追加（独立した fusen.db を作成）
+builder.Services.AddDbContext<FusenDbContext>(options =>
+    options.UseSqlite("Data Source=fusen.db"));
+
 var app = builder.Build();
 
 // ★ 追加：Renderなどのプロキシ環境下で https を正しく認識させる設定
@@ -77,8 +81,13 @@ app.UseForwardedHeaders(forwardedHeadersOptions);
 // 起動時に DB テーブルが存在しなければ自動生成
 using (var scope = app.Services.CreateScope())
 {
+    // 既存の決済用DB初期化
     var db = scope.ServiceProvider.GetRequiredService<PaymentDbContext>();
     db.Database.EnsureCreated();
+
+    // 👇ここを追加（付箋用DB初期化）
+    var fusenDb = scope.ServiceProvider.GetRequiredService<FusenDbContext>();
+    fusenDb.Database.EnsureCreated();
 }
 
 app.UseStaticFiles(); // wwwroot配下の配信を許可

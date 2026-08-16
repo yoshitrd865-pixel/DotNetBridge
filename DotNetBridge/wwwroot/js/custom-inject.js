@@ -6,6 +6,7 @@ import { initContinuousUpload } from './modules/continuous-upload.js';
 import { initSettingsMenu, getSettings } from './modules/settings.js';
 import { initInspectionWarp } from './modules/inspection-warp.js';
 import { initZandakaCopy } from './modules/zandaka-copy.js';
+import { initFusenKun } from './modules/fusen-kun.js';
 
 console.log("[ProxyInject] エンジン起動");
 
@@ -47,4 +48,5 @@ observeDOM(() => {
     // 📸 点検BOXワープ ＆ 戻るボタン修復（★ここに追加！）
     runIfEnabled("tenkenbox_worp", initInspectionWarp);
     runIfEnabled("zandaka_copy", initZandakaCopy);
+    runIfEnabled("fusen_kun", initFusenKun);
 });

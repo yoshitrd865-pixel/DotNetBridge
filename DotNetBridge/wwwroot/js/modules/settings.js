@@ -8,7 +8,7 @@ export const FEATURES = [
     { id: "zandaka_copy", name: "📜 残高コピーくん", default: true, implemented: true },
     { id: "tenkenbox_worp", name: "📦 点検BOXワープくん", default: true, implemented: true }, // ★ 初期ON
     { id: "auto_login", name: "🔑 自動ログインくん", default: true, implemented: true }, // ★ 初期ON
-    { id: "claude_fusen", name: "📝 クラウド付箋くん", default: false, implemented: false },
+    { id: "fusen_kun", name: "📝 クラウド付箋くん", default: true, implemented: true }, // ★ 初期ON
     { id: "mitenken_map", name: "🗺️ 未点検マップ化くん", default: false, implemented: false },
     { id: "hhc_pay_kun", name: "💳 HHC_Pay (QR決済)", default: true, implemented: true },   // ★ 初期ON
     { id: "seikyu_rireki_kun", name: "💳 請求書履歴くん", default: false, implemented: false },

@@ -4,6 +4,15 @@ const STORAGE_KEY = 'tfk_auto_login_data';
 let isEventListenerAttached = false; // 重複登録防止
 
 export function initAutoLogin() {
+    // 🚨 1. ログイン失敗画面（詰み防止）の判定
+    const pageText = document.body ? document.body.innerText : '';
+    const isLoginErrorScreen = window.location.pathname.includes('login.asp') && pageText.includes('ログインに失敗しました');
+
+    if (isLoginErrorScreen) {
+        handleLoginFailureUI();
+        return; // 自動送信ループを完全にブロック
+    }
+
     const pwInput = document.querySelector('input[type="password"]');
     if (!pwInput) return;
 
@@ -72,6 +81,68 @@ export function initAutoLogin() {
         form.addEventListener('submit', handleSaveAndSubmit);
         isEventListenerAttached = true;
     }
+}
+
+// 🛠️ 2. ログイン失敗時の自動クリーンアップ ＆ リセットUI表示関数
+function handleLoginFailureUI() {
+    if (document.getElementById('auto-login-reset-box')) return;
+
+    // 間違った記憶データを自動消去して無限ループを防止
+    localStorage.removeItem(STORAGE_KEY);
+
+    const container = document.createElement('div');
+    container.id = 'auto-login-reset-box';
+    container.style.cssText = `
+        position: fixed;
+        top: 20px; left: 50%;
+        transform: translateX(-50%);
+        width: 90%; max-width: 400px;
+        background: #fff3cd;
+        border: 1px solid #ffeeba;
+        border-radius: 12px;
+        padding: 20px;
+        box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+        z-index: 999999;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        text-align: center;
+        box-sizing: border-box;
+        animation: fadeIn 0.3s ease-in-out;
+    `;
+
+    container.innerHTML = `
+        <div style="font-size: 16px; font-weight: bold; color: #856404; margin-bottom: 8px;">
+            ⚠️ 自動ログインに失敗しました
+        </div>
+        <div style="font-size: 13px; color: #666; margin-bottom: 16px; line-height: 1.4;">
+            IDまたはパスワードが間違っていたため、記憶していた自動ログイン情報を自動解除しました。
+        </div>
+        <button id="reset-autologin-btn" style="
+            width: 100%;
+            padding: 12px;
+            background: #e74c3c;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 4px 10px rgba(231, 76, 60, 0.3);
+        ">
+            🔄 ログイン画面に戻ってやり直す
+        </button>
+    `;
+
+    document.body.appendChild(container);
+
+    document.getElementById('reset-autologin-btn').onclick = () => {
+        // 念のためすべての関連ストレージをクリア
+        localStorage.removeItem(STORAGE_KEY);
+        localStorage.removeItem('auto_login_id');
+        localStorage.removeItem('auto_login_pass');
+        
+        // ログイン入力画面（または直前のページ）へリダイレクト
+        window.location.href = '/'; 
+    };
 }
 
 // 👑 アプリ風かっこいいローディング表示関数

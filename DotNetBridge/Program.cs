@@ -59,11 +59,11 @@ builder.WebHost.UseUrls($"http://*:{Environment.GetEnvironmentVariable("PORT") ?
 
 // SQLite の接続設定
 builder.Services.AddDbContext<PaymentDbContext>(options =>
-    options.UseSqlite("Data Source=payment.db"));
+    options.UseSqlite("Data Source=/var/data/payment.db"));
 
 // 👇ここを追加（独立した fusen.db を作成）
 builder.Services.AddDbContext<FusenDbContext>(options =>
-    options.UseSqlite("Data Source=fusen.db"));
+    options.UseSqlite("Data Source=/var/data/fusen.db"));
 
 var app = builder.Build();
 

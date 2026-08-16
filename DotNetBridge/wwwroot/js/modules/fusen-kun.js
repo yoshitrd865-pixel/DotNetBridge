@@ -6,14 +6,15 @@ export function initFusenKun() {
     if (window.fusenKunStarted) return;
     window.fusenKunStarted = true;
 
+    // 安全なドメインキーの判定
     let host = window.location.hostname.replace(/^www\./, '');
     let pathParts = window.location.pathname.split('/').filter(p => p.length > 0);
-    let companyPath = pathParts.length > 0 ? pathParts[0] : 'root';
+    let companyPath = pathParts.length > 0 ? pathParts[0] : 'default';
 
-    let cleanDomain = host + '_' + companyPath;
+    let cleanDomain = (host + '_' + companyPath).replace(/[^a-zA-Z0-9_\-]/g, '');
     
     // ★ 内製化した C# バックエンド API エンドポイント
-    const API_URL = '/api/fusen?domain=' + cleanDomain;
+    const API_URL = '/api/fusen?domain=' + (cleanDomain || 'default_domain');
 
     let fusenDataCache = { active: {}, history: [] };
     let isFetching = false;
@@ -183,20 +184,21 @@ export function initFusenKun() {
                         fusenDataCache.active[key] = [fusenDataCache.active[key]];
                     }
                 }
-
-                if (isMobileMode) {
-                    renderFusenOnListMobile();
-                    renderFusenOnMainMobile();
-                } else if (isPcMode) {
-                    renderFusenOnEcoproList();
-                    renderFusenOnEcoproMain();
-                }
-                renderMyFusenButton();
             }
         } catch (e) {
-            console.error('[FusenKun] 付箋データの取得に失敗しました', e);
+            console.warn('[FusenKun] データ取得失敗（初期状態として起動します）', e);
+            fusenDataCache = { active: {}, history: [] };
         } finally {
             isFetching = false;
+            // エラーがあっても描画処理は必ず実行
+            if (isMobileMode) {
+                renderFusenOnListMobile();
+                renderFusenOnMainMobile();
+            } else if (isPcMode) {
+                renderFusenOnEcoproList();
+                renderFusenOnEcoproMain();
+            }
+            renderMyFusenButton();
         }
     }
 
@@ -348,7 +350,7 @@ export function initFusenKun() {
             const targetNote = fusenDataCache.active[targetId][editIndex];
             notePreviewBox.innerHTML = `<span style="font-size:11px; color:#888; display:block; margin-bottom:3px;">💬 貼られていたメモ (記入者: ${targetNote.author || '不明'})</span>「${targetNote.text}」`;
 
-            removerInput.value = localStorage.getItem('tfk_fusen_author') || '';
+            removerInput.value = localStorage.getItem('tfk_fusen_author') || '作業員';
             memoInput.value = '';
             selectedPresets = [];
             renderPresetButtons();
@@ -501,7 +503,7 @@ export function initFusenKun() {
         authorInput.type = 'text';
         authorInput.placeholder = '名前';
         authorInput.style.cssText = 'flex:1; padding:8px 10px; border:1px solid #ccc; border-radius:6px; font-size:14px;';
-        authorInput.value = localStorage.getItem('tfk_fusen_author') || '';
+        authorInput.value = localStorage.getItem('tfk_fusen_author') || '作業員';
         authorRow.appendChild(authorLabel);
         authorRow.appendChild(authorInput);
 
@@ -564,7 +566,7 @@ export function initFusenKun() {
             }
 
             textarea.value = '';
-            authorInput.value = localStorage.getItem('tfk_fusen_author') || '';
+            authorInput.value = localStorage.getItem('tfk_fusen_author') || '作業員';
 
             selectedColor = colors[0];
             Array.from(colorRow.children).forEach((child, idx) => {
@@ -680,7 +682,7 @@ export function initFusenKun() {
                 return;
             }
 
-            const currentAuthor = localStorage.getItem('tfk_fusen_author') || '不明';
+            const currentAuthor = localStorage.getItem('tfk_fusen_author') || '作業員';
             const memoText = prompt(`【表示中全員一括付箋】\n画面上の ${visibleCustomers.length} 名に一括で貼るメモ内容を入力してください:\n例: 8月清掃 / 次回清掃（12月）`, `次回清掃（12月）`);
 
             if (memoText && memoText.trim()) {
@@ -863,10 +865,10 @@ export function initFusenKun() {
         };
 
         window.openMyFusenListModal = () => {
-            const currentAuthor = localStorage.getItem('tfk_fusen_author') || '';
+            let currentAuthor = localStorage.getItem('tfk_fusen_author');
             if (!currentAuthor) {
-                alert('記入者名が設定されていません。一度付箋を登録して名前を保存してください。');
-                return;
+                currentAuthor = '作業員';
+                localStorage.setItem('tfk_fusen_author', currentAuthor);
             }
 
             title.innerText = `📝 ${currentAuthor} さんの付箋`;
@@ -902,8 +904,11 @@ export function initFusenKun() {
     }
 
     function renderMyFusenButton() {
-        const currentAuthor = localStorage.getItem('tfk_fusen_author') || '';
-        if (!currentAuthor) return;
+        let currentAuthor = localStorage.getItem('tfk_fusen_author');
+        if (!currentAuthor) {
+            currentAuthor = '作業員';
+            localStorage.setItem('tfk_fusen_author', currentAuthor);
+        }
 
         if (isPcMode) {
             let oldFixedBtn = document.querySelector('body > #tfk-my-fusen-float-btn');
@@ -1046,45 +1051,34 @@ export function initFusenKun() {
         if (isMobileDetailScreen()) return;
 
         const activePage = document.querySelector('.ui-page-active') || document.body;
-        const links = activePage.querySelectorAll('a, li, .taskItem, tr, div');
-        if (links.length === 0) return;
+        const items = activePage.querySelectorAll('.taskItem, li, tr, div[onclick], a');
+        if (items.length === 0) return;
 
-        links.forEach(link => {
-            const href = link.getAttribute('href') || '';
-            const textContent = link.innerText.trim();
+        items.forEach(container => {
             let targetId = null;
 
-            let container = link.closest('li') || link.closest('.taskItem') || link.closest('tr') || link.parentNode;
-            if (!container) return;
-
-            const jksNumEl = container.querySelector('.jksNum, .code, .number');
+            const jksNumEl = container.querySelector('.jksNum, .code, .number, .jksNo');
             if (jksNumEl) {
                 const numMatch = jksNumEl.innerText.trim().match(/^([0-9]{1,8})/);
                 if (numMatch) targetId = numMatch[1];
             }
 
             if (!targetId) {
-                const contractMatch = href.match(/(?:ContractNumber|SetUpCode|id|code)=([0-9]{1,8})/i);
-                if (contractMatch) {
-                    targetId = contractMatch[1];
-                } else {
-                    const textMatch = textContent.match(/^\s*([0-9]{1,8})(?:\s|\n||$)/);
-                    if (textMatch) targetId = textMatch[1];
-                }
+                const href = container.getAttribute('href') || container.querySelector('a')?.getAttribute('href') || '';
+                const match = href.match(/(?:ContractNumber|SetUpCode|id|code)=([0-9]{1,8})/i);
+                if (match) targetId = match[1];
+            }
+
+            if (!targetId) {
+                const txt = container.innerText || '';
+                const textMatch = txt.match(/^\s*([0-9]{1,8})(?:\s|\n|:|$)/);
+                if (textMatch) targetId = textMatch[1];
             }
 
             if (!targetId) return;
 
-            const oldArea = container.querySelector('.tfk-fusen-area');
-            if (oldArea) oldArea.remove();
-
-            const nameEl = container.querySelector('.Name, .jksName, .name, .customerName');
+            const nameEl = container.querySelector('.Name, .jksName, .name, .customerName') || container;
             if (!nameEl) return;
-
-            nameEl.style.display = 'flex';
-            nameEl.style.alignItems = 'center';
-            nameEl.style.overflowX = 'auto';
-            nameEl.style.whiteSpace = 'nowrap';
 
             let inlineWrapper = nameEl.querySelector('.tfk-inline-fusen-wrapper');
             if (!inlineWrapper) {

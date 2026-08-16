@@ -36,10 +36,7 @@ export function initAutoLogin() {
             }
 
             if (filled) {
-                // 🔓 手動で記憶を解除できるボタンをフォーム上部に表示
-                renderClearCredentialsButton(form);
-
-                // 🎨 かっこいいローディング画面を最前面に表示！
+                // 🎨 かっこいいローディング画面（解除ボタン付き）を表示！
                 showLoadingOverlay();
 
                 setTimeout(() => {
@@ -86,7 +83,7 @@ export function initAutoLogin() {
     }
 }
 
-// 🛠️ 2. ログイン失敗時の自動クリーンアップ ＆ リセットUI表示関数（システムのブルー基調に調整）
+// 🛠️ 2. ログイン失敗時の自動クリーンアップ ＆ リセットUI表示関数
 function handleLoginFailureUI() {
     if (document.getElementById('auto-login-reset-box')) return;
 
@@ -146,42 +143,7 @@ function handleLoginFailureUI() {
     };
 }
 
-// 🔓 3. フォーム画面でいつでも手動で記憶を解除できるボタン
-function renderClearCredentialsButton(form) {
-    if (document.getElementById('auto-login-clear-btn')) return;
-
-    const clearBtn = document.createElement('button');
-    clearBtn.id = 'auto-login-clear-btn';
-    clearBtn.type = 'button';
-    clearBtn.innerText = '🔓 記憶中のログイン情報を削除（別アカウントで入る）';
-    clearBtn.style.cssText = `
-        width: 100%;
-        margin-bottom: 15px;
-        padding: 10px;
-        background: #f1f5f9;
-        color: #007AFF;
-        border: 1px solid #007AFF;
-        border-radius: 8px;
-        font-size: 12px;
-        font-weight: bold;
-        cursor: pointer;
-        transition: all 0.2s;
-    `;
-
-    clearBtn.onclick = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (confirm('記憶されているログイン情報を削除しますか？\n次回送信時に新しいログイン情報を記憶できます。')) {
-            localStorage.removeItem(STORAGE_KEY);
-            alert('ログイン情報を削除しました。');
-            window.location.reload();
-        }
-    };
-
-    form.parentNode.insertBefore(clearBtn, form);
-}
-
-// 👑 アプリ風かっこいいローディング表示関数（システム標準ブルーに調整）
+// 👑 3. アプリ風かっこいいローディング表示関数（キャンセル・記憶解除ボタン内蔵）
 function showLoadingOverlay() {
     if (document.getElementById('auto-login-loading-overlay')) return;
 
@@ -219,10 +181,35 @@ function showLoadingOverlay() {
         <div style="font-size: 18px; font-weight: bold; letter-spacing: 0.5px; margin-bottom: 8px;">
             EcoMaster 接続中...
         </div>
-        <div style="font-size: 13px; color: #93c5fd;">
+        <div style="font-size: 13px; color: #93c5fd; margin-bottom: 24px;">
             🔒 セッションを安全に同期しています
         </div>
+        <button id="cancel-autologin-btn" style="
+            padding: 8px 16px;
+            background: rgba(255, 255, 255, 0.15);
+            color: #ffffff;
+            border: 1px solid rgba(255, 255, 255, 0.4);
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+            cursor: pointer;
+            backdrop-filter: blur(4px);
+            transition: all 0.2s;
+        ">
+            ✖ 記憶解除して別アカウントで入る
+        </button>
     `;
 
     document.body.appendChild(overlay);
+
+    document.getElementById('cancel-autologin-btn').onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        // 記憶されている認証情報を削除
+        localStorage.removeItem(STORAGE_KEY);
+        
+        // ログイン処理（フォーム送信）を中断するために画面をリロード
+        window.location.reload();
+    };
 }

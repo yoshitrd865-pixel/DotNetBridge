@@ -21,8 +21,6 @@ function runIfEnabled(featureId, action) {
         console.log(`[ProxyInject] ${featureId} は設定でOFFのためスキップ`);
     }
 }
-// ★ initFusenKun は observeDOM の外側で1回だけ起動させる！
-runIfEnabled("fusen_kun", initFusenKun);
 
 observeDOM(() => {
     // ⚙️ メニュー画面のカスタマイズカード表示（これは常に起動）
@@ -50,4 +48,5 @@ observeDOM(() => {
     // 📸 点検BOXワープ ＆ 戻るボタン修復（★ここに追加！）
     runIfEnabled("tenkenbox_worp", initInspectionWarp);
     runIfEnabled("zandaka_copy", initZandakaCopy);
+    runIfEnabled("fusen_kun", initFusenKun); // 👈 observeDOM 内のここに戻す！
 });

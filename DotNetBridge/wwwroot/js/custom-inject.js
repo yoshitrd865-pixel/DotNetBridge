@@ -48,5 +48,5 @@ observeDOM(() => {
     // 📸 点検BOXワープ ＆ 戻るボタン修復（★ここに追加！）
     runIfEnabled("tenkenbox_worp", initInspectionWarp);
     runIfEnabled("zandaka_copy", initZandakaCopy);
-    runIfEnabled("fusen_kun", initFusenKun); // 👈 observeDOM 内のここに戻す！
+    runIfEnabled("fusen_kun", initFusenKun);
 });

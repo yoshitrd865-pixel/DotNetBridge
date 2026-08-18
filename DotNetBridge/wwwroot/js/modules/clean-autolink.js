@@ -44,8 +44,9 @@ export function initCleanAutoLink() {
 
             if (detailSel && detailSel.selectedIndex >= 0) {
                 const optText = detailSel.options[detailSel.selectedIndex]?.text || '';
-                const isClassClean = classSel ? classSel.options[classSel.selectedIndex]?.text.includes('清掃連絡') : true;
-                if (isClassClean && optText.includes('汚泥引抜清掃実施')) {
+                const val = detailSel.value || '';
+
+                if (val === '1,2' || (optText.includes('汚泥引抜') && optText.includes('実施'))) {
                     isCleaned = true;
                 }
             }
@@ -97,17 +98,14 @@ export function initCleanAutoLink() {
         showInlinePanel();
     }
 
-    // 3. 汚泥量入力UIの動的セット＆リアルタイム監視スタート
-    initVolumePanel();
+    // 3. 汚泥量入力UIの動的セット＆リアルタイム監視
+    initVolumePanel(checkAndClearSludgeNeed);
 
     // 4. ダイアログ登録ボタンフック（予定裏送信 & 実績裏送信）
     setupDialogHook(setUpCode, inputEl);
 }
 
-/**
- * 汚泥量入力UIの生成と位置・条件制御
- */
-function initVolumePanel() {
+function initVolumePanel(checkAndClearSludgeNeed) {
     document.querySelectorAll('#clean-volume-panel').forEach(el => el.remove());
     if (window.__volumeCheckTimer) clearInterval(window.__volumeCheckTimer);
 
@@ -182,6 +180,10 @@ function initVolumePanel() {
     }
 
     const updatePanelStatus = () => {
+        if (typeof checkAndClearSludgeNeed === 'function') {
+            checkAndClearSludgeNeed();
+        }
+
         let activeSelect = null;
 
         [1, 2, 3].forEach(num => {
@@ -191,7 +193,7 @@ function initVolumePanel() {
             if (detailSel && detailSel.selectedIndex >= 0) {
                 const optText = detailSel.options[detailSel.selectedIndex]?.text.trim() || '';
                 const isClassClean = classSel ? classSel.options[classSel.selectedIndex]?.text.includes('清掃連絡') : true;
-                const isDetailMatch = optText.includes('汚泥引抜清掃実施');
+                const isDetailMatch = optText.includes('汚泥引抜') && optText.includes('実施');
 
                 if (isClassClean && isDetailMatch) {
                     activeSelect = detailSel;
@@ -299,9 +301,6 @@ function updateMonthButtonsUI(activeMonth) {
     });
 }
 
-/**
- * ダイアログの「はい」押下時の二方向裏送信フック
- */
 function setupDialogHook(setUpCode, inputEl) {
     const regBtn = document.querySelector('input.btn-blue');
     if (!regBtn || regBtn.dataset.cleanHookSet) return;
@@ -322,7 +321,9 @@ function setupDialogHook(setUpCode, inputEl) {
                     const citiesCode = document.querySelector('input[name="txtCitiesCode"]')?.value || '2,1';
                     const personCode = document.querySelector('input[name="txtPersonCode"]')?.value || '1';
 
-                    // 1️⃣ 【清掃予定の裏送信】（引き抜きが必要な月が選択されている場合）
+                    const noticeData = {};
+
+                    // 1️⃣ 【清掃予定の裏送信】
                     const targetMonthStr = inputEl ? inputEl.value.trim() : '';
                     if (targetMonthStr) {
                         const targetMonth = parseInt(targetMonthStr, 10);
@@ -346,10 +347,8 @@ function setupDialogHook(setUpCode, inputEl) {
                             const targetUrl = `/writeCleanPlan.asp?CheckNumber=${checkNumber}&WorkMethodCode=1&SetUpCode=${setUpCode}&SetUpHistoryCode=2`;
 
                             try {
-                                sessionStorage.setItem('clean_autolink_target', JSON.stringify({
-                                    month: targetMonth,
-                                    targetDate: targetDate
-                                }));
+                                noticeData.month = targetMonth;
+                                noticeData.targetDate = targetDate;
 
                                 await fetch(targetUrl, {
                                     method: 'POST',
@@ -362,30 +361,35 @@ function setupDialogHook(setUpCode, inputEl) {
                         }
                     }
 
-                    // 2️⃣ 【清掃実績（汚泥量）の裏送信】（汚泥引抜清掃実施が選択され、㎥数が入力されている場合）
+                    // 2️⃣ 【清掃実績（回収/汚泥量）の裏送信】
                     const volumeInput = document.getElementById('input-clean-volume');
                     const cleanVolume = volumeInput ? volumeInput.value.trim() : '';
 
                     if (cleanVolume) {
                         const cleanResultBody = new URLSearchParams();
-                        cleanResultBody.append('chkCleanCarFlg_1_1', '1'); // バキューム車使用フラグ
-                        cleanResultBody.append('txtCarCleanQuantity_1_1', cleanVolume); // 清掃汚泥量(m3)
-                        cleanResultBody.append('txtCarTakeOutQuantity_1_1', cleanVolume); // 搬出汚泥量(m3)
+                        cleanResultBody.append('chkCleanCarFlg_1_1', '1');
+                        cleanResultBody.append('txtCarCleanQuantity_1_1', cleanVolume);
+                        cleanResultBody.append('txtCarTakeOutQuantity_1_1', cleanVolume);
                         cleanResultBody.append('selPerson', personCode);
 
-                        // 清掃実績登録用API
                         const cleanResultUrl = `/writeClean.asp?CheckNumber=${checkNumber}&WorkMethodCode=1&SetUpCode=${setUpCode}&SetUpHistoryCode=2`;
 
                         try {
+                            noticeData.cleanVolume = cleanVolume;
+
                             await fetch(cleanResultUrl, {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
                                 body: cleanResultBody.toString()
                             });
-                            console.log(`✅ 清掃実績（バキューム車使用 / 汚泥量 ${cleanVolume}㎥）を自動裏送信しました！`);
                         } catch (err) {
                             console.error("清掃実績裏送信エラー:", err);
                         }
+                    }
+
+                    // 完了画面用の通知データを保存
+                    if (Object.keys(noticeData).length > 0) {
+                        sessionStorage.setItem('clean_autolink_target', JSON.stringify(noticeData));
                     }
                 });
             }
@@ -393,6 +397,9 @@ function setupDialogHook(setUpCode, inputEl) {
     });
 }
 
+/**
+ * 完了画面でのメッセージ描画（予定 / 実績 の個別・同時表示に対応）
+ */
 function renderCompletionNotice() {
     const savedDataStr = sessionStorage.getItem('clean_autolink_target');
     if (!savedDataStr) return;
@@ -401,36 +408,63 @@ function renderCompletionNotice() {
         const savedData = JSON.parse(savedDataStr);
         sessionStorage.removeItem('clean_autolink_target');
 
-        const noticeCard = document.createElement('div');
-        noticeCard.id = 'clean-completion-card';
-        noticeCard.style.cssText = `
+        const container = document.createElement('div');
+        container.style.cssText = `
             margin: 15px auto;
-            padding: 10px 16px;
-            background: #f0fdf4;
-            border: 1px solid #86efac;
-            color: #15803d;
-            border-radius: 10px;
-            font-size: 14px;
-            font-weight: 700;
             text-align: center;
-            display: inline-block;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            align-items: center;
         `;
-        noticeCard.innerHTML = `🧹 清掃予定（${savedData.month}月1日）を自動登録しました`;
+
+        // 🧹 清掃実績の完了メッセージ（例: 2㎥）
+        if (savedData.cleanVolume) {
+            const resultCard = document.createElement('div');
+            resultCard.style.cssText = `
+                padding: 10px 18px;
+                background: #f0fdf4;
+                border: 1px solid #86efac;
+                color: #15803d;
+                border-radius: 10px;
+                font-size: 14px;
+                font-weight: 700;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            `;
+            resultCard.innerHTML = `🧹 清掃実績（${savedData.cleanVolume}㎥）を自動登録しました`;
+            container.appendChild(resultCard);
+        }
+
+        // 📅 清掃予定の完了メッセージ（例: 12月1日）
+        if (savedData.month) {
+            const planCard = document.createElement('div');
+            planCard.style.cssText = `
+                padding: 10px 18px;
+                background: #f0f9ff;
+                border: 1px solid #7dd3fc;
+                color: #0369a1;
+                border-radius: 10px;
+                font-size: 14px;
+                font-weight: 700;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            `;
+            planCard.innerHTML = `📅 清掃予定（${savedData.month}月1日）を自動登録しました`;
+            container.appendChild(planCard);
+        }
 
         const centerEl = document.querySelector('center');
         if (centerEl) {
             const targetDiv = centerEl.querySelector('div') || centerEl;
             const conditionDiv = document.getElementById('divCondition');
             if (conditionDiv) {
-                targetDiv.insertBefore(noticeCard, conditionDiv);
+                targetDiv.insertBefore(container, conditionDiv);
             } else {
-                targetDiv.appendChild(noticeCard);
+                targetDiv.appendChild(container);
             }
         } else {
-            document.body.prepend(noticeCard);
+            document.body.prepend(container);
         }
     } catch (e) {
         console.error("完了通知表示エラー:", e);

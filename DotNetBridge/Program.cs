@@ -48,7 +48,7 @@ builder.Services.AddAuthentication(options =>
         options.Cookie.HttpOnly = true;
         options.SlidingExpiration = true;
     })
-    .AddGoogle(options => // ★ Google 認証設定を追加
+    .AddGoogle(options => // ★ Google 認証設定を追加 
     {
         options.ClientId = builder.Configuration["GOOGLE_CLIENT_ID"] ?? "";
         options.ClientSecret = builder.Configuration["GOOGLE_CLIENT_SECRET"] ?? "";
@@ -57,13 +57,13 @@ builder.Services.AddAuthentication(options =>
 // Render の PORT 環境変数を読み込む
 builder.WebHost.UseUrls($"http://*:{Environment.GetEnvironmentVariable("PORT") ?? "8080"}");
 
-// SQLite の接続設定
+// SQLite の接続設定　appsetting.jsonに本番のLinux環境のパスが書いてあります。
 builder.Services.AddDbContext<PaymentDbContext>(options =>
-    options.UseSqlite("Data Source=/var/data/payment.db"));
+    options.UseSqlite(builder.Configuration.GetConnectionString("PaymentConnection")));
 
-// 👇ここを追加（独立した fusen.db を作成）
+// (独立した fusen.db を作成)　appsetting.jsonに本番のLinux環境のパスが書いてあります。
 builder.Services.AddDbContext<FusenDbContext>(options =>
-    options.UseSqlite("Data Source=/var/data/fusen.db"));
+    options.UseSqlite(builder.Configuration.GetConnectionString("FusenConnection")));
 
 var app = builder.Build();
 

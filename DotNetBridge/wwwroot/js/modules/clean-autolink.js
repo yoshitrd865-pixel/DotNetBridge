@@ -5,15 +5,15 @@ export function initCleanAutoLink() {
 
     const currentPath = window.location.pathname.toLowerCase();
 
-    // 1. 点検登録完了画面（writeCheck.asp）での完了通知表示
+    // 1. 点検登録完了画面での完了通知表示
     if (currentPath.includes("writecheck.asp")) {
         window.__cleanAutoLinkInitialized = true;
         renderCompletionNotice();
         return;
     }
 
-    // 2. 点検入力画面（check.asp等）の処理
-    const selectEl = document.getElementById('RESULT_300_11'); // 汚泥引き抜きの必要 (B)
+    // 2. 点検入力画面の処理
+    const selectEl = document.getElementById('RESULT_300_11'); // 汚泥引き抜きの必要
     const inputEl = document.getElementById('NUMBER_300_12');   // 月保持用裏input
 
     if (!selectEl || !inputEl) return;
@@ -25,7 +25,6 @@ export function initCleanAutoLink() {
 
     window.__cleanAutoLinkInitialized = true;
 
-    // テキストボックス隠し & 1月〜12月ボタンパネルの作成
     inputEl.style.display = 'none';
     createMonthPickerInline(inputEl);
 
@@ -34,7 +33,6 @@ export function initCleanAutoLink() {
         updateMonthButtonsUI(monthNum);
     };
 
-    // 🧹【相互制御関数】連絡事項側（A）を全クリアする処理
     const clearAllCleanRemarks = () => {
         [1, 2, 3].forEach(num => {
             const detailSel = document.getElementById(`selRemark${num}Code`);
@@ -42,17 +40,16 @@ export function initCleanAutoLink() {
                 const optText = detailSel.options[detailSel.selectedIndex]?.text || '';
                 const val = detailSel.value || '';
                 if (val === '1,2' || (optText.includes('汚泥引抜') && optText.includes('実施'))) {
-                    detailSel.value = ''; // 選択解除
+                    detailSel.value = '';
                 }
             }
         });
     };
 
-    // 🔄【相互制御：B（引き抜き必要）を選んだら ➔ A（清掃実施）を消す】
+    // 🔄 相互制御：引き抜き必要（B）を選んだら清掃実施（A）をクリア
     selectEl.addEventListener('change', () => {
         const val = selectEl.value;
         if (val === '2,1' || val === '1,1') {
-            // A（清掃実施）をクリア
             clearAllCleanRemarks();
 
             const addMonth = val === '2,1' ? 4 : 1;
@@ -68,7 +65,6 @@ export function initCleanAutoLink() {
         }
     });
 
-    // 初期化判定（既存の値に応じたUIセット）
     if (selectEl.value === '2,1' || selectEl.value === '1,1') {
         if (inputEl.value) {
             setTargetMonth(parseInt(inputEl.value, 10));
@@ -82,16 +78,59 @@ export function initCleanAutoLink() {
         showInlinePanel();
     }
 
-    // 3. 汚泥量入力UIの動的セット＆リアルタイム監視（Aを選んだ時にBを消す制御付き）
+    // 3. 汚泥量入力UI
     initVolumePanel(selectEl, inputEl);
 
-    // 4. ダイアログ登録ボタンフック（予定裏送信 & 実績裏送信）
+    // 4. ダイアログ登録ボタンフック
     setupDialogHook(setUpCode, inputEl);
 }
 
 /**
- * 汚泥量入力UI（A：清掃実施が選ばれたら ➔ B：引き抜き必要を消す連動）
+ * 清掃一覧（listClean.asp）を裏で検索して、最新の CleanNumber を自動取得する関数
  */
+async function fetchCleanNumberFromList(setUpCode) {
+    try {
+        const res = await fetch(`/listClean.asp`);
+        if (!res.ok) return '';
+
+        const htmlText = await res.text();
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(htmlText, 'text/html');
+
+        let foundCleanNumber = '';
+
+        // 一覧内のリンクや要素から setUpCode と CleanNumber のペアを検索
+        const links = Array.from(doc.querySelectorAll('a, div, tr'));
+        for (const el of links) {
+            const str = el.outerHTML || '';
+            const text = el.textContent || '';
+
+            // 顧客IDが含まれるブロックを特定
+            if (str.includes(setUpCode) || text.includes(setUpCode)) {
+                const match = str.match(/CleanNumber=(\d+)/i) || str.match(/menuClean\.asp\?CleanNumber=(\d+)/i);
+                if (match && match[1]) {
+                    foundCleanNumber = match[1];
+                    break;
+                }
+            }
+        }
+
+        // ブロックで見つからなかった場合の全体正規表現検索
+        if (!foundCleanNumber) {
+            const generalMatch = htmlText.match(new RegExp(`CleanNumber=(\\d+)[^"']*${setUpCode}`, 'i')) ||
+                                 htmlText.match(new RegExp(`${setUpCode}[^"']*CleanNumber=(\\d+)`, 'i'));
+            if (generalMatch) {
+                foundCleanNumber = generalMatch[1];
+            }
+        }
+
+        return foundCleanNumber;
+    } catch (e) {
+        console.error("清掃一覧からの CleanNumber 取得エラー:", e);
+        return '';
+    }
+}
+
 function initVolumePanel(selectEl, inputEl) {
     document.querySelectorAll('#clean-volume-panel').forEach(el => el.remove());
     if (window.__volumeCheckTimer) clearInterval(window.__volumeCheckTimer);
@@ -187,7 +226,6 @@ function initVolumePanel(selectEl, inputEl) {
         });
 
         if (activeSelect) {
-            // 🔄【相互制御：A（清掃実施）が新しく選ばれたら ➔ B（引き抜き必要）を消す】
             if (!lastIsCleaned && selectEl.value !== '') {
                 selectEl.value = '';
                 if (inputEl) inputEl.value = '';
@@ -205,7 +243,7 @@ function initVolumePanel(selectEl, inputEl) {
                     panel.style.display = 'block';
                     if (volumeInput && !volumeInput.value) {
                         const btn2 = panel.querySelector('[data-vol="2"]');
-                        if (btn2) btn2.click(); // デフォルト2㎥
+                        if (btn2) btn2.click();
                     }
                 }
             }
@@ -345,29 +383,43 @@ function setupDialogHook(setUpCode, inputEl) {
                                 noticeData.month = targetMonth;
                                 noticeData.targetDate = targetDate;
 
-                                await fetch(targetUrl, {
+                                const res = await fetch(targetUrl, {
                                     method: 'POST',
                                     headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
                                     body: bodyData.toString()
                                 });
+
+                                const resText = await res.text();
+                                const cleanNumMatch = resText.match(/\((\d+)\)/);
+                                if (cleanNumMatch && cleanNumMatch[1]) {
+                                    localStorage.setItem(`CleanNumber_${setUpCode}`, cleanNumMatch[1]);
+                                }
                             } catch (err) {
                                 console.error("清掃予定裏送信エラー:", err);
                             }
                         }
                     }
 
-                    // 2️⃣ 【清掃実績（回収/汚泥量）の裏送信】
+                    // 2️⃣ 【清掃実績（回収/汚泥量）の裏送信】➔ 清掃一覧から自動検索して送信！
                     const volumeInput = document.getElementById('input-clean-volume');
                     const cleanVolume = volumeInput ? volumeInput.value.trim() : '';
 
                     if (cleanVolume) {
+                        // 1. まず清掃一覧（listClean.asp）から最新の CleanNumber を裏検索
+                        let targetCleanNum = await fetchCleanNumberFromList(setUpCode);
+
+                        // 2. もし一覧から引けなければ localStorage から引き出し
+                        if (!targetCleanNum) {
+                            targetCleanNum = localStorage.getItem(`CleanNumber_${setUpCode}`) || '';
+                        }
+
                         const cleanResultBody = new URLSearchParams();
                         cleanResultBody.append('chkCleanCarFlg_1_1', '1');
                         cleanResultBody.append('txtCarCleanQuantity_1_1', cleanVolume);
                         cleanResultBody.append('txtCarTakeOutQuantity_1_1', cleanVolume);
                         cleanResultBody.append('selPerson', personCode);
 
-                        const cleanResultUrl = `/writeClean.asp?CheckNumber=${checkNumber}&WorkMethodCode=1&SetUpCode=${setUpCode}&SetUpHistoryCode=2`;
+                        const cleanResultUrl = `/writeClean.asp?CleanNumber=${targetCleanNum}&CheckNumber=${checkNumber}&WorkMethodCode=1&SetUpCode=${setUpCode}&SetUpHistoryCode=2`;
 
                         try {
                             noticeData.cleanVolume = cleanVolume;
@@ -377,6 +429,7 @@ function setupDialogHook(setUpCode, inputEl) {
                                 headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
                                 body: cleanResultBody.toString()
                             });
+                            console.log(`✅ 清掃一覧から検出した CleanNumber (${targetCleanNum}) に実績（${cleanVolume}㎥）を裏送信しました！`);
                         } catch (err) {
                             console.error("清掃実績裏送信エラー:", err);
                         }

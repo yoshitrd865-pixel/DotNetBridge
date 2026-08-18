@@ -13,7 +13,7 @@ export function initCleanAutoLink() {
     }
 
     // 2. 点検入力画面（check.asp等）の処理
-    const selectEl = document.getElementById('RESULT_300_11'); // 汚泥引き抜きの必要
+    const selectEl = document.getElementById('RESULT_300_11'); // 汚泥引き抜きの必要 (B)
     const inputEl = document.getElementById('NUMBER_300_12');   // 月保持用裏input
 
     if (!selectEl || !inputEl) return;
@@ -34,44 +34,30 @@ export function initCleanAutoLink() {
         updateMonthButtonsUI(monthNum);
     };
 
-    // 🧹【回収ロジック】「汚泥引抜清掃実施」を検知したら「引き抜き必要」を自動クリア
-    const checkAndClearSludgeNeed = () => {
-        let isCleaned = false;
-
+    // 🧹【相互制御関数】連絡事項側（A）を全クリアする処理
+    const clearAllCleanRemarks = () => {
         [1, 2, 3].forEach(num => {
-            const classSel = document.getElementById(`selRemarkClass${num}Code`);
             const detailSel = document.getElementById(`selRemark${num}Code`);
-
-            if (detailSel && detailSel.selectedIndex >= 0) {
+            if (detailSel) {
                 const optText = detailSel.options[detailSel.selectedIndex]?.text || '';
                 const val = detailSel.value || '';
-
                 if (val === '1,2' || (optText.includes('汚泥引抜') && optText.includes('実施'))) {
-                    isCleaned = true;
+                    detailSel.value = ''; // 選択解除
                 }
             }
         });
-
-        if (isCleaned && selectEl.value !== '') {
-            selectEl.value = '';
-            inputEl.value = '';
-            hideInlinePanel();
-            sessionStorage.removeItem('clean_autolink_target');
-        }
     };
 
-    // 予定作成（送信側）ドロップダウンイベント
+    // 🔄【相互制御：B（引き抜き必要）を選んだら ➔ A（清掃実施）を消す】
     selectEl.addEventListener('change', () => {
         const val = selectEl.value;
-        if (val === '2,1') {
+        if (val === '2,1' || val === '1,1') {
+            // A（清掃実施）をクリア
+            clearAllCleanRemarks();
+
+            const addMonth = val === '2,1' ? 4 : 1;
             const currentMonth = new Date().getMonth() + 1;
-            let targetMonth = (currentMonth + 4) % 12;
-            if (targetMonth === 0) targetMonth = 12;
-            setTargetMonth(targetMonth);
-            showInlinePanel();
-        } else if (val === '1,1') {
-            const currentMonth = new Date().getMonth() + 1;
-            let targetMonth = (currentMonth + 1) % 12;
+            let targetMonth = (currentMonth + addMonth) % 12;
             if (targetMonth === 0) targetMonth = 12;
             setTargetMonth(targetMonth);
             showInlinePanel();
@@ -82,9 +68,7 @@ export function initCleanAutoLink() {
         }
     });
 
-    // 初期化判定
-    checkAndClearSludgeNeed();
-
+    // 初期化判定（既存の値に応じたUIセット）
     if (selectEl.value === '2,1' || selectEl.value === '1,1') {
         if (inputEl.value) {
             setTargetMonth(parseInt(inputEl.value, 10));
@@ -98,14 +82,17 @@ export function initCleanAutoLink() {
         showInlinePanel();
     }
 
-    // 3. 汚泥量入力UIの動的セット＆リアルタイム監視
-    initVolumePanel(checkAndClearSludgeNeed);
+    // 3. 汚泥量入力UIの動的セット＆リアルタイム監視（Aを選んだ時にBを消す制御付き）
+    initVolumePanel(selectEl, inputEl);
 
     // 4. ダイアログ登録ボタンフック（予定裏送信 & 実績裏送信）
     setupDialogHook(setUpCode, inputEl);
 }
 
-function initVolumePanel(checkAndClearSludgeNeed) {
+/**
+ * 汚泥量入力UI（A：清掃実施が選ばれたら ➔ B：引き抜き必要を消す連動）
+ */
+function initVolumePanel(selectEl, inputEl) {
     document.querySelectorAll('#clean-volume-panel').forEach(el => el.remove());
     if (window.__volumeCheckTimer) clearInterval(window.__volumeCheckTimer);
 
@@ -179,11 +166,9 @@ function initVolumePanel(checkAndClearSludgeNeed) {
         });
     }
 
-    const updatePanelStatus = () => {
-        if (typeof checkAndClearSludgeNeed === 'function') {
-            checkAndClearSludgeNeed();
-        }
+    let lastIsCleaned = false;
 
+    const updatePanelStatus = () => {
         let activeSelect = null;
 
         [1, 2, 3].forEach(num => {
@@ -202,6 +187,15 @@ function initVolumePanel(checkAndClearSludgeNeed) {
         });
 
         if (activeSelect) {
+            // 🔄【相互制御：A（清掃実施）が新しく選ばれたら ➔ B（引き抜き必要）を消す】
+            if (!lastIsCleaned && selectEl.value !== '') {
+                selectEl.value = '';
+                if (inputEl) inputEl.value = '';
+                hideInlinePanel();
+                sessionStorage.removeItem('clean_autolink_target');
+            }
+            lastIsCleaned = true;
+
             const parentBlock = activeSelect.closest('div[id^="divRemark"]') || activeSelect.parentNode;
             if (parentBlock) {
                 if (panel.parentNode !== parentBlock) {
@@ -216,6 +210,7 @@ function initVolumePanel(checkAndClearSludgeNeed) {
                 }
             }
         } else {
+            lastIsCleaned = false;
             if (panel.style.display !== 'none') {
                 panel.style.display = 'none';
                 if (volumeInput) volumeInput.value = '';
@@ -387,7 +382,6 @@ function setupDialogHook(setUpCode, inputEl) {
                         }
                     }
 
-                    // 完了画面用の通知データを保存
                     if (Object.keys(noticeData).length > 0) {
                         sessionStorage.setItem('clean_autolink_target', JSON.stringify(noticeData));
                     }
@@ -397,9 +391,6 @@ function setupDialogHook(setUpCode, inputEl) {
     });
 }
 
-/**
- * 完了画面でのメッセージ描画（予定 / 実績 の個別・同時表示に対応）
- */
 function renderCompletionNotice() {
     const savedDataStr = sessionStorage.getItem('clean_autolink_target');
     if (!savedDataStr) return;
@@ -418,7 +409,6 @@ function renderCompletionNotice() {
             align-items: center;
         `;
 
-        // 🧹 清掃実績の完了メッセージ（例: 2㎥）
         if (savedData.cleanVolume) {
             const resultCard = document.createElement('div');
             resultCard.style.cssText = `
@@ -436,7 +426,6 @@ function renderCompletionNotice() {
             container.appendChild(resultCard);
         }
 
-        // 📅 清掃予定の完了メッセージ（例: 12月1日）
         if (savedData.month) {
             const planCard = document.createElement('div');
             planCard.style.cssText = `

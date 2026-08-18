@@ -7,6 +7,7 @@ import { initSettingsMenu, getSettings } from './modules/settings.js';
 import { initInspectionWarp } from './modules/inspection-warp.js';
 import { initZandakaCopy } from './modules/zandaka-copy.js';
 import { initFusenKun } from './modules/fusen-kun.js';
+import { initCleanAutoLink } from './modules/clean-autolink.js';
 
 console.log("[ProxyInject] エンジン起動");
 
@@ -49,4 +50,5 @@ observeDOM(() => {
     runIfEnabled("tenkenbox_worp", initInspectionWarp);
     runIfEnabled("zandaka_copy", initZandakaCopy);
     runIfEnabled("fusen_kun", initFusenKun);
+    runIfEnabled("clean_autolink", initCleanAutoLink);
 });

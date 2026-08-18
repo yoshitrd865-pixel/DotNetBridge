@@ -9,15 +9,23 @@
 ### 1. プロジェクト概要
 - **システム概要**: ASP.NET Core によるリバースプロキシ ＋ 認証統合（Cookie認証 ＋ Google OAuth 2.0） ＋ クライアントサイド拡張インジェクションシステム
 - **動作環境**: Render (Linux環境, ポート変数は PORT 環境変数を使用)
-- **データベース**: SQLite (`PaymentDbContext`, `payment.db`)
+- **データベース**: SQLite（Render Persistent Disk `/var/data` による永続化: `fusen.db`, `payment.db`）
 
 ### 2. 直近で実装・解決済みの内容
+- **クラウド付箋くん（`fusen-kun.js`）のアップデート**:
+  - **ハイブリッド画面判定の強化**: UserAgentだけでなくDOM要素（`.ui-page`, `.taskItem`, `.pagetitle`）や `listcheck.asp` の存在を検知し、PCブラウザでスマホUIを開いている場合でも正しくモバイル表示ロジックが動作するよう改善。
+  - **UIテーマカラーの統一**: ボタンやヘッダーライン、アクセントカラーを従来のオレンジ系（`#F39C12`）からブランドUIに合わせたブルー系（`#0284C7` / `#007AFF`）に統一（デフォルト付箋カラーは黄色維持）。
+  - **旧データ移行ユーティリティ**: 旧本番ドメイン `hhc-eco11.com_EcoToubuF3` の旧データをワンクリックで一括移行できる機能（`window.migrateFusenData`）を実装。
+- **Render 永続ディスク（Persistent Disk）とデータベース保護**:
+  - Mount path `/var/data` (Size: 1GB) を導入し、再デプロイや再起動でデータが消失しない構成を確立。
+  - `Program.cs` の SQLite 接続文字列を `/var/data/fusen.db` および `/var/data/payment.db` に変更。
+- **付箋データの移行完了**: 旧サーバーの本番データ（`hhc-eco11.com_EcoToubuF3` / 21KB）を取得し、`/var/data/fusen.db` への一括移行・永続保存が完了。
 - **Google OAuth 2.0 統合**: `AddGoogle()`、`AccountController` への `GoogleLogin`/`GoogleResponse` アクション実装
 - **プロキシ除外処理**: `/signin-google`, `/Account`, `/api`, `/admin`, `/success`, `/cancel` をミドルウェアから除外
 - **Render HTTPS / Proxy 対応**: `app.UseForwardedHeaders(...)` を追加し、`redirect_uri_mismatch` (エラー 400) を解消
 - **モバイル UX / レスポンシブ**: `Login.cshtml` の Viewport 設定、レスポンシブデザイン、Google公式風ログインボタン追加
 - **セッション永続化**: `AddDataProtection().PersistKeysToFileSystem(...)` による再デプロイ時の鍵リセット防止
-- **拡張モジュール群の統合**: `auto-login.js`, `stripe-pay.js`, `continuous-upload.js`, `inspection-warp.js`, `zandaka-copy.js` のモジュール化と `custom-inject.js` からの動的ロード・ガード制御
+- **拡張モジュール群の統合**: `auto-login.js`, `stripe-pay.js`, `continuous-upload.js`, `inspection-warp.js`, `zandaka-copy.js`, `fusen-kun.js` のモジュール化と `custom-inject.js` からの動的ロード・ガード制御
 
 ### 3. モジュール設計と役割分担
 - **`settings.js`**: 設定状態の保持（`localStorage`）と設定UI・機能ON/OFFトグルの管理
@@ -29,6 +37,7 @@
   - `continuous-upload.js` (`continuous_upload`): `viewFile.asp` / `viewInfo.asp` での連続写真アップロードUI
   - `inspection-warp.js` (`tenkenbox_worp`): 顧客BOX横の空きマス乗っ取り点検BOXワープボタン ＆ `viewFile.asp` の `window.close` 戻るボタン修復パッチ
   - `zandaka-copy.js` (`zandaka_copy` 等): 伝票・残高情報のクリップボードコピー＆自動整理機能
+  - `fusen-kun.js` (`fusen_kun`): クラウド付箋くん（ハイブリッド画面判定、ブルー系統一UI、旧データ移行機能付き）
 
 ### 4. 重要なノウハウ・開発ガードレール（バグ防止原則）
 - **サーバー側（C#）での代理ログイン実装は絶対厳禁！**: プロキシ基盤（`ProxyService.cs`）は「完全ステートレスな土管」として聖域化し、レガシーASPへのログインやセッション維持はフロントエンド（JS）に100%任せる。
@@ -94,8 +103,12 @@ builder.Services.AddAuthentication(options =>
 
 builder.WebHost.UseUrls($"http://*:{Environment.GetEnvironmentVariable("PORT") ?? "8080"}");
 
+// Render Persistent Disk (/var/data) 永続化設定
+builder.Services.AddDbContext<FusenDbContext>(options =>
+    options.UseSqlite("Data Source=/var/data/fusen.db"));
+
 builder.Services.AddDbContext<PaymentDbContext>(options =>
-    options.UseSqlite("Data Source=payment.db"));
+    options.UseSqlite("Data Source=/var/data/payment.db"));
 
 var app = builder.Build();
 
@@ -110,8 +123,11 @@ app.UseForwardedHeaders(forwardedHeadersOptions);
 
 using (var scope = app.Services.CreateScope())
 {
-    var db = scope.ServiceProvider.GetRequiredService<PaymentDbContext>();
-    db.Database.EnsureCreated();
+    var fusenDb = scope.ServiceProvider.GetRequiredService<FusenDbContext>();
+    fusenDb.Database.EnsureCreated();
+
+    var paymentDb = scope.ServiceProvider.GetRequiredService<PaymentDbContext>();
+    paymentDb.Database.EnsureCreated();
 }
 
 app.UseStaticFiles();
@@ -154,15 +170,15 @@ app.Run();
 ```
 
 #### ② フロントエンド制御アーキテクチャ (`wwwroot/js/`)
-- **`custom-inject.js`**: `ProxyService` により HTML 末尾へ動的注入されるハブスクリプト。`settings.js` から各モジュールの有効/無効状態を読み込み、`router.js` のパス判定結果に応じて `auto-login.js`, `stripe-pay.js`, `continuous-upload.js`, `inspection-warp.js`, `zandaka-copy.js` を動的にインポート・初期化。
-- **`router.js`**: URLパス (`location.pathname`) に基づくページ種別判定（ログイン画面、点検BOX画面、ファイル添付画面等）を担当。
+- **`custom-inject.js`**: `ProxyService` により HTML 末尾へ動的注入されるハブスクリプト。`settings.js` から各モジュールの有効/無効状態を読み込み、`router.js` のパス判定結果に応じて各拡張モジュールを動的にインポート・初期化。
+- **`router.js`**: URLパス (`location.pathname`) に基づくページ種別判定を担当。
 - **`settings.js`**: ユーザー設定の `localStorage` 永続化とフローティング設定UIの構築・管理。
 
 #### ③ ディレクトリ構造
 ```text
 DotNetBridgeApp/
 ├── Dockerfile
-4├── PROJECT_SUMMARY.md
+├── PROJECT_SUMMARY.md
 ├── GEMINI_PROMPT.md
 └── DotNetBridge/
     ├── DotNetBridge.csproj
@@ -170,10 +186,14 @@ DotNetBridgeApp/
     ├── README.md
     ├── Controllers/
     │   ├── AccountController.cs
+    │   ├── FusenApiController.cs
     │   ├── PaymentAdminController.cs
     │   └── StripePaymentController.cs
     ├── Data/
+    │   ├── FusenDbContext.cs
     │   └── PaymentDbContext.cs
+    ├── Models/
+    │   └── FusenStore.cs
     ├── Services/
     │   └── ProxyService.cs
     ├── Views/
@@ -193,7 +213,8 @@ DotNetBridgeApp/
                 ├── stripe-pay.js
                 ├── continuous-upload.js
                 ├── inspection-warp.js
-                └── zandaka-copy.js
+                ├── zandaka-copy.js
+                └── fusen-kun.js
 ```
 
 ---

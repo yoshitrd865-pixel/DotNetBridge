@@ -12,7 +12,8 @@ export const FEATURES = [
     { id: "mitenken_map", name: "🗺️ 未点検マップ化くん", default: false, implemented: false },
     { id: "hhc_pay_kun", name: "💳 HHC_Pay (QR決済)", default: true, implemented: true },   // ★ 初期ON
     { id: "seikyu_rireki_kun", name: "💳 請求書履歴くん", default: false, implemented: false },
-    { id: "continuous_upload", name: "📸 連続アップロードくん", default: true, implemented: true } // ★ 初期ON
+    { id: "continuous_upload", name: "📸 連続アップロードくん", default: true, implemented: true } ,// ★ 初期ON
+    { id: "clean_autolink", name: "🧹 清掃オートリンクくん", default: true, implemented: true } // ★ 追加！
 ];
 
 export function getSettings() {

@@ -25,30 +25,26 @@ export function initCleanAutoLink() {
 
     window.__cleanAutoLinkInitialized = true;
 
-    // 🙈 不要になったテキストボックス要素を非表示化！
+    // 不要になったテキストボックス要素を非表示化
     inputEl.style.display = 'none';
 
-    // 🎯 入力欄があった位置に 1月〜12月 ボタンを配置
+    // 1月〜12月 ボタンを配置
     createMonthPickerInline(inputEl);
 
-    // 月をセットしてボタンの選択状態を更新する処理
     const setTargetMonth = (monthNum) => {
-        inputEl.value = monthNum; // 裏側のinput要素にはしっかり値を保持
+        inputEl.value = monthNum;
         updateMonthButtonsUI(monthNum);
     };
 
-    // ドロップダウン選択時の自動計算
     selectEl.addEventListener('change', () => {
         const val = selectEl.value;
         if (val === '2,1') {
-            // 次回点検時 ➔ 4ヶ月後
             const currentMonth = new Date().getMonth() + 1;
             let targetMonth = (currentMonth + 4) % 12;
             if (targetMonth === 0) targetMonth = 12;
             setTargetMonth(targetMonth);
             showInlinePanel();
         } else if (val === '1,1') {
-            // 至急 ➔ 1ヶ月後
             const currentMonth = new Date().getMonth() + 1;
             let targetMonth = (currentMonth + 1) % 12;
             if (targetMonth === 0) targetMonth = 12;
@@ -61,7 +57,6 @@ export function initCleanAutoLink() {
         }
     });
 
-    // 初期描画時の判定
     if (selectEl.value === '2,1' || selectEl.value === '1,1') {
         if (inputEl.value) {
             setTargetMonth(parseInt(inputEl.value, 10));
@@ -75,13 +70,9 @@ export function initCleanAutoLink() {
         showInlinePanel();
     }
 
-    // 登録ボタン押下時の裏送信処理
     setupDialogHook(setUpCode, inputEl);
 }
 
-/**
- * 🎯 非表示にした入力欄の位置に 1月〜12月 ボタンを配置
- */
 function createMonthPickerInline(inputEl) {
     if (document.getElementById('clean-month-picker-inline')) return;
 
@@ -93,7 +84,7 @@ function createMonthPickerInline(inputEl) {
         background: #f1f5f9;
         border: 1px solid #cbd5e1;
         border-radius: 8px;
-        display: none; /* 初期非表示 */
+        display: none;
     `;
 
     let buttonsHtml = '<div style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px;">';
@@ -116,19 +107,17 @@ function createMonthPickerInline(inputEl) {
     buttonsHtml += '</div>';
     panel.innerHTML = buttonsHtml;
 
-    // 入力欄の直後にぴったり差し込む
     if (inputEl.nextSibling) {
         inputEl.parentNode.insertBefore(panel, inputEl.nextSibling);
     } else {
         inputEl.parentNode.appendChild(panel);
     }
 
-    // 各月ボタンのタップイベント
     panel.querySelectorAll('.btn-clean-m').forEach(btn => {
         btn.addEventListener('click', (e) => {
             e.preventDefault();
             const selectedMonth = parseInt(btn.getAttribute('data-month'), 10);
-            inputEl.value = selectedMonth; // 裏のinput要素へ値を直接入れる
+            inputEl.value = selectedMonth;
             updateMonthButtonsUI(selectedMonth);
         });
     });
@@ -144,9 +133,6 @@ function hideInlinePanel() {
     if (panel) panel.style.display = 'none';
 }
 
-/**
- * 選択中の月ボタンをハイライト
- */
 function updateMonthButtonsUI(activeMonth) {
     const panel = document.getElementById('clean-month-picker-inline');
     if (!panel) return;
@@ -170,7 +156,34 @@ function updateMonthButtonsUI(activeMonth) {
 }
 
 /**
- * ダイアログの「はい」ボタンフック（送信）
+ * 🔍 清掃入力画面から、指定された担当者IDに対応する最新の selPerson (例: '2,6') を解析取得する
+ */
+async function fetchLatestPersonValue(checkNumber, setUpCode, personId) {
+    try {
+        const cleanPlanUrl = `/cleanPlan.asp?CheckNumber=${checkNumber}&WorkMethodCode=1&SetUpCode=${setUpCode}&SetUpHistoryCode=2`;
+        const res = await fetch(cleanPlanUrl);
+        const htmlText = await res.text();
+
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(htmlText, 'text/html');
+        const selEl = doc.getElementById('selPerson');
+
+        if (selEl) {
+            // IDで始まるoptionを探す (例: "2," で始まる "2,6" を取得)
+            const matchedOpt = Array.from(selEl.options).find(o => o.value.startsWith(`${personId},`));
+            if (matchedOpt) {
+                return matchedOpt.value;
+            }
+        }
+    } catch (err) {
+        console.error("清掃担当者プルダウン解析エラー:", err);
+    }
+    // 取得できなかった場合のフォールバック（例: '2,1'）
+    return `${personId},1`;
+}
+
+/**
+ * ダイアログの「はい」ボタンフック（最新の selPerson 値を自動補完して送信）
  */
 function setupDialogHook(setUpCode, inputEl) {
     const regBtn = document.querySelector('input.btn-blue');
@@ -207,12 +220,21 @@ function setupDialogHook(setUpCode, inputEl) {
                     const districtCode = document.querySelector('input[name="txtDistrictCode"]')?.value || '6,1';
                     const citiesCode = document.querySelector('input[name="txtCitiesCode"]')?.value || '2,1';
 
+                    // 点検画面の担当者ID（例: '2'）
+                    const personId = document.querySelector('input[name="txtPersonCode"]')?.value || '1';
+
+                    // 🎯 自動で cleanPlan.asp のプルダウンから最新の '2,6' などを解析取得！
+                    const selPersonValue = await fetchLatestPersonValue(checkNumber, setUpCode, personId);
+
                     const bodyData = new URLSearchParams();
                     bodyData.append('txtWorkDate', targetDate);
                     bodyData.append('ProcessDivisionCode', '2');
                     bodyData.append('ProcessDivisionHistoryCode', '1');
                     bodyData.append('txtDistrictCode', districtCode);
                     bodyData.append('txtCitiesCode', citiesCode);
+                    
+                    // 正しい形式（2,6 等）を送信
+                    bodyData.append('selPerson', selPersonValue);
 
                     const targetUrl = `/writeCleanPlan.asp?CheckNumber=${checkNumber}&WorkMethodCode=1&SetUpCode=${setUpCode}&SetUpHistoryCode=2`;
 
@@ -236,9 +258,6 @@ function setupDialogHook(setUpCode, inputEl) {
     });
 }
 
-/**
- * 完了画面（writeCheck.asp）での完了通知
- */
 function renderCompletionNotice() {
     const savedDataStr = sessionStorage.getItem('clean_autolink_target');
     if (!savedDataStr) return;

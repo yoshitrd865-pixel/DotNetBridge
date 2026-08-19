@@ -401,13 +401,11 @@ function setupDialogHook(setUpCode, inputEl) {
                         yesBtn.disabled = true;
                         yesBtn.value = "処理中...";
 
-                        console.log("🚀 連動処理スタート：【1. 清掃登録】➔【2. 点検登録】の順で実行します");
+                        console.log("🚀 【1. 清掃実績の書き込み】 ➔ 【2. 点検登録】 の順で連動処理を開始します...");
 
                         const params = new URLSearchParams(window.location.search);
                         const checkNumber = params.get('CheckNumber') || document.querySelector('input[name="CheckNumber"]')?.value || '';
                         const setUpHistoryCode = params.get('SetUpHistoryCode') || '2';
-                        const districtCode = document.querySelector('input[name="txtDistrictCode"]')?.value || '6,1';
-                        const citiesCode = document.querySelector('input[name="txtCitiesCode"]')?.value || '2,1';
                         const personCode = document.querySelector('input[name="txtPersonCode"]')?.value || '1';
 
                         const noticeData = {};
@@ -415,74 +413,24 @@ function setupDialogHook(setUpCode, inputEl) {
                         const cleanVolume = volumeInput ? volumeInput.value.trim() : '';
 
                         // =========================================================
-                        // STEP 1：まず先に清掃予定枠を作成する（writeCleanPlan.asp）
-                        // =========================================================
-                        const targetMonthStr = inputEl ? inputEl.value.trim() : '';
-                        let createdCleanNumber = '';
-
-                        // 汚泥量入力がある、または指定月がある場合に枠を裏生成
-                        if (cleanVolume || targetMonthStr) {
-                            const d = new Date();
-                            const currentMonth = d.getMonth() + 1;
-                            let targetMonth = parseInt(targetMonthStr, 10);
-                            if (isNaN(targetMonth)) targetMonth = currentMonth; // 汚泥量のみの場合は当月
-
-                            let targetYear = d.getFullYear();
-                            if (targetMonth < currentMonth) targetYear += 1;
-
-                            const formattedMonth = String(targetMonth).padStart(2, '0');
-                            const targetDate = `${targetYear}/${formattedMonth}/01`;
-
-                            const bodyData = new URLSearchParams();
-                            bodyData.append('txtWorkDate', targetDate);
-                            bodyData.append('ProcessDivisionCode', '2');
-                            bodyData.append('ProcessDivisionHistoryCode', '1');
-                            bodyData.append('txtDistrictCode', districtCode);
-                            bodyData.append('txtCitiesCode', citiesCode);
-                            bodyData.append('selPerson', personCode);
-
-                            const targetUrl = `/writeCleanPlan.asp?CheckNumber=${checkNumber}&WorkMethodCode=1&SetUpCode=${setUpCode}&SetUpHistoryCode=${setUpHistoryCode}`;
-
-                            try {
-                                console.log("⏳ STEP 1: 清掃枠（予定）を生成中...");
-                                const res = await fetch(targetUrl, {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-                                    body: bodyData.toString()
-                                });
-
-                                const resText = await res.text();
-                                // レスポンスから直接 CleanNumber が返っていればそれを抽出
-                                const cleanNumMatch = resText.match(/\((\d+)\)/) || resText.match(/CleanNumber=(\d+)/i);
-                                if (cleanNumMatch && cleanNumMatch[1]) {
-                                    createdCleanNumber = cleanNumMatch[1];
-                                    console.log(`✨ STEP 1 完了: CleanNumber【 ${createdCleanNumber} 】の生成を確認！`);
-                                }
-                                noticeData.month = targetMonth;
-                            } catch (err) {
-                                console.error("❌ STEP 1 エラー:", err);
-                            }
-                        }
-
-                        // =========================================================
-                        // STEP 2：生成された CleanNumber に汚泥実績を送信（writeClean.asp）
+                        // STEP 1：既存の清掃予定（CleanNumber）を裏検索して実績を書き込む
                         // =========================================================
                         if (cleanVolume) {
-                            // レスポンスから取れなかった場合は、一覧（iframe）から検索
-                            if (!createdCleanNumber) {
-                                console.log("🔍 STEP 2: 清掃一覧から生成された CleanNumber を検索中...");
-                                createdCleanNumber = await fetchCleanNumberFromList(setUpCode);
-                            }
+                            console.log(`🔍 顧客 [${setUpCode}] の既存清掃枠 (CleanNumber) を検索中...`);
+                            
+                            // 画面展開（iframe）により、既存の CleanNumber を取得
+                            const targetCleanNum = await fetchCleanNumberFromList(setUpCode);
 
-                            if (createdCleanNumber) {
-                                console.log(`🎯 STEP 2: CleanNumber【 ${createdCleanNumber} 】へ汚泥量 [${cleanVolume}㎥] を送信中...`);
+                            if (targetCleanNum) {
+                                console.log(`🎯 既存の CleanNumber【 ${targetCleanNum} 】へ汚泥量 [${cleanVolume}㎥] を書き込み中...`);
+                                
                                 const cleanResultBody = new URLSearchParams();
                                 cleanResultBody.append('chkCleanCarFlg_1_1', '1');
                                 cleanResultBody.append('txtCarCleanQuantity_1_1', cleanVolume);
                                 cleanResultBody.append('txtCarTakeOutQuantity_1_1', cleanVolume);
                                 cleanResultBody.append('selPerson', personCode);
 
-                                const cleanResultUrl = `/writeClean.asp?CleanNumber=${createdCleanNumber}&CheckNumber=${checkNumber}&WorkMethodCode=1&SetUpCode=${setUpCode}&SetUpHistoryCode=${setUpHistoryCode}`;
+                                const cleanResultUrl = `/writeClean.asp?CleanNumber=${targetCleanNum}&CheckNumber=${checkNumber}&WorkMethodCode=1&SetUpCode=${setUpCode}&SetUpHistoryCode=${setUpHistoryCode}`;
 
                                 try {
                                     noticeData.cleanVolume = cleanVolume;
@@ -491,23 +439,24 @@ function setupDialogHook(setUpCode, inputEl) {
                                         headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
                                         body: cleanResultBody.toString()
                                     });
-                                    console.log(`✅ STEP 2 完了: 清掃実績の裏送信が成功しました！`);
+                                    console.log(`✅ 清掃実績（${cleanVolume}㎥）の書き込みが正常完了しました！`);
                                 } catch (err) {
-                                    console.error("❌ STEP 2 エラー:", err);
+                                    console.error("❌ 清掃実績の書き込みエラー:", err);
                                 }
                             } else {
-                                console.warn("⚠️ CleanNumber が特定できませんでした。");
+                                console.warn("⚠️ 該当する既存の清掃枠 (CleanNumber) が見つかりませんでした。");
                             }
                         }
 
+                        // 通知用データをセッションに保持
                         if (Object.keys(noticeData).length > 0) {
                             sessionStorage.setItem('clean_autolink_target', JSON.stringify(noticeData));
                         }
 
                         // =========================================================
-                        // STEP 3：最後に本来の「点検登録」を送信して完了画面へ
+                        // STEP 2：清掃実績の反映完了後、本来の「点検登録」を実行！
                         // =========================================================
-                        console.log("🏁 STEP 3: 清掃登録が完了したため、点検登録を実行して遷移します。");
+                        console.log("🏁 清掃実績の登録が完了したため、点検登録を実行して送信します。");
 
                         if (typeof submitForm_Yes === 'function') {
                             submitForm_Yes();

@@ -86,49 +86,60 @@ export function initCleanAutoLink() {
 }
 
 /**
- * 清掃一覧（listClean.asp）を裏で検索して、最新の CleanNumber を自動取得する関数
+ * 隠し iframe を使って listClean.asp を裏で実行し、
+ * 当月(0)検索から動的に CleanNumber を自動取得する関数（ポーリング監視付き）
  */
 async function fetchCleanNumberFromList(setUpCode) {
-    try {
-        const res = await fetch(`/listClean.asp`);
-        if (!res.ok) return '';
+    return new Promise((resolve) => {
+        try {
+            const iframe = document.createElement('iframe');
+            iframe.style.display = 'none';
+            iframe.src = '/listClean.asp';
+            document.body.appendChild(iframe);
 
-        const htmlText = await res.text();
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(htmlText, 'text/html');
+            iframe.onload = async () => {
+                try {
+                    const iframeWin = iframe.contentWindow;
+                    const iframeDoc = iframe.contentDocument || iframeWin.document;
 
-        let foundCleanNumber = '';
+                    // 1. 日付プルダウンを「当月(0)」にセットして changeDateRange を発火
+                    const selDate = iframeDoc.getElementById('selDateRange');
+                    if (selDate) {
+                        selDate.value = "0";
+                        if (typeof iframeWin.changeDateRange === 'function') iframeWin.changeDateRange();
+                    }
 
-        // 一覧内のリンクや要素から setUpCode と CleanNumber のペアを検索
-        const links = Array.from(doc.querySelectorAll('a, div, tr'));
-        for (const el of links) {
-            const str = el.outerHTML || '';
-            const text = el.textContent || '';
+                    // 2. 検索ワード欄に SetUpCode をセット
+                    const txtSearch = iframeDoc.getElementById('txtSearchWord') || iframeDoc.querySelector('input[type="text"]');
+                    if (txtSearch) txtSearch.value = setUpCode;
 
-            // 顧客IDが含まれるブロックを特定
-            if (str.includes(setUpCode) || text.includes(setUpCode)) {
-                const match = str.match(/CleanNumber=(\d+)/i) || str.match(/menuClean\.asp\?CleanNumber=(\d+)/i);
-                if (match && match[1]) {
-                    foundCleanNumber = match[1];
-                    break;
+                    // 3. 検索実行 (readList)
+                    if (typeof iframeWin.readList === 'function') iframeWin.readList();
+
+                    // 4. カード（CleanNumber）が描画されるまで 0.2秒刻みでポーリング監視 (最大3秒)
+                    let match = null;
+                    for (let i = 0; i < 15; i++) {
+                        await new Promise(r => setTimeout(r, 200));
+                        const html = iframeDoc.body.innerHTML;
+                        match = html.match(/CleanNumber=(\d+)/i) || html.match(/goTo\([^\)]*(\d+)[^\)]*\)/);
+                        if (match) break;
+                    }
+
+                    const foundCleanNumber = match ? match[1] : '';
+                    if (document.body.contains(iframe)) document.body.removeChild(iframe);
+                    resolve(foundCleanNumber);
+
+                } catch (err) {
+                    console.error("iframe 内の CleanNumber 解析エラー:", err);
+                    if (document.body.contains(iframe)) document.body.removeChild(iframe);
+                    resolve('');
                 }
-            }
+            };
+        } catch (e) {
+            console.error("清掃一覧からの CleanNumber 取得エラー:", e);
+            resolve('');
         }
-
-        // ブロックで見つからなかった場合の全体正規表現検索
-        if (!foundCleanNumber) {
-            const generalMatch = htmlText.match(new RegExp(`CleanNumber=(\\d+)[^"']*${setUpCode}`, 'i')) ||
-                                 htmlText.match(new RegExp(`${setUpCode}[^"']*CleanNumber=(\\d+)`, 'i'));
-            if (generalMatch) {
-                foundCleanNumber = generalMatch[1];
-            }
-        }
-
-        return foundCleanNumber;
-    } catch (e) {
-        console.error("清掃一覧からの CleanNumber 取得エラー:", e);
-        return '';
-    }
+    });
 }
 
 function initVolumePanel(selectEl, inputEl) {
@@ -350,6 +361,7 @@ function setupDialogHook(setUpCode, inputEl) {
                 yesBtn.addEventListener('click', async () => {
                     const params = new URLSearchParams(window.location.search);
                     const checkNumber = params.get('CheckNumber') || document.querySelector('input[name="CheckNumber"]')?.value || '';
+                    const setUpHistoryCode = params.get('SetUpHistoryCode') || '2';
                     const districtCode = document.querySelector('input[name="txtDistrictCode"]')?.value || '6,1';
                     const citiesCode = document.querySelector('input[name="txtCitiesCode"]')?.value || '2,1';
                     const personCode = document.querySelector('input[name="txtPersonCode"]')?.value || '1';
@@ -377,7 +389,7 @@ function setupDialogHook(setUpCode, inputEl) {
                             bodyData.append('txtCitiesCode', citiesCode);
                             bodyData.append('selPerson', personCode);
 
-                            const targetUrl = `/writeCleanPlan.asp?CheckNumber=${checkNumber}&WorkMethodCode=1&SetUpCode=${setUpCode}&SetUpHistoryCode=2`;
+                            const targetUrl = `/writeCleanPlan.asp?CheckNumber=${checkNumber}&WorkMethodCode=1&SetUpCode=${setUpCode}&SetUpHistoryCode=${setUpHistoryCode}`;
 
                             try {
                                 noticeData.month = targetMonth;
@@ -400,12 +412,12 @@ function setupDialogHook(setUpCode, inputEl) {
                         }
                     }
 
-                    // 2️⃣ 【清掃実績（回収/汚泥量）の裏送信】➔ 清掃一覧から自動検索して送信！
+                    // 2️⃣ 【清掃実績（回収/汚泥量）の裏送信】➔ 隠し iframe 経由で CleanNumber を自動取得して送信
                     const volumeInput = document.getElementById('input-clean-volume');
                     const cleanVolume = volumeInput ? volumeInput.value.trim() : '';
 
                     if (cleanVolume) {
-                        // 1. まず清掃一覧（listClean.asp）から最新の CleanNumber を裏検索
+                        // 1. 隠し iframe で一覧を裏検索し最新の CleanNumber を自動取得
                         let targetCleanNum = await fetchCleanNumberFromList(setUpCode);
 
                         // 2. もし一覧から引けなければ localStorage から引き出し
@@ -413,25 +425,29 @@ function setupDialogHook(setUpCode, inputEl) {
                             targetCleanNum = localStorage.getItem(`CleanNumber_${setUpCode}`) || '';
                         }
 
-                        const cleanResultBody = new URLSearchParams();
-                        cleanResultBody.append('chkCleanCarFlg_1_1', '1');
-                        cleanResultBody.append('txtCarCleanQuantity_1_1', cleanVolume);
-                        cleanResultBody.append('txtCarTakeOutQuantity_1_1', cleanVolume);
-                        cleanResultBody.append('selPerson', personCode);
+                        if (targetCleanNum) {
+                            const cleanResultBody = new URLSearchParams();
+                            cleanResultBody.append('chkCleanCarFlg_1_1', '1');
+                            cleanResultBody.append('txtCarCleanQuantity_1_1', cleanVolume);
+                            cleanResultBody.append('txtCarTakeOutQuantity_1_1', cleanVolume);
+                            cleanResultBody.append('selPerson', personCode);
 
-                        const cleanResultUrl = `/writeClean.asp?CleanNumber=${targetCleanNum}&CheckNumber=${checkNumber}&WorkMethodCode=1&SetUpCode=${setUpCode}&SetUpHistoryCode=2`;
+                            const cleanResultUrl = `/writeClean.asp?CleanNumber=${targetCleanNum}&CheckNumber=${checkNumber}&WorkMethodCode=1&SetUpCode=${setUpCode}&SetUpHistoryCode=${setUpHistoryCode}`;
 
-                        try {
-                            noticeData.cleanVolume = cleanVolume;
+                            try {
+                                noticeData.cleanVolume = cleanVolume;
 
-                            await fetch(cleanResultUrl, {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-                                body: cleanResultBody.toString()
-                            });
-                            console.log(`✅ 清掃一覧から検出した CleanNumber (${targetCleanNum}) に実績（${cleanVolume}㎥）を裏送信しました！`);
-                        } catch (err) {
-                            console.error("清掃実績裏送信エラー:", err);
+                                await fetch(cleanResultUrl, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+                                    body: cleanResultBody.toString()
+                                });
+                                console.log(`✅ 自動取得した CleanNumber (${targetCleanNum}) に清掃実績（${cleanVolume}㎥）を正常送信しました！`);
+                            } catch (err) {
+                                console.error("清掃実績裏送信エラー:", err);
+                            }
+                        } else {
+                            console.warn("⚠️ CleanNumber が特定できなかったため、清掃実績の送信をスキップしました。");
                         }
                     }
 

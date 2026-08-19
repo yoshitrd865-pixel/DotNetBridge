@@ -97,7 +97,6 @@ export function initCleanAutoLink() {
 async function fetchCleanNumberFromList(setUpCode) {
     return new Promise((resolve) => {
         try {
-            // 古い iframe があれば削除
             const old = document.getElementById('clean-autolink-iframe');
             if (old) old.remove();
 
@@ -107,51 +106,47 @@ async function fetchCleanNumberFromList(setUpCode) {
             iframe.src = '/listClean.asp';
             document.body.appendChild(iframe);
 
-            let isFirstLoad = true;
+            let loadCount = 0;
 
             iframe.onload = async () => {
-                try {
-                    const iframeWin = iframe.contentWindow;
-                    const iframeDoc = iframe.contentDocument || iframeWin.document;
+                loadCount++;
+                const iframeWin = iframe.contentWindow;
+                const iframeDoc = iframe.contentDocument || iframeWin.document;
 
-                    if (isFirstLoad) {
-                        isFirstLoad = false;
+                // 【1回目のロード時】: 日付を「当月(0)」に切り替えて再読み込みを発火させる
+                if (loadCount === 1) {
+                    const selDate = iframeDoc.getElementById('selDateRange');
+                    const txtSearch = iframeDoc.getElementById('txtSearchWord') || iframeDoc.querySelector('input[type="text"]');
+                    
+                    if (txtSearch) txtSearch.value = setUpCode;
 
-                        // 当月(0)にセットして検索実行
-                        const selDate = iframeDoc.getElementById('selDateRange');
-                        if (selDate) {
-                            selDate.value = "0";
-                            if (typeof iframeWin.changeDateRange === 'function') iframeWin.changeDateRange();
+                    if (selDate && selDate.value !== "0") {
+                        selDate.value = "0";
+                        if (typeof iframeWin.changeDateRange === 'function') {
+                            iframeWin.changeDateRange(); // これにより iframe がリロードされ loadCount === 2 へ行く
+                            return;
                         }
-
-                        const txtSearch = iframeDoc.getElementById('txtSearchWord') || iframeDoc.querySelector('input[type="text"]');
-                        if (txtSearch) txtSearch.value = setUpCode;
-
-                        if (typeof iframeWin.readList === 'function') iframeWin.readList();
                     }
 
-                    // カードが描画されるまでループ監視（最大2秒）
-                    let match = null;
-                    for (let i = 0; i < 10; i++) {
-                        await new Promise(r => setTimeout(r, 200));
-                        const html = iframeDoc.body.innerHTML;
-                        match = html.match(/CleanNumber=(\d+)/i) || html.match(/goTo\([^\)]*['"]?(\d+)['"]?[^\)]*\)/);
-                        if (match) break;
+                    if (typeof iframeWin.readList === 'function') {
+                        iframeWin.readList();
                     }
-
-                    const foundNum = match ? match[1] : '';
-                    if (foundNum) {
-                        console.log(`✨ CleanNumber 抽出成功: 【 ${foundNum} 】`);
-                    }
-
-                    if (document.body.contains(iframe)) document.body.removeChild(iframe);
-                    resolve(foundNum);
-
-                } catch (err) {
-                    console.error("iframe 解析エラー:", err);
-                    if (document.body.contains(iframe)) document.body.removeChild(iframe);
-                    resolve('');
                 }
+
+                // 【2回目のロード時（または描画完了時）】: カードから CleanNumber を抽出
+                let match = null;
+                for (let i = 0; i < 10; i++) {
+                    await new Promise(r => setTimeout(r, 200));
+                    const html = iframeDoc.body.innerHTML;
+                    match = html.match(/CleanNumber=(\d+)/i) || html.match(/goTo\([^\)]*['"]?(\d+)['"]?[^\)]*\)/);
+                    if (match) break;
+                }
+
+                const foundNum = match ? match[1] : '';
+                console.log(foundNum ? `✨ CleanNumber 抽出成功: 【 ${foundNum} 】` : "⚠️ CleanNumber が見つかりませんでした");
+
+                if (document.body.contains(iframe)) document.body.removeChild(iframe);
+                resolve(foundNum);
             };
         } catch (e) {
             console.error("iframe 生成エラー:", e);

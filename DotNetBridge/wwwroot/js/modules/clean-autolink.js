@@ -1,9 +1,11 @@
 // wwwroot/js/modules/clean-autolink.js
 
 export function initCleanAutoLink() {
-    // 🛡️ iframe 内部での二次実行を完全に遮断（フリーズ防止）
+    // 🛡️ 隠し iframe 内での重複実行を絶対に防止！
     if (window.self !== window.top) return;
     if (window.__cleanAutoLinkInitialized) return;
+    
+    // （以下、既存の処理...）
 
     const currentPath = window.location.pathname.toLowerCase();
 
@@ -88,42 +90,44 @@ export function initCleanAutoLink() {
 }
 
 /**
- * 清掃一覧（listClean.asp）から CleanNumber を取得する関数（タイムアウト＆iframe分離防護版）
+ * 清掃一覧（listClean.asp）を隠し iframe で正しく画面展開し、CleanNumber を抽出する関数
  */
 async function fetchCleanNumberFromList(setUpCode) {
-    // 5秒経過したら強制解放する安全装置
-    const timeoutPromise = new Promise((resolve) => setTimeout(() => {
-        console.warn("⚠️ CleanNumber 取得がタイムアウトしました。処理を強制続行します。");
-        resolve('');
-    }, 5000));
-
-    const fetchPromise = new Promise((resolve) => {
+    return new Promise((resolve) => {
         try {
+            // 既に存在する古い iframe を削除
+            const oldIframe = document.getElementById('clean-autolink-iframe');
+            if (oldIframe) oldIframe.remove();
+
             const iframe = document.createElement('iframe');
-            iframe.style.display = 'none';
             iframe.id = 'clean-autolink-iframe';
-            iframe.src = '/listClean.asp';
+            iframe.style.display = 'none';
+            // クッキー経由で検索条件を事前にセットして画面展開
+            document.cookie = `SearchWord='${setUpCode}'`;
+            document.cookie = "DateRange=0"; // 当月
+
+            iframe.src = `/listClean.asp`;
             document.body.appendChild(iframe);
 
-            let hasChangedDate = false;
+            let step = 0;
 
             iframe.onload = async () => {
                 try {
                     const iframeWin = iframe.contentWindow;
                     const iframeDoc = iframe.contentDocument || iframeWin.document;
 
-                    if (!hasChangedDate) {
-                        hasChangedDate = true;
+                    if (step === 0) {
+                        step = 1;
 
+                        // 検索ワードと日付（当月: 0）をセットして検索実行
                         const txtSearch = iframeDoc.getElementById('txtSearchWord') || iframeDoc.querySelector('input[type="text"]');
                         if (txtSearch) txtSearch.value = setUpCode;
 
                         const selDate = iframeDoc.getElementById('selDateRange');
                         if (selDate) {
-                            selDate.value = "0"; // 当月
+                            selDate.value = "0";
                             if (typeof iframeWin.changeDateRange === 'function') {
                                 iframeWin.changeDateRange();
-                                return; // 次の onload を待つ
                             }
                         }
 
@@ -132,33 +136,32 @@ async function fetchCleanNumberFromList(setUpCode) {
                         }
                     }
 
-                    // 描画ポーリング監視
+                    // カード描画待ち（最大2秒）
                     let match = null;
                     for (let i = 0; i < 10; i++) {
                         await new Promise(r => setTimeout(r, 200));
                         const html = iframeDoc.body.innerHTML;
-                        match = html.match(/CleanNumber=(\d+)/i) || html.match(/goTo\([^\)]*(\d+)[^\)]*\)/);
+                        match = html.match(/CleanNumber=(\d+)/i) || html.match(/goTo\([^\)]*['"]?(\d+)['"]?[^\)]*\)/);
                         if (match) break;
                     }
 
                     const foundCleanNum = match ? match[1] : '';
+                    console.log(foundCleanNum ? `✨ CleanNumber 抽出成功: 【 ${foundCleanNum} 】` : "⚠️ CleanNumber が見つかりませんでした");
+
                     if (document.body.contains(iframe)) document.body.removeChild(iframe);
                     resolve(foundCleanNum);
 
                 } catch (err) {
-                    console.error("iframe 解析エラー:", err);
+                    console.error("❌ iframe 内解析エラー:", err);
                     if (document.body.contains(iframe)) document.body.removeChild(iframe);
                     resolve('');
                 }
             };
         } catch (e) {
-            console.error("CleanNumber 取得エラー:", e);
+            console.error("❌ iframe 制御エラー:", e);
             resolve('');
         }
     });
-
-    // 取得処理 または 5秒タイムアウトの早い方を採用
-    return Promise.race([fetchPromise, timeoutPromise]);
 }
 
 function initVolumePanel(selectEl, inputEl) {

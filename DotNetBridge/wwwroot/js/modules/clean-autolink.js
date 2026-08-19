@@ -369,139 +369,155 @@ function updateMonthButtonsUI(activeMonth) {
     });
 }
 
+/**
+ * ダイアログの「はい」ボタンにフックを仕込む関数（確実なDOM監視付き）
+ */
 function setupDialogHook(setUpCode, inputEl) {
-    const regBtn = document.querySelector('input.btn-blue');
-    if (!regBtn || regBtn.dataset.cleanHookSet) return;
-    regBtn.dataset.cleanHookSet = "true";
+    const bindHook = () => {
+        const regBtn = document.querySelector('input.btn-blue') || 
+                       Array.from(document.querySelectorAll('input, button')).find(el => el.value === '登録' || el.textContent.includes('登録'));
 
-    regBtn.addEventListener('click', () => {
-        setTimeout(() => {
-            // ダイアログ内の「はい」ボタンを特定
-            const yesBtn = Array.from(document.querySelectorAll('input[type="button"]'))
-                .find(el => el.value === 'はい' || el.getAttribute('onclick')?.includes('submitForm_Yes'));
+        if (!regBtn || regBtn.dataset.cleanHookSet) return;
+        regBtn.dataset.cleanHookSet = "true";
 
-            if (yesBtn && !yesBtn.dataset.cleanBound) {
-                yesBtn.dataset.cleanBound = "true";
+        console.log("🎯 「登録」ボタンへのフックバインドに成功しました！");
 
-                // 元々の onclick 属性を解除して乗っ取る
-                const originalOnClickStr = yesBtn.getAttribute('onclick') || '';
-                yesBtn.removeAttribute('onclick');
+        regBtn.addEventListener('click', () => {
+            // ダイアログが出現するのを監視
+            let checkCount = 0;
+            const timer = setInterval(() => {
+                checkCount++;
+                const yesBtn = Array.from(document.querySelectorAll('input[type="button"], button'))
+                    .find(el => el.value === 'はい' || el.textContent.trim() === 'はい' || el.getAttribute('onclick')?.includes('submitForm_Yes'));
 
-                yesBtn.addEventListener('click', async (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
+                if (yesBtn && !yesBtn.dataset.cleanBound) {
+                    yesBtn.dataset.cleanBound = "true";
+                    clearInterval(timer);
 
-                    // ボタンの連打防止
-                    yesBtn.disabled = true;
-                    yesBtn.value = "処理中...";
+                    const originalOnClickStr = yesBtn.getAttribute('onclick') || '';
+                    yesBtn.removeAttribute('onclick');
 
-                    console.log("🚀 「はい」が押されました。裏送信処理を開始します...");
+                    yesBtn.addEventListener('click', async (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
 
-                    const params = new URLSearchParams(window.location.search);
-                    const checkNumber = params.get('CheckNumber') || document.querySelector('input[name="CheckNumber"]')?.value || '';
-                    const setUpHistoryCode = params.get('SetUpHistoryCode') || '2';
-                    const districtCode = document.querySelector('input[name="txtDistrictCode"]')?.value || '6,1';
-                    const citiesCode = document.querySelector('input[name="txtCitiesCode"]')?.value || '2,1';
-                    const personCode = document.querySelector('input[name="txtPersonCode"]')?.value || '1';
+                        yesBtn.disabled = true;
+                        yesBtn.value = "処理中...";
 
-                    const noticeData = {};
+                        console.log("🚀 「はい」が押されました。裏送信処理を開始します...");
 
-                    // 1️⃣ 清掃予定の裏送信
-                    const targetMonthStr = inputEl ? inputEl.value.trim() : '';
-                    if (targetMonthStr) {
-                        const targetMonth = parseInt(targetMonthStr, 10);
-                        if (!isNaN(targetMonth)) {
-                            const d = new Date();
-                            const currentMonth = d.getMonth() + 1;
-                            let targetYear = d.getFullYear();
-                            if (targetMonth < currentMonth) targetYear += 1;
+                        const params = new URLSearchParams(window.location.search);
+                        const checkNumber = params.get('CheckNumber') || document.querySelector('input[name="CheckNumber"]')?.value || '';
+                        const setUpHistoryCode = params.get('SetUpHistoryCode') || '2';
+                        const districtCode = document.querySelector('input[name="txtDistrictCode"]')?.value || '6,1';
+                        const citiesCode = document.querySelector('input[name="txtCitiesCode"]')?.value || '2,1';
+                        const personCode = document.querySelector('input[name="txtPersonCode"]')?.value || '1';
 
-                            const formattedMonth = String(targetMonth).padStart(2, '0');
-                            const targetDate = `${targetYear}/${formattedMonth}/01`;
+                        const noticeData = {};
 
-                            const bodyData = new URLSearchParams();
-                            bodyData.append('txtWorkDate', targetDate);
-                            bodyData.append('ProcessDivisionCode', '2');
-                            bodyData.append('ProcessDivisionHistoryCode', '1');
-                            bodyData.append('txtDistrictCode', districtCode);
-                            bodyData.append('txtCitiesCode', citiesCode);
-                            bodyData.append('selPerson', personCode);
+                        // 1️⃣ 清掃予定の裏送信
+                        const targetMonthStr = inputEl ? inputEl.value.trim() : '';
+                        if (targetMonthStr) {
+                            const targetMonth = parseInt(targetMonthStr, 10);
+                            if (!isNaN(targetMonth)) {
+                                const d = new Date();
+                                const currentMonth = d.getMonth() + 1;
+                                let targetYear = d.getFullYear();
+                                if (targetMonth < currentMonth) targetYear += 1;
 
-                            const targetUrl = `/writeCleanPlan.asp?CheckNumber=${checkNumber}&WorkMethodCode=1&SetUpCode=${setUpCode}&SetUpHistoryCode=${setUpHistoryCode}`;
+                                const formattedMonth = String(targetMonth).padStart(2, '0');
+                                const targetDate = `${targetYear}/${formattedMonth}/01`;
 
-                            try {
-                                noticeData.month = targetMonth;
-                                noticeData.targetDate = targetDate;
-                                await fetch(targetUrl, {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-                                    body: bodyData.toString()
-                                });
-                                console.log("✅ 清掃予定の裏送信完了");
-                            } catch (err) {
-                                console.error("❌ 清掃予定送信エラー:", err);
+                                const bodyData = new URLSearchParams();
+                                bodyData.append('txtWorkDate', targetDate);
+                                bodyData.append('ProcessDivisionCode', '2');
+                                bodyData.append('ProcessDivisionHistoryCode', '1');
+                                bodyData.append('txtDistrictCode', districtCode);
+                                bodyData.append('txtCitiesCode', citiesCode);
+                                bodyData.append('selPerson', personCode);
+
+                                const targetUrl = `/writeCleanPlan.asp?CheckNumber=${checkNumber}&WorkMethodCode=1&SetUpCode=${setUpCode}&SetUpHistoryCode=${setUpHistoryCode}`;
+
+                                try {
+                                    noticeData.month = targetMonth;
+                                    noticeData.targetDate = targetDate;
+                                    await fetch(targetUrl, {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+                                        body: bodyData.toString()
+                                    });
+                                    console.log("✅ 清掃予定の裏送信完了");
+                                } catch (err) {
+                                    console.error("❌ 清掃予定送信エラー:", err);
+                                }
                             }
                         }
-                    }
 
-                    // 2️⃣ 清掃実績の裏送信
-                    const volumeInput = document.getElementById('input-clean-volume');
-                    const cleanVolume = volumeInput ? volumeInput.value.trim() : '';
+                        // 2️⃣ 清掃実績の裏送信
+                        const volumeInput = document.getElementById('input-clean-volume');
+                        const cleanVolume = volumeInput ? volumeInput.value.trim() : '';
 
-                    if (cleanVolume) {
-                        console.log(`🧹 汚泥量 [${cleanVolume}㎥] を検出。CleanNumber を裏検索中...`);
-                        let targetCleanNum = await fetchCleanNumberFromList(setUpCode);
+                        if (cleanVolume) {
+                            console.log(`🧹 汚泥量 [${cleanVolume}㎥] を検出。CleanNumber を裏検索中...`);
+                            let targetCleanNum = await fetchCleanNumberFromList(setUpCode);
 
-                        if (!targetCleanNum) {
-                            targetCleanNum = localStorage.getItem(`CleanNumber_${setUpCode}`) || '';
+                            if (!targetCleanNum) {
+                                targetCleanNum = localStorage.getItem(`CleanNumber_${setUpCode}`) || '';
+                            }
+
+                            if (targetCleanNum) {
+                                console.log(`🎯 対象 CleanNumber: 【 ${targetCleanNum} 】 へ実績送信中...`);
+                                const cleanResultBody = new URLSearchParams();
+                                cleanResultBody.append('chkCleanCarFlg_1_1', '1');
+                                cleanResultBody.append('txtCarCleanQuantity_1_1', cleanVolume);
+                                cleanResultBody.append('txtCarTakeOutQuantity_1_1', cleanVolume);
+                                cleanResultBody.append('selPerson', personCode);
+
+                                const cleanResultUrl = `/writeClean.asp?CleanNumber=${targetCleanNum}&CheckNumber=${checkNumber}&WorkMethodCode=1&SetUpCode=${setUpCode}&SetUpHistoryCode=${setUpHistoryCode}`;
+
+                                try {
+                                    noticeData.cleanVolume = cleanVolume;
+                                    await fetch(cleanResultUrl, {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+                                        body: cleanResultBody.toString()
+                                    });
+                                    console.log(`✅ 清掃実績（${cleanVolume}㎥）の送信完了！`);
+                                } catch (err) {
+                                    console.error("❌ 清掃実績送信エラー:", err);
+                                }
+                            } else {
+                                console.warn("⚠️ CleanNumber が特定できませんでした。");
+                            }
                         }
 
-                        if (targetCleanNum) {
-                            console.log(`🎯 対象 CleanNumber: 【 ${targetCleanNum} 】 へ実績送信中...`);
-                            const cleanResultBody = new URLSearchParams();
-                            cleanResultBody.append('chkCleanCarFlg_1_1', '1');
-                            cleanResultBody.append('txtCarCleanQuantity_1_1', cleanVolume);
-                            cleanResultBody.append('txtCarTakeOutQuantity_1_1', cleanVolume);
-                            cleanResultBody.append('selPerson', personCode);
+                        if (Object.keys(noticeData).length > 0) {
+                            sessionStorage.setItem('clean_autolink_target', JSON.stringify(noticeData));
+                        }
 
-                            const cleanResultUrl = `/writeClean.asp?CleanNumber=${targetCleanNum}&CheckNumber=${checkNumber}&WorkMethodCode=1&SetUpCode=${setUpCode}&SetUpHistoryCode=${setUpHistoryCode}`;
+                        console.log("🏁 裏処理完了。本来の画面送信を実行します。");
 
-                            try {
-                                noticeData.cleanVolume = cleanVolume;
-                                await fetch(cleanResultUrl, {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-                                    body: cleanResultBody.toString()
-                                });
-                                console.log(`✅ 清掃実績（${cleanVolume}㎥）の送信完了！`);
-                            } catch (err) {
-                                console.error("❌ 清掃実績送信エラー:", err);
-                            }
+                        // 本来の送信処理を実行
+                        if (typeof submitForm_Yes === 'function') {
+                            submitForm_Yes();
+                        } else if (originalOnClickStr) {
+                            new Function(originalOnClickStr)();
                         } else {
-                            console.warn("⚠️ CleanNumber が特定できませんでした。");
+                            const form = yesBtn.closest('form') || document.forms[0];
+                            if (form) form.submit();
                         }
-                    }
+                    });
+                }
 
-                    // 送信データを sessionStorage に保存
-                    if (Object.keys(noticeData).length > 0) {
-                        sessionStorage.setItem('clean_autolink_target', JSON.stringify(noticeData));
-                    }
+                if (checkCount > 30) clearInterval(timer); // 3秒でタイムアウト
+            }, 100);
+        });
+    };
 
-                    console.log("🏁 裏処理完了。本来の画面送信を実行します。");
-
-                    // 3️⃣ 本来の Submit 処理を実行して遷移させる
-                    if (typeof submitForm_Yes === 'function') {
-                        submitForm_Yes();
-                    } else if (originalOnClickStr) {
-                        new Function(originalOnClickStr)();
-                    } else {
-                        const form = yesBtn.closest('form') || document.forms[0];
-                        if (form) form.submit();
-                    }
-                });
-            }
-        }, 150);
-    });
+    // 初回実行と定期監視
+    bindHook();
+    const observer = new MutationObserver(bindHook);
+    observer.observe(document.body, { childList: true, subtree: true });
 }
 
 function renderCompletionNotice() {

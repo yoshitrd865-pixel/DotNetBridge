@@ -86,8 +86,7 @@ export function initCleanAutoLink() {
 }
 
 /**
- * 隠し iframe を使って listClean.asp を裏で実行し、
- * 当月(0)検索から動的に CleanNumber を自動取得する関数（ポーリング監視付き）
+ * 清掃一覧（listClean.asp）から CleanNumber を取得する関数（iframe再読み込み完全対応版）
  */
 async function fetchCleanNumberFromList(setUpCode) {
     return new Promise((resolve) => {
@@ -97,26 +96,35 @@ async function fetchCleanNumberFromList(setUpCode) {
             iframe.src = '/listClean.asp';
             document.body.appendChild(iframe);
 
+            let hasChangedDate = false;
+
             iframe.onload = async () => {
                 try {
                     const iframeWin = iframe.contentWindow;
                     const iframeDoc = iframe.contentDocument || iframeWin.document;
 
-                    // 1. 日付プルダウンを「当月(0)」にセットして changeDateRange を発火
-                    const selDate = iframeDoc.getElementById('selDateRange');
-                    if (selDate) {
-                        selDate.value = "0";
-                        if (typeof iframeWin.changeDateRange === 'function') iframeWin.changeDateRange();
+                    // 1回目ロード時：日付を「当月(0)」または「全期間(-1)」に変更して再読み込みを促す
+                    if (!hasChangedDate) {
+                        hasChangedDate = true;
+
+                        const selDate = iframeDoc.getElementById('selDateRange');
+                        const txtSearch = iframeDoc.getElementById('txtSearchWord') || iframeDoc.querySelector('input[type="text"]');
+                        if (txtSearch) txtSearch.value = setUpCode;
+
+                        if (selDate) {
+                            selDate.value = "0"; // 当月
+                            if (typeof iframeWin.changeDateRange === 'function') {
+                                iframeWin.changeDateRange(); // これで iframe がリロードされる
+                                return; // 次の iframe.onload を待つ
+                            }
+                        }
+
+                        if (typeof iframeWin.readList === 'function') {
+                            iframeWin.readList();
+                        }
                     }
 
-                    // 2. 検索ワード欄に SetUpCode をセット
-                    const txtSearch = iframeDoc.getElementById('txtSearchWord') || iframeDoc.querySelector('input[type="text"]');
-                    if (txtSearch) txtSearch.value = setUpCode;
-
-                    // 3. 検索実行 (readList)
-                    if (typeof iframeWin.readList === 'function') iframeWin.readList();
-
-                    // 4. カード（CleanNumber）が描画されるまで 0.2秒刻みでポーリング監視 (最大3秒)
+                    // 2回目ロード時（または描画後）：カードから CleanNumber を抽出
                     let match = null;
                     for (let i = 0; i < 15; i++) {
                         await new Promise(r => setTimeout(r, 200));
@@ -125,18 +133,20 @@ async function fetchCleanNumberFromList(setUpCode) {
                         if (match) break;
                     }
 
-                    const foundCleanNumber = match ? match[1] : '';
+                    const foundCleanNum = match ? match[1] : '';
+                    console.log(foundCleanNum ? `✨ iframeから抽出成功: CleanNumber = ${foundCleanNum}` : "⚠️ CleanNumber が見つかりませんでした");
+
                     if (document.body.contains(iframe)) document.body.removeChild(iframe);
-                    resolve(foundCleanNumber);
+                    resolve(foundCleanNum);
 
                 } catch (err) {
-                    console.error("iframe 内の CleanNumber 解析エラー:", err);
+                    console.error("iframe 解析エラー:", err);
                     if (document.body.contains(iframe)) document.body.removeChild(iframe);
                     resolve('');
                 }
             };
         } catch (e) {
-            console.error("清掃一覧からの CleanNumber 取得エラー:", e);
+            console.error("CleanNumber 取得エラー:", e);
             resolve('');
         }
     });

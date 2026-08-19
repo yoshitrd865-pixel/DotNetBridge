@@ -92,64 +92,90 @@ export function initCleanAutoLink() {
 }
 
 /**
- * 隠し iframe で listClean.asp を画面展開し、CleanNumber を安全に抽出する関数
+ * 裏ポップアップ（極小ウィンドウ）を開いて清掃一覧を描画させ、
+ * CleanNumber を確実かつ爆速で抽出して自動クローズする関数
  */
 async function fetchCleanNumberFromList(setUpCode) {
     return new Promise((resolve) => {
         try {
-            const old = document.getElementById('clean-autolink-iframe');
-            if (old) old.remove();
+            console.log(`🚀 裏ポップアップを立ち上げて 顧客ID [${setUpCode}] の CleanNumber を検索します...`);
 
-            const iframe = document.createElement('iframe');
-            iframe.id = 'clean-autolink-iframe';
-            iframe.style.display = 'none';
-            iframe.src = '/listClean.asp';
-            document.body.appendChild(iframe);
+            // 画面の隅に極小サイズ（1x1px）でポップアップを開く
+            const popup = window.open(
+                `/listClean.asp`,
+                'CleanNumberSearchPopup',
+                'width=100,height=100,left=2000,top=2000,scrollbars=no,resizable=no'
+            );
+
+            if (!popup) {
+                console.warn("⚠️ ポップアップがブロックされました。");
+                resolve('');
+                return;
+            }
 
             let loadCount = 0;
 
-            iframe.onload = async () => {
-                loadCount++;
-                const iframeWin = iframe.contentWindow;
-                const iframeDoc = iframe.contentDocument || iframeWin.document;
+            // ポップアップ側のロード監視
+            const checkTimer = setInterval(async () => {
+                try {
+                    if (popup.closed) {
+                        clearInterval(checkTimer);
+                        resolve('');
+                        return;
+                    }
 
-                // 【1回目のロード時】: 日付を「当月(0)」に切り替えて再読み込みを発火させる
-                if (loadCount === 1) {
-                    const selDate = iframeDoc.getElementById('selDateRange');
-                    const txtSearch = iframeDoc.getElementById('txtSearchWord') || iframeDoc.querySelector('input[type="text"]');
-                    
-                    if (txtSearch) txtSearch.value = setUpCode;
+                    const pDoc = popup.document;
+                    const pWin = popup;
 
-                    if (selDate && selDate.value !== "0") {
-                        selDate.value = "0";
-                        if (typeof iframeWin.changeDateRange === 'function') {
-                            iframeWin.changeDateRange(); // これにより iframe がリロードされ loadCount === 2 へ行く
-                            return;
+                    if (pDoc && pDoc.readyState === 'complete') {
+                        // 1. 初回読み込み時：検索条件（SetUpCode / 当月:0）をセットして検索実行
+                        if (loadCount === 0) {
+                            loadCount = 1;
+
+                            const txtSearch = pDoc.getElementById('txtSearchWord') || pDoc.querySelector('input[type="text"]');
+                            if (txtSearch) txtSearch.value = setUpCode;
+
+                            const selDate = pDoc.getElementById('selDateRange');
+                            if (selDate && selDate.value !== "0") {
+                                selDate.value = "0"; // 当月
+                                if (typeof pWin.changeDateRange === 'function') {
+                                    pWin.changeDateRange();
+                                    return; // リロード待ち
+                                }
+                            }
+
+                            if (typeof pWin.readList === 'function') {
+                                pWin.readList();
+                            }
+                        }
+
+                        // 2. カード描画待ち ➔ CleanNumber 抽出
+                        const html = pDoc.body ? pDoc.body.innerHTML : '';
+                        const match = html.match(/CleanNumber=(\d+)/i) || html.match(/goTo\([^\)]*['"]?(\d+)['"]?[^\)]*\)/);
+
+                        if (match && match[1]) {
+                            const cleanNum = match[1];
+                            console.log(`✨【成功】 ポップアップから CleanNumber 【 ${cleanNum} 】 を引っこ抜きました！`);
+                            
+                            clearInterval(checkTimer);
+                            popup.close(); // 抽出完了したら即座に閉じる
+                            resolve(cleanNum);
                         }
                     }
-
-                    if (typeof iframeWin.readList === 'function') {
-                        iframeWin.readList();
-                    }
+                } catch (e) {
+                    // ドメイン遷移中の一時的なアクセスエラーは無視して監視を継続
                 }
+            }, 200);
 
-                // 【2回目のロード時（または描画完了時）】: カードから CleanNumber を抽出
-                let match = null;
-                for (let i = 0; i < 10; i++) {
-                    await new Promise(r => setTimeout(r, 200));
-                    const html = iframeDoc.body.innerHTML;
-                    match = html.match(/CleanNumber=(\d+)/i) || html.match(/goTo\([^\)]*['"]?(\d+)['"]?[^\)]*\)/);
-                    if (match) break;
-                }
+            // 4秒経過しても取れない場合は安全のため強制クローズ
+            setTimeout(() => {
+                clearInterval(checkTimer);
+                if (popup && !popup.closed) popup.close();
+                resolve('');
+            }, 4000);
 
-                const foundNum = match ? match[1] : '';
-                console.log(foundNum ? `✨ CleanNumber 抽出成功: 【 ${foundNum} 】` : "⚠️ CleanNumber が見つかりませんでした");
-
-                if (document.body.contains(iframe)) document.body.removeChild(iframe);
-                resolve(foundNum);
-            };
         } catch (e) {
-            console.error("iframe 生成エラー:", e);
+            console.error("❌ ポップアップ処理エラー:", e);
             resolve('');
         }
     });

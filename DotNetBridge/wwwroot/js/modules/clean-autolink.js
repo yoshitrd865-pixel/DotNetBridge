@@ -218,7 +218,7 @@ function initVolumePanel(selectEl, inputEl) {
 
     let lastIsCleaned = false;
 
-    const updatePanelStatus = () => {
+const updatePanelStatus = () => {
         let activeSelect = null;
 
         [1, 2, 3].forEach(num => {
@@ -227,10 +227,15 @@ function initVolumePanel(selectEl, inputEl) {
 
             if (detailSel && detailSel.selectedIndex >= 0) {
                 const optText = detailSel.options[detailSel.selectedIndex]?.text.trim() || '';
-                const isClassClean = classSel ? classSel.options[classSel.selectedIndex]?.text.includes('清掃連絡') : true;
-                const isDetailMatch = optText.includes('汚泥引抜') && optText.includes('実施');
+                const val = detailSel.value || '';
 
-                if (isClassClean && isDetailMatch) {
+                // 「引抜」「清掃」「実施」「1,2」などのキーワードに幅広く反応させる
+                const isDetailMatch = optText.includes('引抜') || 
+                                      optText.includes('清掃') || 
+                                      optText.includes('実施') || 
+                                      val === '1,2';
+
+                if (isDetailMatch) {
                     activeSelect = detailSel;
                 }
             }

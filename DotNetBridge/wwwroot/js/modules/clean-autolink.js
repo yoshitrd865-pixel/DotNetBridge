@@ -357,13 +357,27 @@ function setupDialogHook(setUpCode, inputEl) {
 
     regBtn.addEventListener('click', () => {
         setTimeout(() => {
+            // ダイアログ内の「はい」ボタンを特定
             const yesBtn = Array.from(document.querySelectorAll('input[type="button"]'))
                 .find(el => el.value === 'はい' || el.getAttribute('onclick')?.includes('submitForm_Yes'));
 
             if (yesBtn && !yesBtn.dataset.cleanBound) {
                 yesBtn.dataset.cleanBound = "true";
 
-                yesBtn.addEventListener('click', async () => {
+                // 元々の onclick 属性を解除して乗っ取る
+                const originalOnClickStr = yesBtn.getAttribute('onclick') || '';
+                yesBtn.removeAttribute('onclick');
+
+                yesBtn.addEventListener('click', async (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    // ボタンの連打防止
+                    yesBtn.disabled = true;
+                    yesBtn.value = "処理中...";
+
+                    console.log("🚀 「はい」が押されました。裏送信処理を開始します...");
+
                     const params = new URLSearchParams(window.location.search);
                     const checkNumber = params.get('CheckNumber') || document.querySelector('input[name="CheckNumber"]')?.value || '';
                     const setUpHistoryCode = params.get('SetUpHistoryCode') || '2';
@@ -373,7 +387,7 @@ function setupDialogHook(setUpCode, inputEl) {
 
                     const noticeData = {};
 
-                    // 1️⃣ 【清掃予定の裏送信】
+                    // 1️⃣ 清掃予定の裏送信
                     const targetMonthStr = inputEl ? inputEl.value.trim() : '';
                     if (targetMonthStr) {
                         const targetMonth = parseInt(targetMonthStr, 10);
@@ -399,38 +413,32 @@ function setupDialogHook(setUpCode, inputEl) {
                             try {
                                 noticeData.month = targetMonth;
                                 noticeData.targetDate = targetDate;
-
-                                const res = await fetch(targetUrl, {
+                                await fetch(targetUrl, {
                                     method: 'POST',
                                     headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
                                     body: bodyData.toString()
                                 });
-
-                                const resText = await res.text();
-                                const cleanNumMatch = resText.match(/\((\d+)\)/);
-                                if (cleanNumMatch && cleanNumMatch[1]) {
-                                    localStorage.setItem(`CleanNumber_${setUpCode}`, cleanNumMatch[1]);
-                                }
+                                console.log("✅ 清掃予定の裏送信完了");
                             } catch (err) {
-                                console.error("清掃予定裏送信エラー:", err);
+                                console.error("❌ 清掃予定送信エラー:", err);
                             }
                         }
                     }
 
-                    // 2️⃣ 【清掃実績（回収/汚泥量）の裏送信】➔ 隠し iframe 経由で CleanNumber を自動取得して送信
+                    // 2️⃣ 清掃実績の裏送信
                     const volumeInput = document.getElementById('input-clean-volume');
                     const cleanVolume = volumeInput ? volumeInput.value.trim() : '';
 
                     if (cleanVolume) {
-                        // 1. 隠し iframe で一覧を裏検索し最新の CleanNumber を自動取得
+                        console.log(`🧹 汚泥量 [${cleanVolume}㎥] を検出。CleanNumber を裏検索中...`);
                         let targetCleanNum = await fetchCleanNumberFromList(setUpCode);
 
-                        // 2. もし一覧から引けなければ localStorage から引き出し
                         if (!targetCleanNum) {
                             targetCleanNum = localStorage.getItem(`CleanNumber_${setUpCode}`) || '';
                         }
 
                         if (targetCleanNum) {
+                            console.log(`🎯 対象 CleanNumber: 【 ${targetCleanNum} 】 へ実績送信中...`);
                             const cleanResultBody = new URLSearchParams();
                             cleanResultBody.append('chkCleanCarFlg_1_1', '1');
                             cleanResultBody.append('txtCarCleanQuantity_1_1', cleanVolume);
@@ -441,23 +449,35 @@ function setupDialogHook(setUpCode, inputEl) {
 
                             try {
                                 noticeData.cleanVolume = cleanVolume;
-
                                 await fetch(cleanResultUrl, {
                                     method: 'POST',
                                     headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
                                     body: cleanResultBody.toString()
                                 });
-                                console.log(`✅ 自動取得した CleanNumber (${targetCleanNum}) に清掃実績（${cleanVolume}㎥）を正常送信しました！`);
+                                console.log(`✅ 清掃実績（${cleanVolume}㎥）の送信完了！`);
                             } catch (err) {
-                                console.error("清掃実績裏送信エラー:", err);
+                                console.error("❌ 清掃実績送信エラー:", err);
                             }
                         } else {
-                            console.warn("⚠️ CleanNumber が特定できなかったため、清掃実績の送信をスキップしました。");
+                            console.warn("⚠️ CleanNumber が特定できませんでした。");
                         }
                     }
 
+                    // 送信データを sessionStorage に保存
                     if (Object.keys(noticeData).length > 0) {
                         sessionStorage.setItem('clean_autolink_target', JSON.stringify(noticeData));
+                    }
+
+                    console.log("🏁 裏処理完了。本来の画面送信を実行します。");
+
+                    // 3️⃣ 本来の Submit 処理を実行して遷移させる
+                    if (typeof submitForm_Yes === 'function') {
+                        submitForm_Yes();
+                    } else if (originalOnClickStr) {
+                        new Function(originalOnClickStr)();
+                    } else {
+                        const form = yesBtn.closest('form') || document.forms[0];
+                        if (form) form.submit();
                     }
                 });
             }

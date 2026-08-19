@@ -372,9 +372,6 @@ function updateMonthButtonsUI(activeMonth) {
     });
 }
 
-/**
- * ダイアログの「はい」ボタンにフックを仕込む関数（確実なDOM監視付き）
- */
 function setupDialogHook(setUpCode, inputEl) {
     const bindHook = () => {
         const regBtn = document.querySelector('input.btn-blue') || 
@@ -383,10 +380,7 @@ function setupDialogHook(setUpCode, inputEl) {
         if (!regBtn || regBtn.dataset.cleanHookSet) return;
         regBtn.dataset.cleanHookSet = "true";
 
-        console.log("🎯 「登録」ボタンへのフックバインドに成功しました！");
-
         regBtn.addEventListener('click', () => {
-            // ダイアログが出現するのを監視
             let checkCount = 0;
             const timer = setInterval(() => {
                 checkCount++;
@@ -407,7 +401,7 @@ function setupDialogHook(setUpCode, inputEl) {
                         yesBtn.disabled = true;
                         yesBtn.value = "処理中...";
 
-                        console.log("🚀 「はい」が押されました。裏送信処理を開始します...");
+                        console.log("🚀 連動処理スタート：【1. 清掃登録】➔【2. 点検登録】の順で実行します");
 
                         const params = new URLSearchParams(window.location.search);
                         const checkNumber = params.get('CheckNumber') || document.querySelector('input[name="CheckNumber"]')?.value || '';
@@ -417,66 +411,78 @@ function setupDialogHook(setUpCode, inputEl) {
                         const personCode = document.querySelector('input[name="txtPersonCode"]')?.value || '1';
 
                         const noticeData = {};
-
-                        // 1️⃣ 清掃予定の裏送信
-                        const targetMonthStr = inputEl ? inputEl.value.trim() : '';
-                        if (targetMonthStr) {
-                            const targetMonth = parseInt(targetMonthStr, 10);
-                            if (!isNaN(targetMonth)) {
-                                const d = new Date();
-                                const currentMonth = d.getMonth() + 1;
-                                let targetYear = d.getFullYear();
-                                if (targetMonth < currentMonth) targetYear += 1;
-
-                                const formattedMonth = String(targetMonth).padStart(2, '0');
-                                const targetDate = `${targetYear}/${formattedMonth}/01`;
-
-                                const bodyData = new URLSearchParams();
-                                bodyData.append('txtWorkDate', targetDate);
-                                bodyData.append('ProcessDivisionCode', '2');
-                                bodyData.append('ProcessDivisionHistoryCode', '1');
-                                bodyData.append('txtDistrictCode', districtCode);
-                                bodyData.append('txtCitiesCode', citiesCode);
-                                bodyData.append('selPerson', personCode);
-
-                                const targetUrl = `/writeCleanPlan.asp?CheckNumber=${checkNumber}&WorkMethodCode=1&SetUpCode=${setUpCode}&SetUpHistoryCode=${setUpHistoryCode}`;
-
-                                try {
-                                    noticeData.month = targetMonth;
-                                    noticeData.targetDate = targetDate;
-                                    await fetch(targetUrl, {
-                                        method: 'POST',
-                                        headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-                                        body: bodyData.toString()
-                                    });
-                                    console.log("✅ 清掃予定の裏送信完了");
-                                } catch (err) {
-                                    console.error("❌ 清掃予定送信エラー:", err);
-                                }
-                            }
-                        }
-
-                        // 2️⃣ 清掃実績の裏送信
                         const volumeInput = document.getElementById('input-clean-volume');
                         const cleanVolume = volumeInput ? volumeInput.value.trim() : '';
 
-                        if (cleanVolume) {
-                            console.log(`🧹 汚泥量 [${cleanVolume}㎥] を検出。CleanNumber を裏検索中...`);
-                            let targetCleanNum = await fetchCleanNumberFromList(setUpCode);
+                        // =========================================================
+                        // STEP 1：まず先に清掃予定枠を作成する（writeCleanPlan.asp）
+                        // =========================================================
+                        const targetMonthStr = inputEl ? inputEl.value.trim() : '';
+                        let createdCleanNumber = '';
 
-                            if (!targetCleanNum) {
-                                targetCleanNum = localStorage.getItem(`CleanNumber_${setUpCode}`) || '';
+                        // 汚泥量入力がある、または指定月がある場合に枠を裏生成
+                        if (cleanVolume || targetMonthStr) {
+                            const d = new Date();
+                            const currentMonth = d.getMonth() + 1;
+                            let targetMonth = parseInt(targetMonthStr, 10);
+                            if (isNaN(targetMonth)) targetMonth = currentMonth; // 汚泥量のみの場合は当月
+
+                            let targetYear = d.getFullYear();
+                            if (targetMonth < currentMonth) targetYear += 1;
+
+                            const formattedMonth = String(targetMonth).padStart(2, '0');
+                            const targetDate = `${targetYear}/${formattedMonth}/01`;
+
+                            const bodyData = new URLSearchParams();
+                            bodyData.append('txtWorkDate', targetDate);
+                            bodyData.append('ProcessDivisionCode', '2');
+                            bodyData.append('ProcessDivisionHistoryCode', '1');
+                            bodyData.append('txtDistrictCode', districtCode);
+                            bodyData.append('txtCitiesCode', citiesCode);
+                            bodyData.append('selPerson', personCode);
+
+                            const targetUrl = `/writeCleanPlan.asp?CheckNumber=${checkNumber}&WorkMethodCode=1&SetUpCode=${setUpCode}&SetUpHistoryCode=${setUpHistoryCode}`;
+
+                            try {
+                                console.log("⏳ STEP 1: 清掃枠（予定）を生成中...");
+                                const res = await fetch(targetUrl, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+                                    body: bodyData.toString()
+                                });
+
+                                const resText = await res.text();
+                                // レスポンスから直接 CleanNumber が返っていればそれを抽出
+                                const cleanNumMatch = resText.match(/\((\d+)\)/) || resText.match(/CleanNumber=(\d+)/i);
+                                if (cleanNumMatch && cleanNumMatch[1]) {
+                                    createdCleanNumber = cleanNumMatch[1];
+                                    console.log(`✨ STEP 1 完了: CleanNumber【 ${createdCleanNumber} 】の生成を確認！`);
+                                }
+                                noticeData.month = targetMonth;
+                            } catch (err) {
+                                console.error("❌ STEP 1 エラー:", err);
+                            }
+                        }
+
+                        // =========================================================
+                        // STEP 2：生成された CleanNumber に汚泥実績を送信（writeClean.asp）
+                        // =========================================================
+                        if (cleanVolume) {
+                            // レスポンスから取れなかった場合は、一覧（iframe）から検索
+                            if (!createdCleanNumber) {
+                                console.log("🔍 STEP 2: 清掃一覧から生成された CleanNumber を検索中...");
+                                createdCleanNumber = await fetchCleanNumberFromList(setUpCode);
                             }
 
-                            if (targetCleanNum) {
-                                console.log(`🎯 対象 CleanNumber: 【 ${targetCleanNum} 】 へ実績送信中...`);
+                            if (createdCleanNumber) {
+                                console.log(`🎯 STEP 2: CleanNumber【 ${createdCleanNumber} 】へ汚泥量 [${cleanVolume}㎥] を送信中...`);
                                 const cleanResultBody = new URLSearchParams();
                                 cleanResultBody.append('chkCleanCarFlg_1_1', '1');
                                 cleanResultBody.append('txtCarCleanQuantity_1_1', cleanVolume);
                                 cleanResultBody.append('txtCarTakeOutQuantity_1_1', cleanVolume);
                                 cleanResultBody.append('selPerson', personCode);
 
-                                const cleanResultUrl = `/writeClean.asp?CleanNumber=${targetCleanNum}&CheckNumber=${checkNumber}&WorkMethodCode=1&SetUpCode=${setUpCode}&SetUpHistoryCode=${setUpHistoryCode}`;
+                                const cleanResultUrl = `/writeClean.asp?CleanNumber=${createdCleanNumber}&CheckNumber=${checkNumber}&WorkMethodCode=1&SetUpCode=${setUpCode}&SetUpHistoryCode=${setUpHistoryCode}`;
 
                                 try {
                                     noticeData.cleanVolume = cleanVolume;
@@ -485,9 +491,9 @@ function setupDialogHook(setUpCode, inputEl) {
                                         headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
                                         body: cleanResultBody.toString()
                                     });
-                                    console.log(`✅ 清掃実績（${cleanVolume}㎥）の送信完了！`);
+                                    console.log(`✅ STEP 2 完了: 清掃実績の裏送信が成功しました！`);
                                 } catch (err) {
-                                    console.error("❌ 清掃実績送信エラー:", err);
+                                    console.error("❌ STEP 2 エラー:", err);
                                 }
                             } else {
                                 console.warn("⚠️ CleanNumber が特定できませんでした。");
@@ -498,9 +504,11 @@ function setupDialogHook(setUpCode, inputEl) {
                             sessionStorage.setItem('clean_autolink_target', JSON.stringify(noticeData));
                         }
 
-                        console.log("🏁 裏処理完了。本来の画面送信を実行します。");
+                        // =========================================================
+                        // STEP 3：最後に本来の「点検登録」を送信して完了画面へ
+                        // =========================================================
+                        console.log("🏁 STEP 3: 清掃登録が完了したため、点検登録を実行して遷移します。");
 
-                        // 本来の送信処理を実行
                         if (typeof submitForm_Yes === 'function') {
                             submitForm_Yes();
                         } else if (originalOnClickStr) {
@@ -512,12 +520,11 @@ function setupDialogHook(setUpCode, inputEl) {
                     });
                 }
 
-                if (checkCount > 30) clearInterval(timer); // 3秒でタイムアウト
+                if (checkCount > 30) clearInterval(timer);
             }, 100);
         });
     };
 
-    // 初回実行と定期監視
     bindHook();
     const observer = new MutationObserver(bindHook);
     observer.observe(document.body, { childList: true, subtree: true });

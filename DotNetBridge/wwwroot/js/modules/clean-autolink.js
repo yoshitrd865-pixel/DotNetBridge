@@ -90,78 +90,62 @@ export function initCleanAutoLink() {
 }
 
 /**
- * 清掃一覧（listClean.asp）を隠し iframe で正しく画面展開し、CleanNumber を抽出する関数
+ * 清掃一覧（listClean.asp）から CleanNumber をダイレクト通信で最速取得する関数（iframe完全不使用版）
  */
 async function fetchCleanNumberFromList(setUpCode) {
-    return new Promise((resolve) => {
-        try {
-            // 既に存在する古い iframe を削除
-            const oldIframe = document.getElementById('clean-autolink-iframe');
-            if (oldIframe) oldIframe.remove();
+    try {
+        console.log(`🔍 顧客 [${setUpCode}] の CleanNumber をダイレクト通信で取得中...`);
 
-            const iframe = document.createElement('iframe');
-            iframe.id = 'clean-autolink-iframe';
-            iframe.style.display = 'none';
-            // クッキー経由で検索条件を事前にセットして画面展開
-            document.cookie = `SearchWord='${setUpCode}'`;
-            document.cookie = "DateRange=0"; // 当月
+        // 当月（selDateRange=0）で検索リクエストを直送信
+        const bodyData = new URLSearchParams();
+        bodyData.append('txtSearchWord', setUpCode);
+        bodyData.append('selDateRange', '0');
 
-            iframe.src = `/listClean.asp`;
-            document.body.appendChild(iframe);
+        const res = await fetch('/listClean.asp', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: bodyData.toString()
+        });
 
-            let step = 0;
+        if (!res.ok) return '';
+        const htmlText = await res.text();
 
-            iframe.onload = async () => {
-                try {
-                    const iframeWin = iframe.contentWindow;
-                    const iframeDoc = iframe.contentDocument || iframeWin.document;
+        // 1. 当月検索結果の HTML から CleanNumber を抽出
+        let match = htmlText.match(/CleanNumber=(\d+)/i) || 
+                    htmlText.match(/goTo\([^\)]*['"]?(\d+)['"]?[^\)]*\)/) ||
+                    htmlText.match(/menuClean\.asp\?CleanNumber=(\d+)/i);
 
-                    if (step === 0) {
-                        step = 1;
-
-                        // 検索ワードと日付（当月: 0）をセットして検索実行
-                        const txtSearch = iframeDoc.getElementById('txtSearchWord') || iframeDoc.querySelector('input[type="text"]');
-                        if (txtSearch) txtSearch.value = setUpCode;
-
-                        const selDate = iframeDoc.getElementById('selDateRange');
-                        if (selDate) {
-                            selDate.value = "0";
-                            if (typeof iframeWin.changeDateRange === 'function') {
-                                iframeWin.changeDateRange();
-                            }
-                        }
-
-                        if (typeof iframeWin.readList === 'function') {
-                            iframeWin.readList();
-                        }
-                    }
-
-                    // カード描画待ち（最大2秒）
-                    let match = null;
-                    for (let i = 0; i < 10; i++) {
-                        await new Promise(r => setTimeout(r, 200));
-                        const html = iframeDoc.body.innerHTML;
-                        match = html.match(/CleanNumber=(\d+)/i) || html.match(/goTo\([^\)]*['"]?(\d+)['"]?[^\)]*\)/);
-                        if (match) break;
-                    }
-
-                    const foundCleanNum = match ? match[1] : '';
-                    console.log(foundCleanNum ? `✨ CleanNumber 抽出成功: 【 ${foundCleanNum} 】` : "⚠️ CleanNumber が見つかりませんでした");
-
-                    if (document.body.contains(iframe)) document.body.removeChild(iframe);
-                    resolve(foundCleanNum);
-
-                } catch (err) {
-                    console.error("❌ iframe 内解析エラー:", err);
-                    if (document.body.contains(iframe)) document.body.removeChild(iframe);
-                    resolve('');
-                }
-            };
-        } catch (e) {
-            console.error("❌ iframe 制御エラー:", e);
-            resolve('');
+        if (match && match[1]) {
+            console.log(`✨ ダイレクト取得成功！ CleanNumber: 【 ${match[1]} 】`);
+            return match[1];
         }
-    });
+
+        // 2. 当月で見つからなかった場合、全期間（selDateRange=-1）でフォールバック検索
+        console.log("⚠️ 当月で見つからず。全期間（-1）で再検索中...");
+        const bodyFallback = new URLSearchParams();
+        bodyFallback.append('txtSearchWord', setUpCode);
+        bodyFallback.append('selDateRange', '-1');
+
+        const resFallback = await fetch('/listClean.asp', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: bodyFallback.toString()
+        });
+
+        const htmlFallback = await resFallback.text();
+        match = htmlFallback.match(/CleanNumber=(\d+)/i) || 
+                htmlFallback.match(/goTo\([^\)]*['"]?(\d+)['"]?[^\)]*\)/);
+
+        if (match && match[1]) {
+            console.log(`✨ 全期間検索で取得成功！ CleanNumber: 【 ${match[1]} 】`);
+            return match[1];
+        }
+
+        return '';
+    } catch (e) {
+        console.error("❌ CleanNumber 取得エラー:", e);
+        return '';
+    }
 }
 
 function initVolumePanel(selectEl, inputEl) {

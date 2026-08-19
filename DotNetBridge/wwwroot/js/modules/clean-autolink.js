@@ -389,113 +389,96 @@ function updateMonthButtonsUI(activeMonth) {
     });
 }
 
-function setupDialogHook(setUpCode, inputEl) {
-    const bindHook = () => {
-        const regBtn = document.querySelector('input.btn-blue') || 
-                       Array.from(document.querySelectorAll('input, button')).find(el => el.value === '登録' || el.textContent.includes('登録'));
+/**
+ * 裏ポップアップを開き、カード描画完了を確実に待って CleanNumber を抽出する関数
+ */
+async function fetchCleanNumberFromList(setUpCode) {
+    return new Promise((resolve) => {
+        try {
+            console.log(`🚀 裏ポップアップを起動: 顧客ID [${setUpCode}] を検索中...`);
 
-        if (!regBtn || regBtn.dataset.cleanHookSet) return;
-        regBtn.dataset.cleanHookSet = "true";
+            const popup = window.open(
+                `/listClean.asp`,
+                'CleanNumberSearchPopup',
+                'width=100,height=100,left=2000,top=2000,scrollbars=no,resizable=no'
+            );
 
-        regBtn.addEventListener('click', () => {
-            let checkCount = 0;
-            const timer = setInterval(() => {
-                checkCount++;
-                const yesBtn = Array.from(document.querySelectorAll('input[type="button"], button'))
-                    .find(el => el.value === 'はい' || el.textContent.trim() === 'はい' || el.getAttribute('onclick')?.includes('submitForm_Yes'));
-
-                if (yesBtn && !yesBtn.dataset.cleanBound) {
-                    yesBtn.dataset.cleanBound = "true";
-                    clearInterval(timer);
-
-                    const originalOnClickStr = yesBtn.getAttribute('onclick') || '';
-                    yesBtn.removeAttribute('onclick');
-
-                    // 「はい」ボタン押下時のイベント内
-yesBtn.addEventListener('click', async (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    yesBtn.disabled = true;
-    yesBtn.value = "処理中...";
-
-    // 汚泥量の値を複数ルートから確実に取得（直接入力欄 OR 選択ボタン）
-    const volumeInput = document.getElementById('input-clean-volume');
-    let cleanVolume = volumeInput ? volumeInput.value.trim() : '';
-
-    // 万が一 input 要素から取れなかった場合、アクティブなボタンから直接値を取得
-    if (!cleanVolume) {
-        const activeVolBtn = document.querySelector('.clean-vol-btn.active, .btn-primary[data-vol]');
-        if (activeVolBtn) {
-            cleanVolume = activeVolBtn.getAttribute('data-vol') || activeVolBtn.textContent.replace('㎥', '').trim();
-        }
-    }
-
-    console.log(`🧹 検出された汚泥量: 【 ${cleanVolume || 'なし'} 】`);
-
-    const noticeData = {};
-    const params = new URLSearchParams(window.location.search);
-    const checkNumber = params.get('CheckNumber') || document.querySelector('input[name="CheckNumber"]')?.value || '';
-    const setUpHistoryCode = params.get('SetUpHistoryCode') || '2';
-    const personCode = document.querySelector('input[name="txtPersonCode"]')?.value || '1';
-
-    if (cleanVolume) {
-        console.log(`🚀 CleanNumber 取得処理を開始します...`);
-        const targetCleanNum = await fetchCleanNumberFromList(setUpCode);
-
-        if (targetCleanNum) {
-            console.log(`🎯 CleanNumber【 ${targetCleanNum} 】へ汚泥量 [${cleanVolume}㎥] を送信中...`);
-
-            const cleanResultBody = new URLSearchParams();
-            cleanResultBody.append('chkCleanCarFlg_1_1', '1');
-            cleanResultBody.append('txtCarCleanQuantity_1_1', cleanVolume);
-            cleanResultBody.append('txtCarTakeOutQuantity_1_1', cleanVolume);
-            cleanResultBody.append('selPerson', personCode);
-
-            const cleanResultUrl = `/writeClean.asp?CleanNumber=${targetCleanNum}&CheckNumber=${checkNumber}&WorkMethodCode=1&SetUpCode=${setUpCode}&SetUpHistoryCode=${setUpHistoryCode}`;
-
-            try {
-                noticeData.cleanVolume = cleanVolume;
-                const res = await fetch(cleanResultUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-                    body: cleanResultBody.toString()
-                });
-                console.log(`✅ writeClean.asp 送信完了（ステータス: ${res.status}）`);
-            } catch (err) {
-                console.error("❌ writeClean.asp 送信エラー:", err);
+            if (!popup) {
+                console.warn("⚠️ ポップアップがブロックされました。");
+                resolve('');
+                return;
             }
-        } else {
-            console.warn("⚠️ CleanNumber が取得できませんでした。");
-        }
-    } else {
-        console.warn("⚠️ 汚泥量がセットされていないため、清掃実績の送信をスキップしました。");
-    }
 
-    if (Object.keys(noticeData).length > 0) {
-        sessionStorage.setItem('clean_autolink_target', JSON.stringify(noticeData));
-    }
+            let isSearchTriggered = false;
+            let checkCount = 0;
 
-    // 100ms 待機して完了画面へ
-    await new Promise(resolve => setTimeout(resolve, 100));
+            const checkTimer = setInterval(() => {
+                checkCount++;
+                try {
+                    if (popup.closed) {
+                        clearInterval(checkTimer);
+                        resolve('');
+                        return;
+                    }
 
-    if (typeof submitForm_Yes === 'function') {
-        submitForm_Yes();
-    } else {
-        const form = yesBtn.closest('form') || document.forms[0];
-        if (form) form.submit();
-    }
-});
+                    const pDoc = popup.document;
+                    const pWin = popup;
+
+                    if (pDoc && pDoc.readyState === 'complete') {
+                        // 1. 初回：検索条件をセットして検索実行
+                        if (!isSearchTriggered) {
+                            isSearchTriggered = true;
+
+                            const txtSearch = pDoc.getElementById('txtSearchWord') || pDoc.querySelector('input[type="text"]');
+                            if (txtSearch) txtSearch.value = setUpCode;
+
+                            const selDate = pDoc.getElementById('selDateRange');
+                            if (selDate) {
+                                selDate.value = "0"; // 当月
+                                if (typeof pWin.changeDateRange === 'function') {
+                                    pWin.changeDateRange();
+                                }
+                            }
+
+                            if (typeof pWin.readList === 'function') {
+                                pWin.readList();
+                            }
+                        }
+
+                        // 2. 毎サイクル(200ms毎) HTML内を検索
+                        const html = pDoc.body ? pDoc.body.innerHTML : '';
+                        const match = html.match(/CleanNumber=(\d+)/i) || 
+                                    html.match(/goTo\([^\)]*['"]?(\d+)['"]?[^\)]*\)/) ||
+                                    html.match(/menuClean\.asp\?CleanNumber=(\d+)/i);
+
+                        if (match && match[1]) {
+                            const cleanNum = match[1];
+                            console.log(`✨【成功】 CleanNumber 【 ${cleanNum} 】 を抽出しました！`);
+                            
+                            clearInterval(checkTimer);
+                            popup.close();
+                            resolve(cleanNum);
+                            return;
+                        }
+                    }
+                } catch (e) {
+                    // ページ遷移中の一時エラーは無視
                 }
 
-                if (checkCount > 30) clearInterval(timer);
-            }, 100);
-        });
-    };
+                // 25回（5秒間）探しても無ければ諦める
+                if (checkCount > 25) {
+                    console.warn("⚠️ CleanNumber の描画待ちがタイムアウトしました。");
+                    clearInterval(checkTimer);
+                    if (popup && !popup.closed) popup.close();
+                    resolve('');
+                }
+            }, 200);
 
-    bindHook();
-    const observer = new MutationObserver(bindHook);
-    observer.observe(document.body, { childList: true, subtree: true });
+        } catch (e) {
+            console.error("❌ ポップアップ処理エラー:", e);
+            resolve('');
+        }
+    });
 }
 
 function renderCompletionNotice() {

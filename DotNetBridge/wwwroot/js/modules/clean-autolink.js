@@ -88,100 +88,86 @@ export function initCleanAutoLink() {
 }
 
 /**
- * 裏ポップアップを開き、「未清掃」検索で CleanNumber を爆速抽出・即クローズする完成版関数
+ * 隠し iframe で「未清掃」POST検索を実行し、画面を開かずに CleanNumber を抜く完成版関数
  */
 async function fetchCleanNumberFromList(setUpCode) {
     return new Promise((resolve) => {
         try {
-            console.log(`🚀 裏ポップアップを起動: 顧客ID [${setUpCode}] を「未清掃」で検索中...`);
+            console.log(`🔍 バックグラウンドで 顧客ID [${setUpCode}] を「未清掃」検索中...`);
 
-            const popup = window.open(
-                `/listClean.asp`,
-                'CleanNumberSearchPopup',
-                'width=100,height=100,left=2000,top=2000,scrollbars=no,resizable=no'
-            );
+            const old = document.getElementById('clean-autolink-iframe');
+            if (old) old.remove();
 
-            if (!popup) {
-                console.warn("⚠️ ポップアップがブロックされました。");
-                resolve('');
-                return;
-            }
+            const iframe = document.createElement('iframe');
+            iframe.id = 'clean-autolink-iframe';
+            iframe.style.display = 'none';
+            iframe.src = '/listClean.asp';
+            document.body.appendChild(iframe);
 
-            let isExec = false;
+            let isPosted = false;
             let checkCount = 0;
 
             const checkTimer = setInterval(() => {
                 checkCount++;
                 try {
-                    if (popup.closed) {
-                        clearInterval(checkTimer);
-                        resolve('');
-                        return;
-                    }
+                    const iDoc = iframe.contentDocument || iframe.contentWindow.document;
+                    const iWin = iframe.contentWindow;
 
-                    const pDoc = popup.document;
-
-                    if (pDoc && pDoc.readyState === 'complete') {
-                        const txtSearch = pDoc.getElementById('txtSearchWord') || pDoc.querySelector('input[type="text"]');
-                        const selDate = pDoc.getElementById('selDateRange');
+                    if (iDoc && iDoc.readyState === 'complete') {
+                        const txtSearch = iDoc.getElementById('txtSearchWord') || iDoc.querySelector('input[type="text"]');
+                        const selDate = iDoc.getElementById('selDateRange');
                         
-                        const selects = Array.from(pDoc.querySelectorAll('select'));
+                        const selects = Array.from(iDoc.querySelectorAll('select'));
                         const selStatus = selects.find(s => Array.from(s.options).some(o => o.text.includes('未清掃')));
-                        
-                        const searchBtn = Array.from(pDoc.querySelectorAll('button, input[type="button"], a, div')).find(
-                            el => el.textContent.includes('検索') || el.value?.includes('検索')
-                        );
 
-                        // 1. 初回：未清掃・当月・顧客IDをセットして検索実行
-                        if (!isExec && txtSearch && selDate) {
-                            isExec = true;
+                        // 1. 初回：未清掃・当月・顧客IDをセットして POST 送信
+                        if (!isPosted && txtSearch && selDate && selStatus) {
+                            isPosted = true;
+
+                            const uncleanedOpt = Array.from(selStatus.options).find(o => o.text.includes('未清掃'));
+                            if (uncleanedOpt) selStatus.value = uncleanedOpt.value;
 
                             selDate.value = "0"; // 当月
-
-                            if (selStatus) {
-                                const uncleanedOpt = Array.from(selStatus.options).find(o => o.text.includes('未清掃'));
-                                if (uncleanedOpt) selStatus.value = uncleanedOpt.value;
-                            }
-
                             txtSearch.value = setUpCode;
 
-                            if (searchBtn) {
-                                searchBtn.click();
-                            } else if (typeof popup.readList === 'function') {
-                                popup.readList();
-                            }
+                            if (typeof selStatus.onchange === 'function') selStatus.onchange();
+                            if (typeof iWin.readList === 'function') iWin.readList();
+                            return;
                         }
 
-                        // 2. HTMLから CleanNumber を抽出して即クローズ
-                        const html = pDoc.body ? pDoc.body.innerHTML : '';
-                        const match = html.match(/CleanNumber=(\d+)/i) || 
-                                    html.match(/goTo\([^\)]*['"]?(\d+)['"]?[^\)]*\)/) ||
-                                    html.match(/menuClean\.asp\?CleanNumber=(\d+)/i);
-
-                        if (match && match[1]) {
-                            const cleanNum = match[1];
-                            console.log(`✨ CleanNumber 抽出成功: 【 ${cleanNum} 】`);
+                        // 2. 検索結果画面から CleanNumber を抽出
+                        if (isPosted) {
+                            const card = iDoc.querySelector('.link-box, [onclick*="CleanNumber"], a[href*="CleanNumber"]');
                             
-                            clearInterval(checkTimer);
-                            popup.close(); // 抽出成功したら即クローズ！
-                            resolve(cleanNum);
-                            return;
+                            if (card) {
+                                const targetAttr = card.getAttribute('onclick') || card.getAttribute('href') || '';
+                                const match = targetAttr.match(/CleanNumber=(\d+)/i) || targetAttr.match(/goTo\([^\)]*['"]?(\d+)['"]?[^\)]*\)/);
+
+                                if (match && match[1]) {
+                                    const cleanNum = match[1];
+                                    console.log(`✨【成功】 裏画面から CleanNumber 【 ${cleanNum} 】 を取得しました！`);
+                                    clearInterval(checkTimer);
+                                    if (document.body.contains(iframe)) document.body.removeChild(iframe);
+                                    resolve(cleanNum);
+                                    return;
+                                }
+                            }
                         }
                     }
                 } catch (e) {
                     // 読み込み中エラーはスルー
                 }
 
-                if (checkCount > 25) {
-                    console.warn("⚠️ CleanNumber 抽出タイムアウト");
+                if (checkCount > 30) {
+                    console.warn("⚠️ バックグラウンド検索タイムアウト");
                     clearInterval(checkTimer);
-                    if (popup && !popup.closed) popup.close();
+                    if (document.body.contains(iframe)) document.body.removeChild(iframe);
                     resolve('');
                 }
             }, 200);
 
         } catch (e) {
-            console.error("❌ ポップアップ処理エラー:", e);
+            console.error("❌ バックグラウンド処理エラー:", e);
             resolve('');
         }
     });

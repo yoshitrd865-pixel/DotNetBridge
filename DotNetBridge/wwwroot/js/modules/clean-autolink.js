@@ -1,7 +1,6 @@
 // wwwroot/js/modules/clean-autolink.js
 
 export function initCleanAutoLink() {
-    // 🛡️ 隠し iframe / ポップアップ内での重複実行を絶対に防止！
     if (window.self !== window.top) return;
     if (window.__cleanAutoLinkInitialized) return;
 
@@ -15,8 +14,8 @@ export function initCleanAutoLink() {
     }
 
     // 2. 点検入力画面の処理
-    const selectEl = document.getElementById('RESULT_300_11'); // 汚泥引き抜きの必要
-    const inputEl = document.getElementById('NUMBER_300_12');   // 月保持用裏input
+    const selectEl = document.getElementById('RESULT_300_11');
+    const inputEl = document.getElementById('NUMBER_300_12');
 
     if (!selectEl || !inputEl) return;
 
@@ -48,12 +47,10 @@ export function initCleanAutoLink() {
         });
     };
 
-    // 🔄 相互制御：引き抜き必要（B）を選んだら清掃実施（A）をクリア
     selectEl.addEventListener('change', () => {
         const val = selectEl.value;
         if (val === '2,1' || val === '1,1') {
             clearAllCleanRemarks();
-
             const addMonth = val === '2,1' ? 4 : 1;
             const currentMonth = new Date().getMonth() + 1;
             let targetMonth = (currentMonth + addMonth) % 12;
@@ -80,15 +77,110 @@ export function initCleanAutoLink() {
         showInlinePanel();
     }
 
-    // 3. 汚泥量入力UI
     initVolumePanel(selectEl, inputEl);
-
-    // 4. ダイアログ登録ボタンフック
     setupDialogHook(setUpCode, inputEl);
 }
 
 /**
- * 隠し iframe で「未清掃」POST検索を実行し、当月→先月→来月の順で CleanNumber を抽出する関数
+ * 隠し iframe 内で「清掃入力画面」を開き、汚泥量をセットして「登録」➔「はい」を自動実行する関数
+ */
+async function processCleanRegistration(cleanNum, cleanVolume) {
+    return new Promise((resolve) => {
+        try {
+            console.log(`🧹 清掃画面 (CleanNumber=${cleanNum}) の自動登録を開始します...`);
+
+            const old = document.getElementById('clean-submit-iframe');
+            if (old) old.remove();
+
+            const iframe = document.createElement('iframe');
+            iframe.id = 'clean-submit-iframe';
+            iframe.style.display = 'none';
+            iframe.src = `/menuClean.asp?CleanNumber=${cleanNum}`;
+            document.body.appendChild(iframe);
+
+            let isFormSubmitted = false;
+            let checkCount = 0;
+
+            const timer = setInterval(() => {
+                checkCount++;
+                try {
+                    const iDoc = iframe.contentDocument || iframe.contentWindow.document;
+                    const iWin = iframe.contentWindow;
+
+                    if (iDoc && iDoc.readyState === 'complete') {
+                        // 1. 清掃入力画面が開いたら値をセットして「登録」をクリック
+                        if (!isFormSubmitted) {
+                            const volInput1 = iDoc.querySelector('input[name="txtCarCleanQuantity_1_1"], #txtCarCleanQuantity_1_1');
+                            const volInput2 = iDoc.querySelector('input[name="txtCarTakeOutQuantity_1_1"], #txtCarTakeOutQuantity_1_1');
+                            const chkCar = iDoc.querySelector('input[name="chkCleanCarFlg_1_1"], #chkCleanCarFlg_1_1');
+
+                            if (volInput1) volInput1.value = cleanVolume;
+                            if (volInput2) volInput2.value = cleanVolume;
+                            if (chkCar) chkCar.checked = true;
+
+                            // 登録ボタンを探して押す
+                            const regBtn = Array.from(iDoc.querySelectorAll('input, button, a')).find(
+                                el => el.value === '登録' || el.textContent.includes('登録')
+                            );
+
+                            if (regBtn) {
+                                isFormSubmitted = true;
+                                console.log("📄 清掃画面の「登録」ボタンを自動クリックしました。ダイアログ（はい）の監視中...");
+                                regBtn.click();
+                                return;
+                            }
+                        }
+
+                        // 2. 「再度登録しますか？」等の確認ポップアップの「はい」ボタンを押す
+                        if (isFormSubmitted) {
+                            const yesBtn = Array.from(iDoc.querySelectorAll('input[type="button"], button, a'))
+                                .find(el => el.value === 'はい' || el.textContent.trim() === 'はい' || el.getAttribute('onclick')?.includes('submitForm_Yes'));
+
+                            if (yesBtn) {
+                                console.log("🎯 「はい」ボタンを自動クリック！ 清掃登録を確定させます。");
+                                yesBtn.click();
+                                clearInterval(timer);
+                                setTimeout(() => {
+                                    if (document.body.contains(iframe)) document.body.removeChild(iframe);
+                                    resolve(true);
+                                }, 800); // 送信完了待ち
+                                return;
+                            }
+
+                            // もし submitForm_Yes 関数が直接呼べる場合
+                            if (typeof iWin.submitForm_Yes === 'function') {
+                                console.log("🎯 iWin.submitForm_Yes() を直接実行して登録を確定します。");
+                                iWin.submitForm_Yes();
+                                clearInterval(timer);
+                                setTimeout(() => {
+                                    if (document.body.contains(iframe)) document.body.removeChild(iframe);
+                                    resolve(true);
+                                }, 800);
+                                return;
+                            }
+                        }
+                    }
+                } catch (e) {
+                    // 遷移中エラーはスルー
+                }
+
+                if (checkCount > 35) {
+                    console.warn("⚠️ 清掃自動登録タイムアウト");
+                    clearInterval(timer);
+                    if (document.body.contains(iframe)) document.body.removeChild(iframe);
+                    resolve(false);
+                }
+            }, 200);
+
+        } catch (e) {
+            console.error("❌ 清掃自動登録エラー:", e);
+            resolve(false);
+        }
+    });
+}
+
+/**
+ * 隠し iframe で「未清掃」POST検索を実行し、CleanNumber を抜く関数
  */
 async function fetchCleanNumberFromList(setUpCode) {
     return new Promise((resolve) => {
@@ -104,7 +196,6 @@ async function fetchCleanNumberFromList(setUpCode) {
             iframe.src = '/listClean.asp';
             document.body.appendChild(iframe);
 
-            // 月の検索順序: 当月("0") ➔ 先月("-1") ➔ 来月("1")
             const searchRanges = ["0", "-1", "1"];
             let rangeIndex = 0;
             let isWaitingForPost = false;
@@ -123,14 +214,10 @@ async function fetchCleanNumberFromList(setUpCode) {
                         const selects = Array.from(iDoc.querySelectorAll('select'));
                         const selStatus = selects.find(s => Array.from(s.options).some(o => o.text.includes('未清掃')));
 
-                        // 1. 各対象月での検索リクエスト送信
                         if (!isWaitingForPost && txtSearch && selDate && selStatus) {
                             isWaitingForPost = true;
 
                             const targetRange = searchRanges[rangeIndex];
-                            const rangeLabel = targetRange === "0" ? "当月" : (targetRange === "-1" ? "先月" : "来月");
-                            console.log(`📄 検索範囲を【 ${rangeLabel} 】にセットして POST 実行...`);
-
                             const uncleanedOpt = Array.from(selStatus.options).find(o => o.text.includes('未清掃'));
                             if (uncleanedOpt) selStatus.value = uncleanedOpt.value;
 
@@ -142,7 +229,6 @@ async function fetchCleanNumberFromList(setUpCode) {
                             return;
                         }
 
-                        // 2. 検索結果画面の判定
                         if (isWaitingForPost) {
                             const card = iDoc.querySelector('.link-box, [onclick*="CleanNumber"], a[href*="CleanNumber"]');
                             
@@ -159,22 +245,19 @@ async function fetchCleanNumberFromList(setUpCode) {
                                     return;
                                 }
                             } else {
-                                // 見つからなかった場合、次の月範囲へフォールバック
                                 rangeIndex++;
                                 if (rangeIndex < searchRanges.length) {
-                                    console.warn(`⚠️ 該当なし。次の期間（${searchRanges[rangeIndex] === "-1" ? "先月" : "来月"}）で再検索します...`);
-                                    isWaitingForPost = false; // 次のループで検索を実行させる
+                                    isWaitingForPost = false;
                                     return;
                                 }
                             }
                         }
                     }
                 } catch (e) {
-                    // 読み込み中の一次エラーは無視
+                    // スルー
                 }
 
                 if (checkCount > 40) {
-                    console.warn("⚠️ バックグラウンド検索タイムアウト（当月・先月・来月ともに見つかりませんでした）");
                     clearInterval(checkTimer);
                     if (document.body.contains(iframe)) document.body.removeChild(iframe);
                     resolve('');
@@ -188,9 +271,6 @@ async function fetchCleanNumberFromList(setUpCode) {
     });
 }
 
-/**
- * ダイアログの「はい」ボタンにフックを仕込む関数
- */
 function setupDialogHook(setUpCode, inputEl) {
     const bindHook = () => {
         const regBtn = document.querySelector('input.btn-blue') || 
@@ -220,16 +300,10 @@ function setupDialogHook(setUpCode, inputEl) {
                         yesBtn.disabled = true;
                         yesBtn.value = "処理中...";
 
-                        console.log("🚀 【1. 清掃実績の書き込み】 ➔ 【2. 点検登録】 の順で連動処理を開始します...");
-
-                        const params = new URLSearchParams(window.location.search);
-                        const checkNumber = params.get('CheckNumber') || document.querySelector('input[name="CheckNumber"]')?.value || '';
-                        const setUpHistoryCode = params.get('SetUpHistoryCode') || '2';
-                        const personCode = document.querySelector('input[name="txtPersonCode"]')?.value || '1';
+                        console.log("🚀 【1. 清掃実績の画面送信】 ➔ 【2. 点検登録】 の連動を開始します...");
 
                         const noticeData = {};
                         
-                        // 汚泥量の値を取得（入力枠 or 選択ボタン）
                         const volumeInput = document.getElementById('input-clean-volume');
                         let cleanVolume = volumeInput ? volumeInput.value.trim() : '';
 
@@ -240,45 +314,24 @@ function setupDialogHook(setUpCode, inputEl) {
                             }
                         }
 
-                        // 清掃実績の裏書き込み
                         if (cleanVolume) {
-                            console.log(`🧹 検出された汚泥量: 【 ${cleanVolume}㎥ 】。CleanNumber 取得開始...`);
-                            
+                            console.log(`🧹 検出された汚泥量: 【 ${cleanVolume}㎥ 】。CleanNumber 検索開始...`);
                             const targetCleanNum = await fetchCleanNumberFromList(setUpCode);
 
                             if (targetCleanNum) {
-                                console.log(`🎯 既存 CleanNumber【 ${targetCleanNum} 】へ汚泥量 [${cleanVolume}㎥] を送信中...`);
-                                
-                                const cleanResultBody = new URLSearchParams();
-                                cleanResultBody.append('chkCleanCarFlg_1_1', '1');
-                                cleanResultBody.append('txtCarCleanQuantity_1_1', cleanVolume);
-                                cleanResultBody.append('txtCarTakeOutQuantity_1_1', cleanVolume);
-                                cleanResultBody.append('selPerson', personCode);
-
-                                const cleanResultUrl = `/writeClean.asp?CleanNumber=${targetCleanNum}&CheckNumber=${checkNumber}&WorkMethodCode=1&SetUpCode=${setUpCode}&SetUpHistoryCode=${setUpHistoryCode}`;
-
-                                try {
+                                // 🌟 隠し iframe 内で「清掃画面」の「登録」➔「はい」を完走させる
+                                const isSuccess = await processCleanRegistration(targetCleanNum, cleanVolume);
+                                if (isSuccess) {
                                     noticeData.cleanVolume = cleanVolume;
-                                    await fetch(cleanResultUrl, {
-                                        method: 'POST',
-                                        headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-                                        body: cleanResultBody.toString()
-                                    });
-                                    console.log(`✅ 清掃実績（${cleanVolume}㎥）の書き込みが正常完了しました！`);
-                                } catch (err) {
-                                    console.error("❌ 清掃実績の書き込みエラー:", err);
+                                    console.log(`✅ 清掃画面からの自動フォーム送信（はい）が完了しました！`);
                                 }
-                            } else {
-                                console.warn("⚠️ 該当する既存の清掃枠 (CleanNumber) が見つかりませんでした。");
                             }
                         }
 
-                        // 通知データを保存
                         if (Object.keys(noticeData).length > 0) {
                             sessionStorage.setItem('clean_autolink_target', JSON.stringify(noticeData));
                         }
 
-                        // 保存のブラウザ定着待ち (100ms)
                         await new Promise(resolve => setTimeout(resolve, 100));
 
                         console.log("🏁 裏処理完了。本来の点検登録を実行します。");
@@ -544,23 +597,6 @@ function renderCompletionNotice() {
             `;
             resultCard.innerHTML = `🧹 清掃実績（${savedData.cleanVolume}㎥）を自動登録しました`;
             container.appendChild(resultCard);
-        }
-
-        if (savedData.month) {
-            const planCard = document.createElement('div');
-            planCard.style.cssText = `
-                padding: 10px 18px;
-                background: #f0f9ff;
-                border: 1px solid #7dd3fc;
-                color: #0369a1;
-                border-radius: 10px;
-                font-size: 14px;
-                font-weight: 700;
-                box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            `;
-            planCard.innerHTML = `📅 清掃予定（${savedData.month}月1日）を自動登録しました`;
-            container.appendChild(planCard);
         }
 
         const centerEl = document.querySelector('center');

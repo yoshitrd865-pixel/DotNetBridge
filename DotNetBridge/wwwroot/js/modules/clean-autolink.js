@@ -1,6 +1,8 @@
 // wwwroot/js/modules/clean-autolink.js
 
 export function initCleanAutoLink() {
+    // 🛡️ iframe 内部での二次実行を完全に遮断（フリーズ防止）
+    if (window.self !== window.top) return;
     if (window.__cleanAutoLinkInitialized) return;
 
     const currentPath = window.location.pathname.toLowerCase();
@@ -86,13 +88,20 @@ export function initCleanAutoLink() {
 }
 
 /**
- * 清掃一覧（listClean.asp）から CleanNumber を取得する関数（iframe再読み込み完全対応版）
+ * 清掃一覧（listClean.asp）から CleanNumber を取得する関数（タイムアウト＆iframe分離防護版）
  */
 async function fetchCleanNumberFromList(setUpCode) {
-    return new Promise((resolve) => {
+    // 5秒経過したら強制解放する安全装置
+    const timeoutPromise = new Promise((resolve) => setTimeout(() => {
+        console.warn("⚠️ CleanNumber 取得がタイムアウトしました。処理を強制続行します。");
+        resolve('');
+    }, 5000));
+
+    const fetchPromise = new Promise((resolve) => {
         try {
             const iframe = document.createElement('iframe');
             iframe.style.display = 'none';
+            iframe.id = 'clean-autolink-iframe';
             iframe.src = '/listClean.asp';
             document.body.appendChild(iframe);
 
@@ -103,19 +112,18 @@ async function fetchCleanNumberFromList(setUpCode) {
                     const iframeWin = iframe.contentWindow;
                     const iframeDoc = iframe.contentDocument || iframeWin.document;
 
-                    // 1回目ロード時：日付を「当月(0)」または「全期間(-1)」に変更して再読み込みを促す
                     if (!hasChangedDate) {
                         hasChangedDate = true;
 
-                        const selDate = iframeDoc.getElementById('selDateRange');
                         const txtSearch = iframeDoc.getElementById('txtSearchWord') || iframeDoc.querySelector('input[type="text"]');
                         if (txtSearch) txtSearch.value = setUpCode;
 
+                        const selDate = iframeDoc.getElementById('selDateRange');
                         if (selDate) {
                             selDate.value = "0"; // 当月
                             if (typeof iframeWin.changeDateRange === 'function') {
-                                iframeWin.changeDateRange(); // これで iframe がリロードされる
-                                return; // 次の iframe.onload を待つ
+                                iframeWin.changeDateRange();
+                                return; // 次の onload を待つ
                             }
                         }
 
@@ -124,9 +132,9 @@ async function fetchCleanNumberFromList(setUpCode) {
                         }
                     }
 
-                    // 2回目ロード時（または描画後）：カードから CleanNumber を抽出
+                    // 描画ポーリング監視
                     let match = null;
-                    for (let i = 0; i < 15; i++) {
+                    for (let i = 0; i < 10; i++) {
                         await new Promise(r => setTimeout(r, 200));
                         const html = iframeDoc.body.innerHTML;
                         match = html.match(/CleanNumber=(\d+)/i) || html.match(/goTo\([^\)]*(\d+)[^\)]*\)/);
@@ -134,8 +142,6 @@ async function fetchCleanNumberFromList(setUpCode) {
                     }
 
                     const foundCleanNum = match ? match[1] : '';
-                    console.log(foundCleanNum ? `✨ iframeから抽出成功: CleanNumber = ${foundCleanNum}` : "⚠️ CleanNumber が見つかりませんでした");
-
                     if (document.body.contains(iframe)) document.body.removeChild(iframe);
                     resolve(foundCleanNum);
 
@@ -150,6 +156,9 @@ async function fetchCleanNumberFromList(setUpCode) {
             resolve('');
         }
     });
+
+    // 取得処理 または 5秒タイムアウトの早い方を採用
+    return Promise.race([fetchPromise, timeoutPromise]);
 }
 
 function initVolumePanel(selectEl, inputEl) {

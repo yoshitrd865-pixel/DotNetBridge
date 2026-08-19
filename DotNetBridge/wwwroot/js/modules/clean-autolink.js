@@ -88,12 +88,12 @@ export function initCleanAutoLink() {
 }
 
 /**
- * 隠し iframe で「未清掃」POST検索を実行し、画面を開かずに CleanNumber を抜く完成版関数
+ * 隠し iframe で「未清掃」POST検索を実行し、当月→先月→来月の順で CleanNumber を抽出する関数
  */
 async function fetchCleanNumberFromList(setUpCode) {
     return new Promise((resolve) => {
         try {
-            console.log(`🔍 バックグラウンドで 顧客ID [${setUpCode}] を「未清掃」検索中...`);
+            console.log(`🔍 バックグラウンドで 顧客ID [${setUpCode}] の「未清掃」枠を検索中 (当月➔先月➔来月)...`);
 
             const old = document.getElementById('clean-autolink-iframe');
             if (old) old.remove();
@@ -104,7 +104,10 @@ async function fetchCleanNumberFromList(setUpCode) {
             iframe.src = '/listClean.asp';
             document.body.appendChild(iframe);
 
-            let isPosted = false;
+            // 月の検索順序: 当月("0") ➔ 先月("-1") ➔ 来月("1")
+            const searchRanges = ["0", "-1", "1"];
+            let rangeIndex = 0;
+            let isWaitingForPost = false;
             let checkCount = 0;
 
             const checkTimer = setInterval(() => {
@@ -120,14 +123,18 @@ async function fetchCleanNumberFromList(setUpCode) {
                         const selects = Array.from(iDoc.querySelectorAll('select'));
                         const selStatus = selects.find(s => Array.from(s.options).some(o => o.text.includes('未清掃')));
 
-                        // 1. 初回：未清掃・当月・顧客IDをセットして POST 送信
-                        if (!isPosted && txtSearch && selDate && selStatus) {
-                            isPosted = true;
+                        // 1. 各対象月での検索リクエスト送信
+                        if (!isWaitingForPost && txtSearch && selDate && selStatus) {
+                            isWaitingForPost = true;
+
+                            const targetRange = searchRanges[rangeIndex];
+                            const rangeLabel = targetRange === "0" ? "当月" : (targetRange === "-1" ? "先月" : "来月");
+                            console.log(`📄 検索範囲を【 ${rangeLabel} 】にセットして POST 実行...`);
 
                             const uncleanedOpt = Array.from(selStatus.options).find(o => o.text.includes('未清掃'));
                             if (uncleanedOpt) selStatus.value = uncleanedOpt.value;
 
-                            selDate.value = "0"; // 当月
+                            selDate.value = targetRange;
                             txtSearch.value = setUpCode;
 
                             if (typeof selStatus.onchange === 'function') selStatus.onchange();
@@ -135,8 +142,8 @@ async function fetchCleanNumberFromList(setUpCode) {
                             return;
                         }
 
-                        // 2. 検索結果画面から CleanNumber を抽出
-                        if (isPosted) {
+                        // 2. 検索結果画面の判定
+                        if (isWaitingForPost) {
                             const card = iDoc.querySelector('.link-box, [onclick*="CleanNumber"], a[href*="CleanNumber"]');
                             
                             if (card) {
@@ -145,21 +152,29 @@ async function fetchCleanNumberFromList(setUpCode) {
 
                                 if (match && match[1]) {
                                     const cleanNum = match[1];
-                                    console.log(`✨【成功】 裏画面から CleanNumber 【 ${cleanNum} 】 を取得しました！`);
+                                    console.log(`✨【取得成功】 CleanNumber 【 ${cleanNum} 】 を抽出しました！`);
                                     clearInterval(checkTimer);
                                     if (document.body.contains(iframe)) document.body.removeChild(iframe);
                                     resolve(cleanNum);
+                                    return;
+                                }
+                            } else {
+                                // 見つからなかった場合、次の月範囲へフォールバック
+                                rangeIndex++;
+                                if (rangeIndex < searchRanges.length) {
+                                    console.warn(`⚠️ 該当なし。次の期間（${searchRanges[rangeIndex] === "-1" ? "先月" : "来月"}）で再検索します...`);
+                                    isWaitingForPost = false; // 次のループで検索を実行させる
                                     return;
                                 }
                             }
                         }
                     }
                 } catch (e) {
-                    // 読み込み中エラーはスルー
+                    // 読み込み中の一次エラーは無視
                 }
 
-                if (checkCount > 30) {
-                    console.warn("⚠️ バックグラウンド検索タイムアウト");
+                if (checkCount > 40) {
+                    console.warn("⚠️ バックグラウンド検索タイムアウト（当月・先月・来月ともに見つかりませんでした）");
                     clearInterval(checkTimer);
                     if (document.body.contains(iframe)) document.body.removeChild(iframe);
                     resolve('');

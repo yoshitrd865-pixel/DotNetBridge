@@ -411,79 +411,81 @@ function setupDialogHook(setUpCode, inputEl) {
                     const originalOnClickStr = yesBtn.getAttribute('onclick') || '';
                     yesBtn.removeAttribute('onclick');
 
-                    yesBtn.addEventListener('click', async (e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
+                    // 「はい」ボタン押下時のイベント内
+yesBtn.addEventListener('click', async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
 
-                        yesBtn.disabled = true;
-                        yesBtn.value = "処理中...";
+    yesBtn.disabled = true;
+    yesBtn.value = "処理中...";
 
-                        console.log("🚀 【1. 清掃実績の書き込み】 ➔ 【2. 点検登録】 の順で連動処理を開始します...");
+    // 汚泥量の値を複数ルートから確実に取得（直接入力欄 OR 選択ボタン）
+    const volumeInput = document.getElementById('input-clean-volume');
+    let cleanVolume = volumeInput ? volumeInput.value.trim() : '';
 
-                        const params = new URLSearchParams(window.location.search);
-                        const checkNumber = params.get('CheckNumber') || document.querySelector('input[name="CheckNumber"]')?.value || '';
-                        const setUpHistoryCode = params.get('SetUpHistoryCode') || '2';
-                        const personCode = document.querySelector('input[name="txtPersonCode"]')?.value || '1';
+    // 万が一 input 要素から取れなかった場合、アクティブなボタンから直接値を取得
+    if (!cleanVolume) {
+        const activeVolBtn = document.querySelector('.clean-vol-btn.active, .btn-primary[data-vol]');
+        if (activeVolBtn) {
+            cleanVolume = activeVolBtn.getAttribute('data-vol') || activeVolBtn.textContent.replace('㎥', '').trim();
+        }
+    }
 
-                        const noticeData = {};
-                        const volumeInput = document.getElementById('input-clean-volume');
-                        const cleanVolume = volumeInput ? volumeInput.value.trim() : '';
+    console.log(`🧹 検出された汚泥量: 【 ${cleanVolume || 'なし'} 】`);
 
-                        // =========================================================
-                        // STEP 1：既存の清掃予定（CleanNumber）を裏検索して実績を書き込む
-                        // =========================================================
-                        if (cleanVolume) {
-                            console.log(`🔍 顧客 [${setUpCode}] の既存清掃枠 (CleanNumber) を検索中...`);
-                            
-                            // 画面展開（iframe）により、既存の CleanNumber を取得
-                            const targetCleanNum = await fetchCleanNumberFromList(setUpCode);
+    const noticeData = {};
+    const params = new URLSearchParams(window.location.search);
+    const checkNumber = params.get('CheckNumber') || document.querySelector('input[name="CheckNumber"]')?.value || '';
+    const setUpHistoryCode = params.get('SetUpHistoryCode') || '2';
+    const personCode = document.querySelector('input[name="txtPersonCode"]')?.value || '1';
 
-                            if (targetCleanNum) {
-                                console.log(`🎯 既存の CleanNumber【 ${targetCleanNum} 】へ汚泥量 [${cleanVolume}㎥] を書き込み中...`);
-                                
-                                const cleanResultBody = new URLSearchParams();
-                                cleanResultBody.append('chkCleanCarFlg_1_1', '1');
-                                cleanResultBody.append('txtCarCleanQuantity_1_1', cleanVolume);
-                                cleanResultBody.append('txtCarTakeOutQuantity_1_1', cleanVolume);
-                                cleanResultBody.append('selPerson', personCode);
+    if (cleanVolume) {
+        console.log(`🚀 CleanNumber 取得処理を開始します...`);
+        const targetCleanNum = await fetchCleanNumberFromList(setUpCode);
 
-                                const cleanResultUrl = `/writeClean.asp?CleanNumber=${targetCleanNum}&CheckNumber=${checkNumber}&WorkMethodCode=1&SetUpCode=${setUpCode}&SetUpHistoryCode=${setUpHistoryCode}`;
+        if (targetCleanNum) {
+            console.log(`🎯 CleanNumber【 ${targetCleanNum} 】へ汚泥量 [${cleanVolume}㎥] を送信中...`);
 
-                                try {
-                                    noticeData.cleanVolume = cleanVolume;
-                                    await fetch(cleanResultUrl, {
-                                        method: 'POST',
-                                        headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-                                        body: cleanResultBody.toString()
-                                    });
-                                    console.log(`✅ 清掃実績（${cleanVolume}㎥）の書き込みが正常完了しました！`);
-                                } catch (err) {
-                                    console.error("❌ 清掃実績の書き込みエラー:", err);
-                                }
-                            } else {
-                                console.warn("⚠️ 該当する既存の清掃枠 (CleanNumber) が見つかりませんでした。");
-                            }
-                        }
+            const cleanResultBody = new URLSearchParams();
+            cleanResultBody.append('chkCleanCarFlg_1_1', '1');
+            cleanResultBody.append('txtCarCleanQuantity_1_1', cleanVolume);
+            cleanResultBody.append('txtCarTakeOutQuantity_1_1', cleanVolume);
+            cleanResultBody.append('selPerson', personCode);
 
-                        // 通知用データをセッションに保持
-                        if (Object.keys(noticeData).length > 0) {
-                            sessionStorage.setItem('clean_autolink_target', JSON.stringify(noticeData));
-                        }
+            const cleanResultUrl = `/writeClean.asp?CleanNumber=${targetCleanNum}&CheckNumber=${checkNumber}&WorkMethodCode=1&SetUpCode=${setUpCode}&SetUpHistoryCode=${setUpHistoryCode}`;
 
-                        // =========================================================
-                        // STEP 2：清掃実績の反映完了後、本来の「点検登録」を実行！
-                        // =========================================================
-                        console.log("🏁 清掃実績の登録が完了したため、点検登録を実行して送信します。");
+            try {
+                noticeData.cleanVolume = cleanVolume;
+                const res = await fetch(cleanResultUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+                    body: cleanResultBody.toString()
+                });
+                console.log(`✅ writeClean.asp 送信完了（ステータス: ${res.status}）`);
+            } catch (err) {
+                console.error("❌ writeClean.asp 送信エラー:", err);
+            }
+        } else {
+            console.warn("⚠️ CleanNumber が取得できませんでした。");
+        }
+    } else {
+        console.warn("⚠️ 汚泥量がセットされていないため、清掃実績の送信をスキップしました。");
+    }
 
-                        if (typeof submitForm_Yes === 'function') {
-                            submitForm_Yes();
-                        } else if (originalOnClickStr) {
-                            new Function(originalOnClickStr)();
-                        } else {
-                            const form = yesBtn.closest('form') || document.forms[0];
-                            if (form) form.submit();
-                        }
-                    });
+    if (Object.keys(noticeData).length > 0) {
+        sessionStorage.setItem('clean_autolink_target', JSON.stringify(noticeData));
+    }
+
+    // 100ms 待機して完了画面へ
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    if (typeof submitForm_Yes === 'function') {
+        submitForm_Yes();
+    } else {
+        const form = yesBtn.closest('form') || document.forms[0];
+        if (form) form.submit();
+    }
+});
                 }
 
                 if (checkCount > 30) clearInterval(timer);

@@ -82,99 +82,93 @@ export function initCleanAutoLink() {
 }
 
 /**
- * 隠し iframe 内で「清掃入力画面」を開き、汚泥量をセットして「登録」➔「はい」を自動実行する関数
+ * 隠し iframe で「未清掃」POST検索を実行し、CleanNumber を抜く関数
  */
-async function processCleanRegistration(cleanNum, cleanVolume) {
+async function fetchCleanNumberFromList(setUpCode) {
     return new Promise((resolve) => {
         try {
-            console.log(`🧹 清掃画面 (CleanNumber=${cleanNum}) の自動登録を開始します...`);
+            console.log(`🔍 バックグラウンドで 顧客ID [${setUpCode}] の「未清掃」枠を検索中 (当月➔先月➔来月)...`);
 
-            const old = document.getElementById('clean-submit-iframe');
+            const old = document.getElementById('clean-autolink-iframe');
             if (old) old.remove();
 
             const iframe = document.createElement('iframe');
-            iframe.id = 'clean-submit-iframe';
+            iframe.id = 'clean-autolink-iframe';
             iframe.style.display = 'none';
-            iframe.src = `/menuClean.asp?CleanNumber=${cleanNum}`;
+            iframe.src = '/listClean.asp';
             document.body.appendChild(iframe);
 
-            let isFormSubmitted = false;
+            const searchRanges = ["0", "-1", "1"];
+            let rangeIndex = 0;
+            let isWaitingForPost = false;
             let checkCount = 0;
 
-            const timer = setInterval(() => {
+            const checkTimer = setInterval(() => {
                 checkCount++;
                 try {
                     const iDoc = iframe.contentDocument || iframe.contentWindow.document;
                     const iWin = iframe.contentWindow;
 
                     if (iDoc && iDoc.readyState === 'complete') {
-                        // 1. 清掃入力画面が開いたら値をセットして「登録」をクリック
-                        if (!isFormSubmitted) {
-                            const volInput1 = iDoc.querySelector('input[name="txtCarCleanQuantity_1_1"], #txtCarCleanQuantity_1_1');
-                            const volInput2 = iDoc.querySelector('input[name="txtCarTakeOutQuantity_1_1"], #txtCarTakeOutQuantity_1_1');
-                            const chkCar = iDoc.querySelector('input[name="chkCleanCarFlg_1_1"], #chkCleanCarFlg_1_1');
+                        const txtSearch = iDoc.getElementById('txtSearchWord') || iDoc.querySelector('input[type="text"]');
+                        const selDate = iDoc.getElementById('selDateRange');
+                        
+                        const selects = Array.from(iDoc.querySelectorAll('select'));
+                        const selStatus = selects.find(s => Array.from(s.options).some(o => o.text.includes('未清掃')));
 
-                            if (volInput1) volInput1.value = cleanVolume;
-                            if (volInput2) volInput2.value = cleanVolume;
-                            if (chkCar) chkCar.checked = true;
+                        if (!isWaitingForPost && txtSearch && selDate && selStatus) {
+                            isWaitingForPost = true;
 
-                            // 登録ボタンを探して押す
-                            const regBtn = Array.from(iDoc.querySelectorAll('input, button, a')).find(
-                                el => el.value === '登録' || el.textContent.includes('登録')
-                            );
+                            const targetRange = searchRanges[rangeIndex];
+                            const uncleanedOpt = Array.from(selStatus.options).find(o => o.text.includes('未清掃'));
+                            if (uncleanedOpt) selStatus.value = uncleanedOpt.value;
 
-                            if (regBtn) {
-                                isFormSubmitted = true;
-                                console.log("📄 清掃画面の「登録」ボタンを自動クリックしました。ダイアログ（はい）の監視中...");
-                                regBtn.click();
-                                return;
-                            }
+                            selDate.value = targetRange;
+                            txtSearch.value = setUpCode;
+
+                            if (typeof selStatus.onchange === 'function') selStatus.onchange();
+                            if (typeof iWin.readList === 'function') iWin.readList();
+                            return;
                         }
 
-                        // 2. 「再度登録しますか？」等の確認ポップアップの「はい」ボタンを押す
-                        if (isFormSubmitted) {
-                            const yesBtn = Array.from(iDoc.querySelectorAll('input[type="button"], button, a'))
-                                .find(el => el.value === 'はい' || el.textContent.trim() === 'はい' || el.getAttribute('onclick')?.includes('submitForm_Yes'));
+                        if (isWaitingForPost) {
+                            const card = iDoc.querySelector('.link-box, [onclick*="CleanNumber"], a[href*="CleanNumber"]');
+                            
+                            if (card) {
+                                const targetAttr = card.getAttribute('onclick') || card.getAttribute('href') || '';
+                                const match = targetAttr.match(/CleanNumber=(\d+)/i) || targetAttr.match(/goTo\([^\)]*['"]?(\d+)['"]?[^\)]*\)/);
 
-                            if (yesBtn) {
-                                console.log("🎯 「はい」ボタンを自動クリック！ 清掃登録を確定させます。");
-                                yesBtn.click();
-                                clearInterval(timer);
-                                setTimeout(() => {
+                                if (match && match[1]) {
+                                    const cleanNum = match[1];
+                                    console.log(`✨【取得成功】 CleanNumber 【 ${cleanNum} 】 を抽出しました！`);
+                                    clearInterval(checkTimer);
                                     if (document.body.contains(iframe)) document.body.removeChild(iframe);
-                                    resolve(true);
-                                }, 800); // 送信完了待ち
-                                return;
-                            }
-
-                            // もし submitForm_Yes 関数が直接呼べる場合
-                            if (typeof iWin.submitForm_Yes === 'function') {
-                                console.log("🎯 iWin.submitForm_Yes() を直接実行して登録を確定します。");
-                                iWin.submitForm_Yes();
-                                clearInterval(timer);
-                                setTimeout(() => {
-                                    if (document.body.contains(iframe)) document.body.removeChild(iframe);
-                                    resolve(true);
-                                }, 800);
-                                return;
+                                    resolve(cleanNum);
+                                    return;
+                                }
+                            } else {
+                                rangeIndex++;
+                                if (rangeIndex < searchRanges.length) {
+                                    isWaitingForPost = false;
+                                    return;
+                                }
                             }
                         }
                     }
                 } catch (e) {
-                    // 遷移中エラーはスルー
+                    // スルー
                 }
 
-                if (checkCount > 35) {
-                    console.warn("⚠️ 清掃自動登録タイムアウト");
-                    clearInterval(timer);
+                if (checkCount > 40) {
+                    clearInterval(checkTimer);
                     if (document.body.contains(iframe)) document.body.removeChild(iframe);
-                    resolve(false);
+                    resolve('');
                 }
             }, 200);
 
         } catch (e) {
-            console.error("❌ 清掃自動登録エラー:", e);
-            resolve(false);
+            console.error("❌ バックグラウンド処理エラー:", e);
+            resolve('');
         }
     });
 }
@@ -187,7 +181,6 @@ async function processCleanRegistration(cleanNum, cleanVolume) {
         try {
             console.log(`🧹 【視覚化テスト】 清掃入力画面 (CleanNumber=${cleanNum}) をポップアップで開きます...`);
 
-            // 画面右上に見やすいサイズ（450x600）でポップアップを開く
             const popup = window.open(
                 `/clean.asp?CleanNumber=${cleanNum}&WorkMethodCode=1`,
                 'CleanRegistrationDebugPopup',
@@ -234,7 +227,6 @@ async function processCleanRegistration(cleanNum, cleanVolume) {
                                 isFormSubmitted = true;
                                 console.log(`📄 汚泥量 [${cleanVolume}㎥] を入力しました。「登録」ボタンをクリックします...`);
                                 
-                                // 人間が目で確認できるように、あえて500ms待ってから「登録」を押す
                                 setTimeout(() => {
                                     if (!popup.closed) regBtn.click();
                                 }, 500);
@@ -250,12 +242,11 @@ async function processCleanRegistration(cleanNum, cleanVolume) {
                             if (yesBtn) {
                                 console.log("🎯 「はい」ボタンを発見！クリックして確定させます。");
                                 
-                                // こちらも確認しやすいよう少し待ってからクリック
                                 setTimeout(() => {
                                     if (!popup.closed) {
                                         yesBtn.click();
                                         setTimeout(() => {
-                                            if (!popup.closed) popup.close(); // 完了したら閉じる
+                                            if (!popup.closed) popup.close();
                                             clearInterval(timer);
                                             resolve(true);
                                         }, 1000);
@@ -264,7 +255,6 @@ async function processCleanRegistration(cleanNum, cleanVolume) {
                                 return;
                             }
 
-                            // 直接関数が呼べる場合
                             if (typeof pWin.submitForm_Yes === 'function') {
                                 console.log("🎯 submitForm_Yes() を直接実行します。");
                                 pWin.submitForm_Yes();
@@ -278,7 +268,7 @@ async function processCleanRegistration(cleanNum, cleanVolume) {
                         }
                     }
                 } catch (e) {
-                    // 遷移中のアクセス制限エラーは無視
+                    // 遷移中エラーはスルー
                 }
 
                 if (checkCount > 40) {
@@ -343,7 +333,6 @@ function setupDialogHook(setUpCode, inputEl) {
                             const targetCleanNum = await fetchCleanNumberFromList(setUpCode);
 
                             if (targetCleanNum) {
-                                // 🌟 隠し iframe 内で「清掃画面」の「登録」➔「はい」を完走させる
                                 const isSuccess = await processCleanRegistration(targetCleanNum, cleanVolume);
                                 if (isSuccess) {
                                     noticeData.cleanVolume = cleanVolume;

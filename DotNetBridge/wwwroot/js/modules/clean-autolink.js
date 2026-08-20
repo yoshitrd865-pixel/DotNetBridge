@@ -82,7 +82,7 @@ export function initCleanAutoLink() {
 }
 
 /**
- * 隠し iframe で「未清掃」POST検索を実行し、指定された SetUpCode と完全一致する CleanNumber のみを抜く関数
+ * 隠し iframe で「未清掃」POST検索を実行し、指定された SetUpCode と完全一致する CleanNumber と顧客名を抜く関数
  */
 async function fetchCleanNumberFromList(setUpCode) {
     return new Promise((resolve) => {
@@ -132,10 +132,9 @@ async function fetchCleanNumberFromList(setUpCode) {
                         }
 
                         if (isWaitingForPost) {
-                            // 画面上の全カードを取得
                             const cards = Array.from(iDoc.querySelectorAll('.link-box, [onclick*="CleanNumber"], a[href*="CleanNumber"]'));
                             
-                            // 🌟 【安全ガード】 カード内のテキストに「対象の SetUpCode」が100%含まれているか厳密一致確認！
+                            // 🌟 【安全ガード】 カード内のテキストに SetUpCode が100%含まれているか検証！
                             const targetCard = cards.find(card => {
                                 const cardText = card.textContent || card.innerText || '';
                                 return cardText.includes(setUpCode);
@@ -147,14 +146,26 @@ async function fetchCleanNumberFromList(setUpCode) {
 
                                 if (match && match[1]) {
                                     const cleanNum = match[1];
-                                    console.log(`✨【一致成功】 顧客ID [${setUpCode}] の CleanNumber 【 ${cleanNum} 】 を抽出しました！`);
+                                    
+                                    // 顧客名を取得
+                                    const fullText = (targetCard.textContent || '').replace(/\s+/g, ' ').trim();
+                                    let customerName = '';
+                                    const nameMatch = fullText.match(new RegExp(`${setUpCode}\\s*([^0-9\\-]+)`));
+                                    if (nameMatch && nameMatch[1]) {
+                                        customerName = nameMatch[1].trim().split(' ')[0];
+                                    }
+
+                                    console.log(`✨【一致成功】 顧客ID [${setUpCode}] (${customerName}) の CleanNumber 【 ${cleanNum} 】 を抽出しました！`);
                                     clearInterval(checkTimer);
                                     if (document.body.contains(iframe)) document.body.removeChild(iframe);
-                                    resolve(cleanNum);
+                                    
+                                    resolve({
+                                        cleanNum: cleanNum,
+                                        customerName: customerName
+                                    });
                                     return;
                                 }
                             } else if (cards.length > 0 && checkCount > 15) {
-                                // 他人のカードはあるが目的の顧客IDが含まれない場合、次の日付範囲へ検索切り替え
                                 console.warn(`⚠️ 一覧に顧客ID [${setUpCode}] が見つかりません。別の月範囲を検索します...`);
                                 rangeIndex++;
                                 if (rangeIndex < searchRanges.length) {
@@ -172,13 +183,13 @@ async function fetchCleanNumberFromList(setUpCode) {
                     console.warn(`⚠️ 顧客ID [${setUpCode}] の「未清掃」枠は見つかりませんでした。`);
                     clearInterval(checkTimer);
                     if (document.body.contains(iframe)) document.body.removeChild(iframe);
-                    resolve('');
+                    resolve(null);
                 }
             }, 200);
 
         } catch (e) {
             console.error("❌ バックグラウンド処理エラー:", e);
-            resolve('');
+            resolve(null);
         }
     });
 }
@@ -322,16 +333,19 @@ function setupDialogHook(setUpCode, inputEl) {
 
                         if (cleanVolume) {
                             console.log(`🧹 検出された汚泥量: 【 ${cleanVolume}㎥ 】。CleanNumber 検索開始...`);
-                            const targetCleanNum = await fetchCleanNumberFromList(setUpCode);
+                            const targetResult = await fetchCleanNumberFromList(setUpCode);
 
-                            if (targetCleanNum) {
-                                const isSuccess = await processCleanRegistration(targetCleanNum, cleanVolume);
+                            if (targetResult && targetResult.cleanNum) {
+                                const isSuccess = await processCleanRegistration(targetResult.cleanNum, cleanVolume);
                                 if (isSuccess) {
                                     noticeData.cleanVolume = cleanVolume;
+                                    noticeData.setUpCode = setUpCode;
+                                    noticeData.cleanNum = targetResult.cleanNum;
+                                    noticeData.customerName = targetResult.customerName || '';
                                     console.log(`✅ 清掃画面からの自動フォーム送信（はい）が完了しました！`);
                                 }
                             } else {
-                                alert(`⚠️ 顧客コード [${setUpCode}] の「未清掃」データが見つからなかったため、清掃実績の自動登録をスキップしました。\n（※点検登録のみ実行されます）`);
+                                alert(`⚠️ 浄化槽番号 [${setUpCode}] の「未清掃」データが見つからなかったため、清掃実績の自動登録をスキップしました。\n（※点検登録のみ実行されます）`);
                             }
                         }
 
@@ -582,27 +596,37 @@ function renderCompletionNotice() {
         const container = document.createElement('div');
         container.style.cssText = `
             margin: 15px auto;
+            max-width: 360px;
             text-align: center;
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-            align-items: center;
         `;
 
         if (savedData.cleanVolume) {
             const resultCard = document.createElement('div');
             resultCard.style.cssText = `
-                padding: 10px 18px;
+                padding: 12px 16px;
                 background: #f0fdf4;
                 border: 1px solid #86efac;
-                color: #15803d;
-                border-radius: 10px;
-                font-size: 14px;
-                font-weight: 700;
-                box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+                color: #166534;
+                border-radius: 12px;
+                box-shadow: 0 4px 12px rgba(22, 101, 52, 0.08);
                 font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             `;
-            resultCard.innerHTML = `🧹 清掃実績（${savedData.cleanVolume}㎥）を自動登録しました`;
+
+            const nameStr = savedData.customerName ? `（${savedData.customerName} 様）` : '';
+            const codeStr = savedData.setUpCode || '';
+            const cleanNumStr = savedData.cleanNum ? `No.${savedData.cleanNum}` : '';
+
+            resultCard.innerHTML = `
+                <div style="font-size: 14px; font-weight: 700; margin-bottom: 6px; color: #15803d; display: flex; align-items: center; justify-content: center; gap: 4px;">
+                    <span>🧹</span> 清掃実績を自動登録しました
+                </div>
+                <div style="font-size: 13px; font-weight: 600; color: #334155; line-height: 1.5;">
+                    浄化槽：<strong style="color: #0f172a;">${codeStr}</strong>${nameStr}
+                </div>
+                <div style="font-size: 12px; color: #475569; margin-top: 4px; padding-top: 4px; border-top: 1px dashed #bbf7d0;">
+                    清掃予約：<strong style="color: #0284c7;">${cleanNumStr}</strong> ｜ 汚泥量：<strong style="color: #0284c7;">${savedData.cleanVolume}㎥</strong>
+                </div>
+            `;
             container.appendChild(resultCard);
         }
 

@@ -338,23 +338,24 @@ function setupDialogHook(setUpCode, inputEl) {
                             console.log(`🧹 検出された汚泥量: 【 ${cleanVolume}㎥ 】。CleanNumber 検索開始...`);
                             const targetResult = await fetchCleanNumberFromList(setUpCode);
 
-                            if (targetResult && targetResult.cleanNum) {
-                                const isSuccess = await processCleanRegistration(targetResult.cleanNum, cleanVolume);
-                                if (isSuccess) {
-                                    noticeData.cleanVolume = cleanVolume;
-                                    noticeData.setUpCode = setUpCode;
-                                    noticeData.cleanNum = targetResult.cleanNum;
-                                    noticeData.customerName = targetResult.customerName || '';
-                                    console.log(`✅ 清掃画面からの自動フォーム送信（はい）が完了しました！`);
-                                }
-                            } else {
-                                alert(`⚠️ 浄化槽番号 [${setUpCode}] の「未清掃」データが見つからなかったため、清掃実績の自動登録をスキップしました。\n（※点検登録のみ実行されます）`);
-                            }
-                        }
-
-                        if (Object.keys(noticeData).length > 0) {
-                            sessionStorage.setItem('clean_autolink_target', JSON.stringify(noticeData));
-                        }
+                            // 🌟 【修正後】未清掃が見つからない・失敗した場合は、前回の通知用データを絶対にクリアする！
+if (targetResult && targetResult.cleanNum) {
+    const isSuccess = await processCleanRegistration(targetResult.cleanNum, cleanVolume);
+    if (isSuccess) {
+        noticeData.cleanVolume = cleanVolume;
+        noticeData.setUpCode = setUpCode;
+        noticeData.cleanNum = targetResult.cleanNum;
+        noticeData.customerName = targetResult.customerName || '';
+        console.log(`✅ 清掃画面からの自動フォーム送信（はい）が完了しました！`);
+        sessionStorage.setItem('clean_autolink_target', JSON.stringify(noticeData));
+    } else {
+        sessionStorage.removeItem('clean_autolink_target');
+    }
+} else {
+    // 🌟 未清掃枠なし時は過去データを削除＆警告表示！
+    sessionStorage.removeItem('clean_autolink_target');
+    alert(`⚠️ 浄化槽番号 [${setUpCode}] の「未清掃」データが見つからなかったため、清掃実績の自動登録をスキップしました。\n（※点検登録のみ実行されます）`);
+}
 
                         await new Promise(resolve => setTimeout(resolve, 100));
 

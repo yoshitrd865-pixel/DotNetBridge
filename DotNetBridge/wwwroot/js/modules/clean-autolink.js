@@ -333,7 +333,19 @@ function setupDialogHook(setUpCode, inputEl) {
 
                         if (targetMonth && typeof triggerCleanPlanAutoSubmit === 'function') {
                             console.log(`🚀 次回清掃月 [${targetMonth}月] のため、裏で清掃予定(cleanPlan.asp)を登録します...`);
-                            await triggerCleanPlanAutoSubmit(setUpCode, targetMonth);
+                            const isPlanSuccess = await triggerCleanPlanAutoSubmit(setUpCode, targetMonth);
+                            if (isPlanSuccess) {
+                                // 🌟 完了画面で「清掃予定を自動登録しました！」カードを出すためのデータ保存
+                                const planNoticeData = {
+                                    setUpCode: setUpCode,
+                                    targetMonth: targetMonth
+                                };
+                                sessionStorage.setItem('clean_plan_autolink_target', JSON.stringify(planNoticeData));
+                            } else {
+                                sessionStorage.removeItem('clean_plan_autolink_target');
+                            }
+                        } else {
+                            sessionStorage.removeItem('clean_plan_autolink_target');
                         }
 
                         // 🌟 【回収側】汚泥量パネルで「実施」が入力されている場合の清掃実績自動登録
@@ -656,70 +668,92 @@ function updateMonthButtonsUI(activeMonth) {
     });
 }
 
+/**
+ * 🌟 完了画面で自動登録成功カード（清掃実績 ＆ 清掃予定）を表示する関数
+ */
 function renderCompletionNotice() {
-    const savedDataStr = sessionStorage.getItem('clean_autolink_target');
-    if (!savedDataStr) return;
-
     try {
-        const savedData = JSON.parse(savedDataStr);
-        sessionStorage.removeItem('clean_autolink_target');
+        const checkNumEl = document.body;
+        if (!checkNumEl) return;
 
-        const container = document.createElement('div');
-        container.style.cssText = `
-            margin: 15px auto;
-            max-width: 360px;
-            text-align: center;
-        `;
+        // 1. 清掃実績（回収側）のカード表示チェック
+        const rawTarget = sessionStorage.getItem('clean_autolink_target');
+        if (rawTarget) {
+            const data = JSON.parse(rawTarget);
+            sessionStorage.removeItem('clean_autolink_target'); // 表示後に削除
 
-        if (savedData.cleanVolume) {
-            const resultCard = document.createElement('div');
-            resultCard.style.cssText = `
+            const box = document.createElement('div');
+            box.style.cssText = `
+                margin: 15px auto;
                 padding: 12px 16px;
                 background: #f0fdf4;
                 border: 1px solid #86efac;
-                color: #166534;
-                border-radius: 12px;
-                box-shadow: 0 4px 12px rgba(22, 101, 52, 0.08);
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                border-radius: 10px;
+                max-width: 90%;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+                text-align: center;
+                font-family: sans-serif;
+            `;
+            box.innerHTML = `
+                <div style="color: #166534; font-weight: bold; font-size: 14px; margin-bottom: 4px;">
+                    🧹 清掃実績を自動登録しました
+                </div>
+                <div style="color: #15803d; font-size: 12px;">
+                    浄化槽 : <strong>${data.setUpCode || ''}</strong> ${data.customerName ? `(${data.customerName})` : ''}
+                </div>
+                <div style="color: #64748b; font-size: 11px; margin-top: 4px;">
+                    清掃予約 : <span style="color:#0284c7; font-weight:bold;">No.${data.cleanNum || ''}</span> ｜ 汚泥量 : <strong>${data.cleanVolume || ''}㎥</strong>
+                </div>
             `;
 
-            const nameStr = savedData.customerName ? `（${savedData.customerName} 様）` : '';
-            const codeStr = savedData.setUpCode || '';
-            const cleanNumStr = savedData.cleanNum ? `No.${savedData.cleanNum}` : '';
-
-            resultCard.innerHTML = `
-                <div style="font-size: 14px; font-weight: 700; margin-bottom: 6px; color: #15803d; display: flex; align-items: center; justify-content: center; gap: 4px;">
-                    <span>🧹</span> 清掃実績を自動登録しました
-                </div>
-                <div style="font-size: 13px; font-weight: 600; color: #334155; line-height: 1.5;">
-                    浄化槽：<strong style="color: #0f172a;">${codeStr}</strong>${nameStr}
-                </div>
-                <div style="font-size: 12px; color: #475569; margin-top: 4px; padding-top: 4px; border-top: 1px dashed #bbf7d0;">
-                    清掃予約：<strong style="color: #0284c7;">${cleanNumStr}</strong> ｜ 汚泥量：<strong style="color: #0284c7;">${savedData.cleanVolume}㎥</strong>
-                </div>
-            `;
-            container.appendChild(resultCard);
-        }
-
-        const centerEl = document.querySelector('center');
-        if (centerEl) {
-            const targetDiv = centerEl.querySelector('div') || centerEl;
-            const conditionDiv = document.getElementById('divCondition');
-            if (conditionDiv) {
-                targetDiv.insertBefore(container, conditionDiv);
-            } else {
-                targetDiv.appendChild(container);
+            const targetPos = document.querySelector('.title, h1, h2, div[style*="font-size"]') || document.body.firstChild;
+            if (targetPos && targetPos.parentNode) {
+                targetPos.parentNode.insertBefore(box, targetPos.nextSibling);
             }
-        } else {
-            document.body.prepend(container);
         }
+
+        // 2. 清掃予定（送信側）のカード表示チェック
+        const rawPlanTarget = sessionStorage.getItem('clean_plan_autolink_target');
+        if (rawPlanTarget) {
+            const planData = JSON.parse(rawPlanTarget);
+            sessionStorage.removeItem('clean_plan_autolink_target'); // 表示後に削除
+
+            const planBox = document.createElement('div');
+            planBox.style.cssText = `
+                margin: 10px auto;
+                padding: 12px 16px;
+                background: #eff6ff;
+                border: 1px solid #93c5fd;
+                border-radius: 10px;
+                max-width: 90%;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+                text-align: center;
+                font-family: sans-serif;
+            `;
+            planBox.innerHTML = `
+                <div style="color: #1e40af; font-weight: bold; font-size: 14px; margin-bottom: 4px;">
+                    📅 清掃予定を自動登録しました！
+                </div>
+                <div style="color: #1d4ed8; font-size: 12px;">
+                    浄化槽 : <strong>${planData.setUpCode || ''}</strong> ｜ 次回清掃時期 : <strong style="color:#0284c7;">${planData.targetMonth || ''}月</strong>
+                </div>
+            `;
+
+            const targetPos = document.querySelector('.title, h1, h2, div[style*="font-size"]') || document.body.firstChild;
+            if (targetPos && targetPos.parentNode) {
+                targetPos.parentNode.insertBefore(planBox, targetPos.nextSibling);
+            }
+        }
+
     } catch (e) {
         console.error("完了通知表示エラー:", e);
     }
+}
+
     /**
- * 🌟 清掃予定（cleanPlan.asp）を裏で自動POSTする関数（送信側）
- */
-async function triggerCleanPlanAutoSubmit(setUpCode, targetMonth) {
+ 　* 🌟 清掃予定（cleanPlan.asp）を裏で自動POSTする関数（送信側）
+ 　*/
+ async function triggerCleanPlanAutoSubmit(setUpCode, targetMonth) {
     return new Promise((resolve) => {
         try {
             // URLパラメータから必要なキーを取得

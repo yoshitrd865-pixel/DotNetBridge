@@ -294,7 +294,7 @@ async function processCleanRegistration(cleanNum, cleanVolume) {
 function setupDialogHook(setUpCode, inputEl) {
     const bindHook = () => {
         const regBtn = document.querySelector('input.btn-blue') || 
-                       Array.from(document.querySelectorAll('input, button')).find(el => el.value === '登録' || el.textContent.includes('登録'));
+                       Array.from(document.querySelectorAll('input, button')).find(el => el.value === '登録' || el.textContent.trim() === '登録');
 
         if (!regBtn || regBtn.dataset.cleanHookSet) return;
         regBtn.dataset.cleanHookSet = "true";
@@ -303,8 +303,9 @@ function setupDialogHook(setUpCode, inputEl) {
             let checkCount = 0;
             const timer = setInterval(() => {
                 checkCount++;
-                const yesBtn = Array.from(document.querySelectorAll('input[type="button"], button'))
-                    .find(el => el.value === 'はい' || el.textContent.trim() === 'はい' || el.getAttribute('onclick')?.includes('submitForm_Yes'));
+                const yesBtn = Array.from(document.querySelectorAll('input[type="button"], button')).find(el => 
+                    el.value === 'はい' || el.textContent.trim() === 'はい' || (el.getAttribute('onclick') && el.getAttribute('onclick').includes('chkWrite'))
+                );
 
                 if (yesBtn && !yesBtn.dataset.cleanBound) {
                     yesBtn.dataset.cleanBound = "true";
@@ -320,10 +321,25 @@ function setupDialogHook(setUpCode, inputEl) {
                         yesBtn.disabled = true;
                         yesBtn.value = "処理中...";
 
-                        console.log("🚀 【1. 清掃実績の画面送信】 ➔ 【2. 点検登録】 の連動を開始します...");
-
-                        const noticeData = {};
+                        // 🌟 【送信側】次回清掃月（1〜12月ボタン）が選ばれているかチェックして裏で送信！
+                        const monthInput = document.getElementById('selCleanMonth') || document.querySelector('input[name="selCleanMonth"], select[name="selCleanMonth"]');
+                        const activeMonthBtn = document.querySelector('.btn-month.active, [data-month].active') || 
+                                               Array.from(document.querySelectorAll('button, input[type="button"]')).find(b => b.style.background.includes('0284c7') || b.style.background.includes('rgb(2, 132, 199)'));
                         
+                        let targetMonth = monthInput ? monthInput.value : '';
+                        if (!targetMonth && activeMonthBtn) {
+                            targetMonth = activeMonthBtn.getAttribute('data-month') || activeMonthBtn.textContent.replace('月', '').trim();
+                        }
+
+                        if (targetMonth && typeof triggerCleanPlanAutoSubmit === 'function') {
+                            console.log(`🚀 次回清掃月 [${targetMonth}月] のため、裏で清掃予定(cleanPlan.asp)を登録します...`);
+                            await triggerCleanPlanAutoSubmit(setUpCode, targetMonth);
+                        }
+
+                        // 🌟 【回収側】汚泥量パネルで「実施」が入力されている場合の清掃実績自動登録
+                        console.log("🚀 【1. 清掃実績の画面送信】 ➔ 【2. 点検登録】 の連動を開始します...");
+                        const noticeData = {};
+
                         const volumeInput = document.getElementById('input-clean-volume');
                         let cleanVolume = volumeInput ? volumeInput.value.trim() : '';
 
@@ -338,41 +354,37 @@ function setupDialogHook(setUpCode, inputEl) {
                             console.log(`🧹 検出された汚泥量: 【 ${cleanVolume}㎥ 】。CleanNumber 検索開始...`);
                             const targetResult = await fetchCleanNumberFromList(setUpCode);
 
-                            // 🌟 【修正後】未清掃が見つからない・失敗した場合は、前回の通知用データを絶対にクリアする！
-if (targetResult && targetResult.cleanNum) {
-    const isSuccess = await processCleanRegistration(targetResult.cleanNum, cleanVolume);
-    if (isSuccess) {
-        noticeData.cleanVolume = cleanVolume;
-        noticeData.setUpCode = setUpCode;
-        noticeData.cleanNum = targetResult.cleanNum;
-        noticeData.customerName = targetResult.customerName || '';
-        console.log(`✅ 清掃画面からの自動フォーム送信（はい）が完了しました！`);
-        sessionStorage.setItem('clean_autolink_target', JSON.stringify(noticeData));
-    } else {
-        sessionStorage.removeItem('clean_autolink_target');
-    }
-} else {
-    // 🌟 未清掃枠なし時は過去データを削除＆警告表示！
-    sessionStorage.removeItem('clean_autolink_target');
-    alert(`⚠️ 浄化槽番号 [${setUpCode}] の「未清掃」データが見つからなかったため、清掃実績の自動登録をスキップしました。\n（※点検登録のみ実行されます）`);
-}
-                        }
-
-                        if (Object.keys(noticeData).length > 0) {
-                            sessionStorage.setItem('clean_autolink_target', JSON.stringify(noticeData));
-                        }
-
-                        await new Promise(resolve => setTimeout(resolve, 100));
-
-                        console.log("🏁 裏処理完了。本来の点検登録を実行します。");
-
-                        if (typeof submitForm_Yes === 'function') {
-                            submitForm_Yes();
-                        } else if (originalOnClickStr) {
-                            new Function(originalOnClickStr)();
+                            if (targetResult && targetResult.cleanNum) {
+                                const isSuccess = await processCleanRegistration(targetResult.cleanNum, cleanVolume);
+                                if (isSuccess) {
+                                    noticeData.cleanVolume = cleanVolume;
+                                    noticeData.setUpCode = setUpCode;
+                                    noticeData.cleanNum = targetResult.cleanNum;
+                                    noticeData.customerName = targetResult.customerName || '';
+                                    console.log(`✅ 清掃画面からの自動フォーム送信（はい）が完了しました！`);
+                                    sessionStorage.setItem('clean_autolink_target', JSON.stringify(noticeData));
+                                } else {
+                                    sessionStorage.removeItem('clean_autolink_target');
+                                }
+                            } else {
+                                sessionStorage.removeItem('clean_autolink_target');
+                                alert(`⚠️ 浄化槽番号 [${setUpCode}] の「未清掃」データが見つからなかったため、清掃実績の自動登録をスキップしました。\n（※点検登録のみ実行されます）`);
+                            }
                         } else {
-                            const form = yesBtn.closest('form') || document.forms[0];
-                            if (form) form.submit();
+                            sessionStorage.removeItem('clean_autolink_target');
+                        }
+
+                        // 元の「はい」の登録処理（点検票の書き込み）を実行
+                        if (originalOnClickStr) {
+                            try {
+                                new Function(originalOnClickStr)();
+                            } catch (err) {
+                                const form = document.querySelector('form');
+                                if (form && typeof form.submit === 'function') form.submit();
+                            }
+                        } else {
+                            const form = document.querySelector('form');
+                            if (form && typeof form.submit === 'function') form.submit();
                         }
                     });
                 }
@@ -383,8 +395,7 @@ if (targetResult && targetResult.cleanNum) {
     };
 
     bindHook();
-    const observer = new MutationObserver(bindHook);
-    observer.observe(document.body, { childList: true, subtree: true });
+    setInterval(bindHook, 500);
 }
 
 function initVolumePanel(selectEl, inputEl) {
@@ -705,4 +716,100 @@ function renderCompletionNotice() {
     } catch (e) {
         console.error("完了通知表示エラー:", e);
     }
+    /**
+ * 🌟 清掃予定（cleanPlan.asp）を裏で自動POSTする関数（送信側）
+ */
+async function triggerCleanPlanAutoSubmit(setUpCode, targetMonth) {
+    return new Promise((resolve) => {
+        try {
+            // URLパラメータから必要なキーを取得
+            const urlParams = new URLSearchParams(window.location.search);
+            const checkNumber = urlParams.get('CheckNumber');
+            const workMethodCode = urlParams.get('WorkMethodCode') || '1';
+            const setUpHistoryCode = urlParams.get('SetUpHistoryCode') || '1';
+
+            if (!checkNumber) {
+                console.warn("⚠️ CheckNumber が見つからないため清掃予定の送信をスキップしました。");
+                return resolve(false);
+            }
+
+            console.log(`🚀 裏で清掃予定入力(cleanPlan.asp)の自動登録を開始します... (対象月: ${targetMonth}月)`);
+
+            const iframe = document.createElement('iframe');
+            iframe.style.display = 'none';
+            // cleanPlan.asp のURLを構築
+            iframe.src = `/cleanPlan.asp?CheckNumber=${checkNumber}&WorkMethodCode=${workMethodCode}&SetUpCode=${setUpCode}&SetUpHistoryCode=${setUpHistoryCode}`;
+            document.body.appendChild(iframe);
+
+            let isSubmitted = false;
+
+            const checkTimer = setInterval(() => {
+                try {
+                    const iDoc = iframe.contentDocument || iframe.contentWindow.document;
+                    const iWin = iframe.contentWindow;
+
+                    if (iDoc && iDoc.readyState === 'complete' && !isSubmitted) {
+                        const selCompany = iDoc.getElementById('selCleanCompanyCode') || iDoc.querySelector('select[name="selCleanCompanyCode"]');
+                        const selWorker = iDoc.getElementById('selCleanWorkerCode') || iDoc.querySelector('select[name="selCleanWorkerCode"]');
+                        const selMonth = iDoc.getElementById('selCleanMonth') || iDoc.querySelector('select[name="selCleanMonth"]');
+                        const btnSubmit = iDoc.getElementById('btnSubmit') || iDoc.querySelector('input[type="submit"], button[type="submit"]');
+
+                        if (selCompany && selMonth) {
+                            isSubmitted = true;
+
+                            // 1. 清掃会社の自動選択（1番目の会社または既存値）
+                            if (selCompany.options.length > 1 && !selCompany.value) {
+                                selCompany.selectedIndex = 1;
+                            }
+
+                            // 2. 清掃担当者の自動選択
+                            if (selWorker && selWorker.options.length > 1 && !selWorker.value) {
+                                selWorker.selectedIndex = 1;
+                            }
+
+                            // 3. 清掃時期（月）の設定
+                            if (targetMonth) {
+                                const opt = Array.from(selMonth.options).find(o => o.value == targetMonth || o.text.includes(`${targetMonth}月`));
+                                if (opt) selMonth.value = opt.value;
+                            }
+
+                            console.log("📝 清掃予定フォームの自動入力完了。送信します...");
+
+                            // フォーム送信
+                            if (typeof iWin.chkWrite === 'function') {
+                                iWin.chkWrite();
+                            } else if (btnSubmit) {
+                                btnSubmit.click();
+                            } else {
+                                const form = iDoc.querySelector('form');
+                                if (form) form.submit();
+                            }
+
+                            setTimeout(() => {
+                                clearInterval(checkTimer);
+                                if (document.body.contains(iframe)) document.body.removeChild(iframe);
+                                resolve(true);
+                            }, 1000);
+                        }
+                    }
+                } catch (e) {
+                    // ドメインクロス制限等のスルー
+                }
+            }, 300);
+
+            // 10秒タイムアウト
+            setTimeout(() => {
+                if (!isSubmitted) {
+                    clearInterval(checkTimer);
+                    if (document.body.contains(iframe)) document.body.removeChild(iframe);
+                    resolve(false);
+                }
+            }, 10000);
+
+        } catch (e) {
+            console.error("❌ 清掃予定自動送信エラー:", e);
+            resolve(false);
+        }
+    });
+}
 }

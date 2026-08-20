@@ -407,19 +407,20 @@ function initVolumePanel(selectEl, inputEl) {
         <div style="font-size: 12px; font-weight: 700; color: #334155; margin-bottom: 6px;">
             🧹 清掃汚泥量・搬出汚泥量 (㎥)
         </div>
-        <div style="display: flex; align-items: flex-end; gap: 8px; width: 100%;">
-            <div style="display: flex; gap: 4px; flex: 2.2;">
-                <button type="button" class="btn-vol" data-vol="1" style="flex:1; padding:10px 0; background:#fff; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; font-weight:600; color:#334155; cursor:pointer; transition:all 0.15s ease;">1㎥</button>
-                <button type="button" class="btn-vol" data-vol="2" style="flex:1; padding:10px 0; background:#fff; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; font-weight:600; color:#334155; cursor:pointer; transition:all 0.15s ease;">2㎥</button>
-                <button type="button" class="btn-vol" data-vol="3" style="flex:1; padding:10px 0; background:#fff; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; font-weight:600; color:#334155; cursor:pointer; transition:all 0.15s ease;">3㎥</button>
+        <div style="display: flex; align-items: flex-end; gap: 6px; width: 100%;">
+            <div style="display: flex; gap: 4px; flex: 3;">
+                <button type="button" class="btn-vol" data-vol="1" style="flex:1; padding:10px 0; background:#fff; border:1px solid #cbd5e1; border-radius:6px; font-size:12px; font-weight:600; color:#334155; cursor:pointer; transition:all 0.15s ease;">1㎥</button>
+                <button type="button" class="btn-vol" data-vol="1.5" style="flex:1.2; padding:10px 0; background:#fff; border:1px solid #cbd5e1; border-radius:6px; font-size:12px; font-weight:600; color:#334155; cursor:pointer; transition:all 0.15s ease;">1.5㎥</button>
+                <button type="button" class="btn-vol" data-vol="2" style="flex:1; padding:10px 0; background:#fff; border:1px solid #cbd5e1; border-radius:6px; font-size:12px; font-weight:600; color:#334155; cursor:pointer; transition:all 0.15s ease;">2㎥</button>
+                <button type="button" class="btn-vol" data-vol="3" style="flex:1; padding:10px 0; background:#fff; border:1px solid #cbd5e1; border-radius:6px; font-size:12px; font-weight:600; color:#334155; cursor:pointer; transition:all 0.15s ease;">3㎥</button>
             </div>
             <div style="display: flex; flex-direction: column; align-items: center; flex: 1.2;">
                 <span style="font-size: 10px; font-weight: 700; color: #64748b; margin-bottom: 2px;">直接入力</span>
-                <div style="display: flex; align-items: center; gap: 4px; width: 100%;">
+                <div style="display: flex; align-items: center; gap: 2px; width: 100%;">
                     <input type="text" id="input-clean-volume" class="inputitem" placeholder="他" 
                            onclick="if(typeof display10KeyPad === 'function') display10KeyPad(this);" 
                            style="width: 100%; min-width: 0; padding: 8px 2px; border: 1px solid #cbd5e1; border-radius: 6px; text-align: center; font-size: 14px; font-weight: 700; background: #fff; box-sizing: border-box; height: 39px;">
-                    <span style="font-size: 13px; font-weight: 700; color: #334155; white-space: nowrap;">㎥</span>
+                    <span style="font-size: 12px; font-weight: 700; color: #334155; white-space: nowrap;">㎥</span>
                 </div>
             </div>
         </div>
@@ -461,7 +462,7 @@ function initVolumePanel(selectEl, inputEl) {
         });
     }
 
-  let lastIsCleaned = false;
+    let lastIsCleaned = false;
 
     const updatePanelStatus = () => {
         let activeSelect = null;
@@ -473,8 +474,6 @@ function initVolumePanel(selectEl, inputEl) {
                 const optText = detailSel.options[detailSel.selectedIndex]?.text.trim() || '';
                 const val = detailSel.value || '';
 
-                // 🌟 【判定を厳密化】「次回引き抜きが必要」等は除外！
-                // 「清掃実施」「全量引抜」「汚泥引抜実施」等の【当日の実施】を意味する言葉のみヒットさせる
                 const isDetailMatch = (optText.includes('引抜') || optText.includes('清掃')) && 
                                       (optText.includes('実施') || optText.includes('全量') || val === '1,2') &&
                                       !optText.includes('次回') && !optText.includes('必要');
@@ -508,12 +507,10 @@ function initVolumePanel(selectEl, inputEl) {
                 }
             }
         } else {
-            // 🌟 【超重要】「実施」以外が選ばれている時は、即座にパネルを隠して入力値を空にする！
             lastIsCleaned = false;
             if (panel.style.display !== 'none') {
                 panel.style.display = 'none';
                 if (volumeInput) volumeInput.value = '';
-                // ボタンの選択状態（青色）もリセット
                 volBtns.forEach(b => {
                     b.style.background = '#ffffff';
                     b.style.color = '#334155';

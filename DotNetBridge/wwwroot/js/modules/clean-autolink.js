@@ -846,4 +846,3 @@ function renderCompletionNotice() {
         }
     });
 }
-}

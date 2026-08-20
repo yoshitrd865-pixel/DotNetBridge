@@ -82,7 +82,7 @@ export function initCleanAutoLink() {
 }
 
 /**
- * 隠し iframe で「未清掃」POST検索を実行し、CleanNumber を抜く関数
+ * 隠し iframe で「未清掃」POST検索を実行し、指定された SetUpCode と完全一致する CleanNumber のみを抜く関数
  */
 async function fetchCleanNumberFromList(setUpCode) {
     return new Promise((resolve) => {
@@ -132,21 +132,30 @@ async function fetchCleanNumberFromList(setUpCode) {
                         }
 
                         if (isWaitingForPost) {
-                            const card = iDoc.querySelector('.link-box, [onclick*="CleanNumber"], a[href*="CleanNumber"]');
+                            // 画面上の全カードを取得
+                            const cards = Array.from(iDoc.querySelectorAll('.link-box, [onclick*="CleanNumber"], a[href*="CleanNumber"]'));
                             
-                            if (card) {
-                                const targetAttr = card.getAttribute('onclick') || card.getAttribute('href') || '';
+                            // 🌟 【安全ガード】 カード内のテキストに「対象の SetUpCode」が100%含まれているか厳密一致確認！
+                            const targetCard = cards.find(card => {
+                                const cardText = card.textContent || card.innerText || '';
+                                return cardText.includes(setUpCode);
+                            });
+
+                            if (targetCard) {
+                                const targetAttr = targetCard.getAttribute('onclick') || targetCard.getAttribute('href') || '';
                                 const match = targetAttr.match(/CleanNumber=(\d+)/i) || targetAttr.match(/goTo\([^\)]*['"]?(\d+)['"]?[^\)]*\)/);
 
                                 if (match && match[1]) {
                                     const cleanNum = match[1];
-                                    console.log(`✨【取得成功】 CleanNumber 【 ${cleanNum} 】 を抽出しました！`);
+                                    console.log(`✨【一致成功】 顧客ID [${setUpCode}] の CleanNumber 【 ${cleanNum} 】 を抽出しました！`);
                                     clearInterval(checkTimer);
                                     if (document.body.contains(iframe)) document.body.removeChild(iframe);
                                     resolve(cleanNum);
                                     return;
                                 }
-                            } else {
+                            } else if (cards.length > 0 && checkCount > 15) {
+                                // 他人のカードはあるが目的の顧客IDが含まれない場合、次の日付範囲へ検索切り替え
+                                console.warn(`⚠️ 一覧に顧客ID [${setUpCode}] が見つかりません。別の月範囲を検索します...`);
                                 rangeIndex++;
                                 if (rangeIndex < searchRanges.length) {
                                     isWaitingForPost = false;
@@ -160,6 +169,7 @@ async function fetchCleanNumberFromList(setUpCode) {
                 }
 
                 if (checkCount > 40) {
+                    console.warn(`⚠️ 顧客ID [${setUpCode}] の「未清掃」枠は見つかりませんでした。`);
                     clearInterval(checkTimer);
                     if (document.body.contains(iframe)) document.body.removeChild(iframe);
                     resolve('');
@@ -174,24 +184,21 @@ async function fetchCleanNumberFromList(setUpCode) {
 }
 
 /**
- * デバッグ用：画面上にポップアップを開き、視覚的に入力・登録の動きを確認する関数
+ * 隠し iframe 内で「清掃入力画面 (clean.asp)」を開き、静かにフォーム送信を完走させる関数
  */
 async function processCleanRegistration(cleanNum, cleanVolume) {
     return new Promise((resolve) => {
         try {
-            console.log(`🧹 【視覚化テスト】 清掃入力画面 (CleanNumber=${cleanNum}) をポップアップで開きます...`);
+            console.log(`🧹 裏画面で 清掃入力画面 (CleanNumber=${cleanNum}) の自動登録を実行中...`);
 
-            const popup = window.open(
-                `/clean.asp?CleanNumber=${cleanNum}&WorkMethodCode=1`,
-                'CleanRegistrationDebugPopup',
-                'width=450,height=600,left=100,top=100,scrollbars=yes,resizable=yes'
-            );
+            const old = document.getElementById('clean-submit-iframe');
+            if (old) old.remove();
 
-            if (!popup) {
-                console.warn("⚠️ ポップアップがブロックされました。");
-                resolve(false);
-                return;
-            }
+            const iframe = document.createElement('iframe');
+            iframe.id = 'clean-submit-iframe';
+            iframe.style.display = 'none';
+            iframe.src = `/clean.asp?CleanNumber=${cleanNum}&WorkMethodCode=1`;
+            document.body.appendChild(iframe);
 
             let isFormSubmitted = false;
             let checkCount = 0;
@@ -199,87 +206,72 @@ async function processCleanRegistration(cleanNum, cleanVolume) {
             const timer = setInterval(() => {
                 checkCount++;
                 try {
-                    if (popup.closed) {
-                        clearInterval(timer);
-                        resolve(false);
-                        return;
-                    }
+                    const iDoc = iframe.contentDocument || iframe.contentWindow.document;
+                    const iWin = iframe.contentWindow;
 
-                    const pDoc = popup.document;
-                    const pWin = popup;
-
-                    if (pDoc && pDoc.readyState === 'complete') {
-                        // 1. 清掃入力画面（clean.asp）が開いたら汚泥量をセットして「登録」をクリック
+                    if (iDoc && iDoc.readyState === 'complete') {
                         if (!isFormSubmitted) {
-                            const volInput1 = pDoc.querySelector('input[name="txtCarCleanQuantity_1_1"], #txtCarCleanQuantity_1_1');
-                            const volInput2 = pDoc.querySelector('input[name="txtCarTakeOutQuantity_1_1"], #txtCarTakeOutQuantity_1_1');
-                            const chkCar = pDoc.querySelector('input[name="chkCleanCarFlg_1_1"], #chkCleanCarFlg_1_1');
+                            const volInput1 = iDoc.querySelector('input[name="txtCarCleanQuantity_1_1"], #txtCarCleanQuantity_1_1');
+                            const volInput2 = iDoc.querySelector('input[name="txtCarTakeOutQuantity_1_1"], #txtCarTakeOutQuantity_1_1');
+                            const chkCar = iDoc.querySelector('input[name="chkCleanCarFlg_1_1"], #chkCleanCarFlg_1_1');
 
                             if (volInput1) volInput1.value = cleanVolume;
                             if (volInput2) volInput2.value = cleanVolume;
                             if (chkCar) chkCar.checked = true;
 
-                            const regBtn = Array.from(pDoc.querySelectorAll('input, button, a')).find(
+                            const regBtn = Array.from(iDoc.querySelectorAll('input, button, a')).find(
                                 el => el.value === '登録' || el.textContent.includes('登録')
                             );
 
                             if (regBtn) {
                                 isFormSubmitted = true;
-                                console.log(`📄 汚泥量 [${cleanVolume}㎥] を入力しました。「登録」ボタンをクリックします...`);
-                                
-                                setTimeout(() => {
-                                    if (!popup.closed) regBtn.click();
-                                }, 500);
+                                console.log("📄 清掃入力画面の「登録」を自動クリックしました。ダイアログ監視中...");
+                                regBtn.click();
                                 return;
                             }
                         }
 
-                        // 2. 「登録しますか？」ダイアログが出たら「はい」をクリック
                         if (isFormSubmitted) {
-                            const yesBtn = Array.from(pDoc.querySelectorAll('input[type="button"], button, a'))
+                            const yesBtn = Array.from(iDoc.querySelectorAll('input[type="button"], button, a'))
                                 .find(el => el.value === 'はい' || el.textContent.trim() === 'はい' || el.getAttribute('onclick')?.includes('submitForm_Yes'));
 
                             if (yesBtn) {
-                                console.log("🎯 「はい」ボタンを発見！クリックして確定させます。");
-                                
+                                console.log("🎯 「はい」ボタンを裏で自動クリック！ 清掃登録完了！");
+                                yesBtn.click();
+                                clearInterval(timer);
                                 setTimeout(() => {
-                                    if (!popup.closed) {
-                                        yesBtn.click();
-                                        setTimeout(() => {
-                                            if (!popup.closed) popup.close();
-                                            clearInterval(timer);
-                                            resolve(true);
-                                        }, 1000);
-                                    }
-                                }, 500);
+                                    if (document.body.contains(iframe)) document.body.removeChild(iframe);
+                                    resolve(true);
+                                }, 800);
                                 return;
                             }
 
-                            if (typeof pWin.submitForm_Yes === 'function') {
-                                console.log("🎯 submitForm_Yes() を直接実行します。");
-                                pWin.submitForm_Yes();
+                            if (typeof iWin.submitForm_Yes === 'function') {
+                                console.log("🎯 submitForm_Yes() を裏で実行して登録完了！");
+                                iWin.submitForm_Yes();
+                                clearInterval(timer);
                                 setTimeout(() => {
-                                    if (!popup.closed) popup.close();
-                                    clearInterval(timer);
+                                    if (document.body.contains(iframe)) document.body.removeChild(iframe);
                                     resolve(true);
-                                }, 1000);
+                                }, 800);
                                 return;
                             }
                         }
                     }
                 } catch (e) {
-                    // 遷移中エラーはスルー
+                    // スルー
                 }
 
                 if (checkCount > 40) {
                     console.warn("⚠️ 自動登録処理タイムアウト");
                     clearInterval(timer);
+                    if (document.body.contains(iframe)) document.body.removeChild(iframe);
                     resolve(false);
                 }
-            }, 300);
+            }, 200);
 
         } catch (e) {
-            console.error("❌ ポップアップ処理エラー:", e);
+            console.error("❌ 裏処理エラー:", e);
             resolve(false);
         }
     });
@@ -338,6 +330,8 @@ function setupDialogHook(setUpCode, inputEl) {
                                     noticeData.cleanVolume = cleanVolume;
                                     console.log(`✅ 清掃画面からの自動フォーム送信（はい）が完了しました！`);
                                 }
+                            } else {
+                                alert(`⚠️ 顧客コード [${setUpCode}] の「未清掃」データが見つからなかったため、清掃実績の自動登録をスキップしました。\n（※点検登録のみ実行されます）`);
                             }
                         }
 

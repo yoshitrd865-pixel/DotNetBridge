@@ -356,6 +356,11 @@ if (targetResult && targetResult.cleanNum) {
     sessionStorage.removeItem('clean_autolink_target');
     alert(`⚠️ 浄化槽番号 [${setUpCode}] の「未清掃」データが見つからなかったため、清掃実績の自動登録をスキップしました。\n（※点検登録のみ実行されます）`);
 }
+                        }
+
+                        if (Object.keys(noticeData).length > 0) {
+                            sessionStorage.setItem('clean_autolink_target', JSON.stringify(noticeData));
+                        }
 
                         await new Promise(resolve => setTimeout(resolve, 100));
 

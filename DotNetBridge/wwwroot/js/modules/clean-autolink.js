@@ -462,24 +462,27 @@ function initVolumePanel(selectEl, inputEl) {
         });
     }
 
-    // 🌟 全型式対応：各槽の「清掃」ドロップダウンを指定のステータス（「実施」または「要」）に一括変更する関数
-    const setAllChamberCleanStatus = (targetType) => { // targetType: '実施' または '要'
+    // 🌟 全型式対応：各槽の「清掃」ドロップダウン（不要・要・実施）を一括変更する関数
+    const setAllChamberCleanStatus = (targetType) => { // targetType: '実施' | '要' | '不要'
         const allSelects = Array.from(document.querySelectorAll('select'));
         
         allSelects.forEach(select => {
             const options = Array.from(select.options);
-            const hasCleanOptions = options.some(o => o.text.includes('不要')) && 
-                                    options.some(o => o.text.includes('要')) && 
-                                    options.some(o => o.text.includes('実施'));
+            // オプションに「不要」「要」「実施」が含まれるドロップダウンを検出
+            const hasCleanOptions = options.some(o => o.text.trim() === '不要') && 
+                                    options.some(o => o.text.trim() === '要') && 
+                                    options.some(o => o.text.trim() === '実施');
 
             if (hasCleanOptions) {
                 const parentText = select.closest('td, div, tr')?.textContent || '';
                 if (parentText.includes('清掃')) {
                     let targetOpt = null;
                     if (targetType === '実施') {
-                        targetOpt = options.find(o => o.value === '2,1' || o.text.trim() === '実施');
+                        targetOpt = options.find(o => o.text.trim() === '実施');
                     } else if (targetType === '要') {
-                        targetOpt = options.find(o => o.value === '1,1' || o.text.trim() === '要');
+                        targetOpt = options.find(o => o.text.trim() === '要');
+                    } else if (targetType === '不要') {
+                        targetOpt = options.find(o => o.text.trim() === '不要');
                     }
 
                     if (targetOpt && select.value !== targetOpt.value) {
@@ -492,61 +495,50 @@ function initVolumePanel(selectEl, inputEl) {
         });
     };
 
-    let lastIsCleaned = false;
-    let lastIsNeedClean = false;
+    let lastStatusState = '';
 
     const updatePanelStatus = () => {
         let activeSelect = null;
         let isNeedClean = false;
 
-        [1, 2, 3].forEach(num => {
-            const detailSel = document.getElementById(`selRemark${num}Code`);
+        // 🌟 連絡事項だけでなく、画面内の全ドロップダウンをチェック
+        const allSelects = Array.from(document.querySelectorAll('select'));
 
-            if (detailSel && detailSel.selectedIndex >= 0) {
-                const optText = detailSel.options[detailSel.selectedIndex]?.text.trim() || '';
-                const val = detailSel.value || '';
+        allSelects.forEach(sel => {
+            if (sel.selectedIndex >= 0) {
+                const optText = sel.options[sel.selectedIndex]?.text.trim() || '';
+                const val = sel.value || '';
 
-                // 当日の「清掃実施」判定
+                // 当日の「清掃実施」判定（連絡事項等）
                 const isDetailMatch = (optText.includes('引抜') || optText.includes('清掃')) && 
                                       (optText.includes('実施') || optText.includes('全量') || val === '1,2') &&
-                                      !optText.includes('次回') && !optText.includes('必要');
+                                      !optText.includes('次回') && !optText.includes('必要') && !optText.includes('至急');
 
                 if (isDetailMatch) {
-                    activeSelect = detailSel;
+                    activeSelect = sel;
                 }
 
-                // 「清掃が必要（次回引き抜きが必要等）」判定
+                // 「清掃が必要（至急〜・次回点検時〜など）」の判定
                 if (optText.includes('引き抜きが必要') || optText.includes('引抜が必要') || optText.includes('清掃が必要')) {
                     isNeedClean = true;
                 }
             }
         });
 
-        // 🌟 「次回引き抜きが必要」などが選ばれた時の「要」自動切り替え
-        if (isNeedClean) {
-            if (!lastIsNeedClean) {
-                setAllChamberCleanStatus('要');
-            }
-            lastIsNeedClean = true;
-        } else {
-            lastIsNeedClean = false;
+        // 🌟 連動状態判定
+        let currentStatusState = '不要';
+        if (activeSelect) {
+            currentStatusState = '実施';
+        } else if (isNeedClean) {
+            currentStatusState = '要';
+        }
+
+        if (lastStatusState !== currentStatusState) {
+            setAllChamberCleanStatus(currentStatusState);
+            lastStatusState = currentStatusState;
         }
 
         if (activeSelect) {
-            if (!lastIsCleaned && selectEl.value !== '') {
-                selectEl.value = '';
-                if (inputEl) inputEl.value = '';
-                hideInlinePanel();
-                sessionStorage.removeItem('clean_autolink_target');
-            }
-
-            // 🌟 清掃実施が選ばれた時の「実施」自動切り替え
-            if (!lastIsCleaned) {
-                setAllChamberCleanStatus('実施');
-            }
-
-            lastIsCleaned = true;
-
             const parentBlock = activeSelect.closest('div[id^="divRemark"]') || activeSelect.parentNode;
             if (parentBlock) {
                 if (panel.parentNode !== parentBlock) {
@@ -561,7 +553,6 @@ function initVolumePanel(selectEl, inputEl) {
                 }
             }
         } else {
-            lastIsCleaned = false;
             if (panel.style.display !== 'none') {
                 panel.style.display = 'none';
                 if (volumeInput) volumeInput.value = '';

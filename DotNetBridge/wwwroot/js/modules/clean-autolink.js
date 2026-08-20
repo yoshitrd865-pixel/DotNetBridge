@@ -132,30 +132,33 @@ async function fetchCleanNumberFromList(setUpCode) {
                         }
 
                         if (isWaitingForPost) {
-                            const cards = Array.from(iDoc.querySelectorAll('.link-box, [onclick*="CleanNumber"], a[href*="CleanNumber"]'));
+                            // 🌟 カードの親枠 (.taskItem) を一覧取得
+                            const taskItems = Array.from(iDoc.querySelectorAll('.taskItem, div[class*="taskItem"]'));
                             
-                            // 🌟 【安全ガード】 カード内のテキストに SetUpCode が100%含まれているか検証！
-                            const targetCard = cards.find(card => {
-                                const cardText = card.textContent || card.innerText || '';
-                                return cardText.includes(setUpCode);
+                            // 🌟 .jksNum や親枠全体のテキストから SetUpCode (例: 413) が入っているか検索！
+                            const targetItem = taskItems.find(item => {
+                                const itemText = item.textContent || item.innerText || '';
+                                return itemText.includes(setUpCode);
                             });
 
-                            if (targetCard) {
-                                const targetAttr = targetCard.getAttribute('onclick') || targetCard.getAttribute('href') || '';
+                            if (targetItem) {
+                                // 親枠の中から link-area や CleanNumber を含む href/onclick を探す
+                                const card = targetItem.querySelector('.link-area, [onclick*="CleanNumber"], a[href*="CleanNumber"]') || targetItem;
+                                const targetAttr = card.getAttribute('onclick') || card.getAttribute('href') || targetItem.innerHTML || '';
                                 const match = targetAttr.match(/CleanNumber=(\d+)/i) || targetAttr.match(/goTo\([^\)]*['"]?(\d+)['"]?[^\)]*\)/);
 
                                 if (match && match[1]) {
                                     const cleanNum = match[1];
                                     
                                     // 顧客名を取得
-                                    const fullText = (targetCard.textContent || '').replace(/\s+/g, ' ').trim();
+                                    const fullText = (targetItem.textContent || '').replace(/\s+/g, ' ').trim();
                                     let customerName = '';
                                     const nameMatch = fullText.match(new RegExp(`${setUpCode}\\s*([^0-9\\-]+)`));
                                     if (nameMatch && nameMatch[1]) {
                                         customerName = nameMatch[1].trim().split(' ')[0];
                                     }
 
-                                    console.log(`✨【一致成功】 顧客ID [${setUpCode}] (${customerName}) の CleanNumber 【 ${cleanNum} 】 を抽出しました！`);
+                                    console.log(`✨【一致成功】 浄化槽番号 [${setUpCode}] (${customerName}) の CleanNumber 【 ${cleanNum} 】 を抽出しました！`);
                                     clearInterval(checkTimer);
                                     if (document.body.contains(iframe)) document.body.removeChild(iframe);
                                     
@@ -165,7 +168,7 @@ async function fetchCleanNumberFromList(setUpCode) {
                                     });
                                     return;
                                 }
-                            } else if (cards.length > 0 && checkCount > 15) {
+                            } else if (taskItems.length > 0 && checkCount > 15) {
                                 console.warn(`⚠️ 一覧に顧客ID [${setUpCode}] が見つかりません。別の月範囲を検索します...`);
                                 rangeIndex++;
                                 if (rangeIndex < searchRanges.length) {

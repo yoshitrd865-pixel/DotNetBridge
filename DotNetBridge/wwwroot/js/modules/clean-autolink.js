@@ -452,23 +452,23 @@ function initVolumePanel(selectEl, inputEl) {
         });
     }
 
-    let lastIsCleaned = false;
+  let lastIsCleaned = false;
 
     const updatePanelStatus = () => {
         let activeSelect = null;
 
         [1, 2, 3].forEach(num => {
-            const classSel = document.getElementById(`selRemarkClass${num}Code`);
             const detailSel = document.getElementById(`selRemark${num}Code`);
 
             if (detailSel && detailSel.selectedIndex >= 0) {
                 const optText = detailSel.options[detailSel.selectedIndex]?.text.trim() || '';
                 const val = detailSel.value || '';
 
-                const isDetailMatch = optText.includes('引抜') || 
-                                      optText.includes('清掃') || 
-                                      optText.includes('実施') || 
-                                      val === '1,2';
+                // 🌟 【判定を厳密化】「次回引き抜きが必要」等は除外！
+                // 「清掃実施」「全量引抜」「汚泥引抜実施」等の【当日の実施】を意味する言葉のみヒットさせる
+                const isDetailMatch = (optText.includes('引抜') || optText.includes('清掃')) && 
+                                      (optText.includes('実施') || optText.includes('全量') || val === '1,2') &&
+                                      !optText.includes('次回') && !optText.includes('必要');
 
                 if (isDetailMatch) {
                     activeSelect = detailSel;
@@ -499,10 +499,19 @@ function initVolumePanel(selectEl, inputEl) {
                 }
             }
         } else {
+            // 🌟 【超重要】「実施」以外が選ばれている時は、即座にパネルを隠して入力値を空にする！
             lastIsCleaned = false;
             if (panel.style.display !== 'none') {
                 panel.style.display = 'none';
                 if (volumeInput) volumeInput.value = '';
+                // ボタンの選択状態（青色）もリセット
+                volBtns.forEach(b => {
+                    b.style.background = '#ffffff';
+                    b.style.color = '#334155';
+                    b.style.borderColor = '#cbd5e1';
+                    b.style.fontWeight = '600';
+                    b.style.boxShadow = 'none';
+                });
             }
         }
     };

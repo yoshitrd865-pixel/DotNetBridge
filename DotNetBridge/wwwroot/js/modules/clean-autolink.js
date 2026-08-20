@@ -462,6 +462,31 @@ function initVolumePanel(selectEl, inputEl) {
         });
     }
 
+    // 🌟 全型式対応：各槽の「清掃」というラベルに対応するセレクトボックスを全て「実施(2,1)」に切り替える関数
+    const setAllChamberCleanStatusTo実施 = () => {
+        const allSelects = Array.from(document.querySelectorAll('select'));
+        
+        allSelects.forEach(select => {
+            // 選択肢の中に「要」「不要」「実施」が含まれており、親や近くのラベルに「清掃」という文字があるかチェック
+            const options = Array.from(select.options);
+            const hasCleanOptions = options.some(o => o.text.includes('不要')) && options.some(o => o.text.includes('実施'));
+
+            if (hasCleanOptions) {
+                // 親ブロックまたは直前の要素テキストから「清掃」を探す
+                const parentText = select.closest('td, div, tr')?.textContent || '';
+                if (parentText.includes('清掃')) {
+                    // 「実施」オプション（値: 2,1 や テキスト: 実施）を選択
+                    const targetOpt = options.find(o => o.value === '2,1' || o.text.includes('実施'));
+                    if (targetOpt && select.value !== targetOpt.value) {
+                        select.value = targetOpt.value;
+                        if (typeof select.onchange === 'function') select.onchange();
+                        console.log(`🧹 [自動連動] 槽の清掃項目 (${select.id || select.name}) を 「実施」 に自動変更しました。`);
+                    }
+                }
+            }
+        });
+    };
+
     let lastIsCleaned = false;
 
     const updatePanelStatus = () => {
@@ -491,6 +516,12 @@ function initVolumePanel(selectEl, inputEl) {
                 hideInlinePanel();
                 sessionStorage.removeItem('clean_autolink_target');
             }
+
+            // 🌟 清掃実施が選ばれたタイミングで、画面内のすべての槽の「清掃」項目を「実施」にする
+            if (!lastIsCleaned) {
+                setAllChamberCleanStatusTo実施();
+            }
+
             lastIsCleaned = true;
 
             const parentBlock = activeSelect.closest('div[id^="divRemark"]') || activeSelect.parentNode;

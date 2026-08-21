@@ -82,6 +82,49 @@ export function initCleanAutoLink() {
 }
 
 /**
+ * 🌟 テスト用ウエイト関数 (指定ミリ秒待機)
+ */
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * 🌟 画面中央にリアルタイムステータスを表示するUI関数
+ */
+function showStatusToast(message, bgColor = '#0284c7') {
+    let toast = document.getElementById('clean-autolink-toast');
+    if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'clean-autolink-toast';
+        toast.style.cssText = `
+            position: fixed;
+            top: 40%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 999999;
+            padding: 16px 24px;
+            background: ${bgColor};
+            color: #ffffff;
+            font-size: 15px;
+            font-weight: bold;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+            text-align: center;
+            max-width: 85%;
+            pointer-events: none;
+            transition: all 0.2s ease;
+        `;
+        document.body.appendChild(toast);
+    }
+    toast.style.background = bgColor;
+    toast.innerHTML = message;
+    toast.style.display = 'block';
+}
+
+function hideStatusToast() {
+    const toast = document.getElementById('clean-autolink-toast');
+    if (toast) toast.style.display = 'none';
+}
+
+/**
  * 隠し iframe で「未清掃」POST検索を実行し、指定された SetUpCode と完全一致する CleanNumber と顧客名を抜く関数
  */
 async function fetchCleanNumberFromList(setUpCode) {
@@ -417,16 +460,20 @@ function setupDialogHook(setUpCode, inputEl) {
                         }
 
                         // -------------------------------------------------------------
-                        // 🔀 2. 完全分離された分岐処理
+                        // 🔀 2. 完全分離された分岐処理（ゆっくりテスト表示付き！）
                         // -------------------------------------------------------------
                         if (cleanVolume) {
                             // 【ルート1：清掃実績の自動登録 (clean.asp)】
-                            console.log(`🧹 [実績ルート] 汚泥量: 【 ${cleanVolume}㎥ 】。clean.asp を裏で実行します...`);
-                            
+                            showStatusToast(`🔍 [ステップ 1/3]<br>顧客ID [${setUpCode}] の未清掃データを検索中...`, '#0284c7');
+                            await sleep(1500);
+
                             const noticeData = {};
                             const targetResult = await fetchCleanNumberFromList(setUpCode);
 
                             if (targetResult && targetResult.cleanNum) {
+                                showStatusToast(`🧹 [ステップ 2/3]<br>清掃実績 (汚泥量 ${cleanVolume}㎥) を自動登録中...`, '#0284c7');
+                                await sleep(1500);
+
                                 const isSuccess = await processCleanRegistration(targetResult.cleanNum, cleanVolume);
                                 if (isSuccess) {
                                     noticeData.cleanVolume = cleanVolume;
@@ -434,32 +481,44 @@ function setupDialogHook(setUpCode, inputEl) {
                                     noticeData.cleanNum = targetResult.cleanNum;
                                     noticeData.customerName = targetResult.customerName || '';
                                     sessionStorage.setItem('clean_autolink_target', JSON.stringify(noticeData));
+
+                                    showStatusToast(`✅ [ステップ 3/3]<br>清掃実績の登録成功！点検票を送信中...`, '#16a34a');
+                                    await sleep(1200);
                                 } else {
                                     sessionStorage.removeItem('clean_autolink_target');
                                 }
                             } else {
                                 sessionStorage.removeItem('clean_autolink_target');
+                                showStatusToast(`⚠️ 未清掃枠が見つからなかったためスキップします`, '#eab308');
+                                await sleep(1500);
                                 alert(`⚠️ 浄化槽番号 [${setUpCode}] の「未清掃」データが見つからなかったため、清掃実績の自動登録をスキップしました。\n（※点検登録のみ実行されます）`);
                             }
 
                         } else if (targetMonth && typeof triggerCleanPlanAutoSubmit === 'function') {
                             // 【ルート2：清掃予定の自動登録 (cleanPlan.asp)】
-                            console.log(`🚀 [予定ルート] 次回清掃月: 【 ${targetMonth}月 】。cleanPlan.asp を裏で実行します...`);
-                            
+                            showStatusToast(`📅 [ステップ 1/2]<br>次回清掃時期 (${targetMonth}月) の予約を自動登録中...`, '#0284c7');
+                            await sleep(1500);
+
                             const isPlanSuccess = await triggerCleanPlanAutoSubmit(setUpCode, targetMonth);
                             if (isPlanSuccess) {
                                 const planNoticeData = { setUpCode: setUpCode, targetMonth: targetMonth };
                                 sessionStorage.setItem('clean_plan_autolink_target', JSON.stringify(planNoticeData));
+
+                                showStatusToast(`✅ [ステップ 2/2]<br>清掃予定の作成成功！点検票を送信中...`, '#16a34a');
+                                await sleep(1200);
                             } else {
                                 sessionStorage.removeItem('clean_plan_autolink_target');
                             }
 
                         } else {
                             // 【ルート3：通常点検（裏処理一切なし！）】
-                            console.log("📝 [通常点検ルート] 清掃・予定の選択なし。裏処理をスキップして点検登録のみ実行します。");
+                            showStatusToast(`📝 [通常点検]<br>清掃連動なし。点検票のみ送信します...`, '#64748b');
+                            await sleep(1000);
                             sessionStorage.removeItem('clean_autolink_target');
                             sessionStorage.removeItem('clean_plan_autolink_target');
                         }
+
+                        hideStatusToast();
 
                         // -------------------------------------------------------------
                         // 📝 3. 本来の点検票書き込み処理を実行

@@ -125,7 +125,7 @@ function hideStatusToast() {
 }
 
 /**
- * 隠し iframe で「未清掃」POST検索を実行し、指定された SetUpCode と一致する CleanNumber を抜く関数（DOM構造完全合致版）
+ * 隠し iframe で「未清掃」POST検索を実行し、指定された SetUpCode と一致する CleanNumber を抜く関数（入力リセット＆全期間検索対応版）
  */
 async function fetchCleanNumberFromList(setUpCode) {
     return new Promise((resolve) => {
@@ -141,8 +141,6 @@ async function fetchCleanNumberFromList(setUpCode) {
             iframe.src = '/listClean.asp';
             document.body.appendChild(iframe);
 
-            const searchRanges = ["0", "-1", "1"]; // 当月 ➔ 先月 ➔ 来月
-            let rangeIndex = 0;
             let isWaitingForPost = false;
             let checkCount = 0;
 
@@ -167,10 +165,23 @@ async function fetchCleanNumberFromList(setUpCode) {
                                 if (typeof selStatus.onchange === 'function') selStatus.onchange();
                             }
 
-                            if (selDate) selDate.value = searchRanges[rangeIndex];
-                            if (txtSearch) txtSearch.value = setUpCode;
+                            // 📅 日付範囲を最も広い範囲（「以降」「全」含むオプション）に変更
+                            if (selDate) {
+                                const options = Array.from(selDate.options);
+                                const broadOpt = options.find(o => o.text.includes('以降') || o.text.includes('全') || o.text.includes('すべて')) || options[options.length - 1];
+                                if (broadOpt) {
+                                    selDate.value = broadOpt.value;
+                                }
+                                if (typeof selDate.onchange === 'function') selDate.onchange();
+                            }
 
-                            console.log(`🔎 一覧検索を実行中 (期間: ${searchRanges[rangeIndex]}, ID: ${setUpCode})...`);
+                            // 🧹 検索窓の残留テキスト（名前等）を一度完全にクリアしてから ID のみをセット
+                            if (txtSearch) {
+                                txtSearch.value = '';
+                                txtSearch.value = setUpCode;
+                            }
+
+                            console.log(`🔎 一覧検索を実行中 (ID: ${setUpCode})...`);
 
                             if (typeof iWin.readList === 'function') {
                                 iWin.readList();
@@ -181,7 +192,7 @@ async function fetchCleanNumberFromList(setUpCode) {
                             return;
                         }
 
-                        // 2. 実際の DOM (.taskItem) から CleanNumber=572 を抽出
+                        // 2. 実際の DOM (.taskItem) から CleanNumber を抽出
                         if (isWaitingForPost && checkCount > 2) {
                             const taskItems = Array.from(iDoc.querySelectorAll('.taskItem'));
 
@@ -210,13 +221,6 @@ async function fetchCleanNumberFromList(setUpCode) {
                                     });
                                     return;
                                 }
-                            }
-
-                            // 見つからない場合は期間を切り替えて再検索
-                            if (checkCount % 15 === 0 && rangeIndex < searchRanges.length - 1) {
-                                rangeIndex++;
-                                isWaitingForPost = false;
-                                console.warn(`⚠️ 範囲内にないため、次の検索範囲 (${searchRanges[rangeIndex]}) へ切り替えます...`);
                             }
                         }
                     }
@@ -386,10 +390,8 @@ async function triggerCleanPlanAutoSubmit(setUpCode, targetMonth) {
                                 let targetYear = currentYear;
 
                                 if (targetM < currentMonth) {
-                                    // 過去月が指定された場合は自動的に「翌年」にする
                                     targetYear = currentYear + 1;
                                 } else if (targetM === currentMonth) {
-                                    // 当月が指定された場合は確認ダイアログで問い合わせる
                                     const isThisYear = confirm(`選択された [ ${targetM}月 ] は今月（${currentYear}年${targetM}月）の登録でよろしいですか？\n\n・[ OK ] ➔ 今月（${currentYear}年${targetM}月）\n・[ キャンセル ] ➔ 1年後（${currentYear + 1}年${targetM}月）`);
                                     if (!isThisYear) {
                                         targetYear = currentYear + 1;
@@ -417,7 +419,6 @@ async function triggerCleanPlanAutoSubmit(setUpCode, targetMonth) {
                         // 【ステップ2】 確認ダイアログの「はい」を押して最終送信
                         // -------------------------------------------------------------
                         if (Step === 1) {
-                            // 関数直接実行か、「はい」ボタンクリックを試みる
                             if (typeof iWin.submitForm_Yes === 'function') {
                                 Step = 2;
                                 console.log("🎯 裏画面の submitForm_Yes() を実行して最終登録！");
@@ -446,7 +447,6 @@ async function triggerCleanPlanAutoSubmit(setUpCode, targetMonth) {
                     // スルー
                 }
 
-                // 10秒タイムアウト保護
                 if (checkCount > 50) {
                     clearInterval(checkTimer);
                     if (document.body.contains(iframe)) document.body.removeChild(iframe);
@@ -471,7 +471,6 @@ document.addEventListener('change', (e) => {
 
     const selectedText = target.options[target.selectedIndex]?.text || '';
 
-    // 【1】「汚泥引抜清掃実施しました。」を選んだ時 ➔ 予定（月）と「引き抜きが必要」をクリア
     if (selectedText.includes('汚泥引抜清掃実施しました')) {
         document.querySelectorAll('.btn-clean-m, [data-month]').forEach(btn => {
             btn.classList.remove('active');
@@ -487,8 +486,7 @@ document.addEventListener('change', (e) => {
         console.log("🧹 実施が選ばれたため、予定（月）選択をリセットしました。");
     }
 
-    // 【2】「次回点検時汚泥引き抜きが必要です」を選んだ時 ➔ 汚泥量（㎥）と「実施しました」をクリア
-    if (selectedText.includes('次回点検時汚泥引き抜きが必要')) {
+    if (selectedText.includes('次回点検時汚泥引き抜きが必要です')) {
         const inputVolume = document.getElementById('input-clean-volume');
         if (inputVolume) inputVolume.value = '';
 
@@ -538,7 +536,7 @@ function setupDialogHook(setUpCode, inputEl) {
                         yesBtn.value = "処理中...";
 
                         // -------------------------------------------------------------
-                        // 🔍 1. 条件判定（実績か？ 予定か？ 何もなし＝通常点検か？）
+                        // 🔍 1. 条件判定
                         // -------------------------------------------------------------
                         const volumePanel = document.getElementById('clean-volume-panel');
                         const volumeInput = document.getElementById('input-clean-volume');
@@ -558,7 +556,6 @@ function setupDialogHook(setUpCode, inputEl) {
                             }
                         }
 
-                        // 汚泥量の判定を厳格化（有効な数値である場合のみ実績ルートへ）
                         const hasValidVolume = cleanVolume && !isNaN(parseFloat(cleanVolume)) && parseFloat(cleanVolume) > 0;
 
                         // -------------------------------------------------------------
@@ -613,7 +610,7 @@ function setupDialogHook(setUpCode, inputEl) {
                             }
 
                         } else {
-                            // 【ルート3：通常点検（裏処理一切なし！）】
+                            // 【ルート3：通常点検】
                             showStatusToast(`📝 [通常点検]<br>清掃連動なし。点検票のみ送信します...`, '#64748b');
                             await sleep(1000);
                             sessionStorage.removeItem('clean_autolink_target');

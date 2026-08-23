@@ -89,6 +89,83 @@ export function initCleanAutoLink() {
 }
 
 /**
+ * 🌟 安全待機用ウェイト関数 (指定ミリ秒待機)
+ */
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * 🌟 近未来風・スタイリッシュステータストーストを表示するUI関数
+ */
+function showStatusToast(title, subtext = '', type = 'loading') {
+    let toast = document.getElementById('clean-autolink-toast');
+    if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'clean-autolink-toast';
+        toast.style.cssText = `
+            position: fixed;
+            top: 40%;
+            left: 50%;
+            transform: translate(-50%, -50%) scale(0.9);
+            z-index: 999999;
+            padding: 18px 24px;
+            border-radius: 16px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.15) inset;
+            text-align: center;
+            min-width: 260px;
+            max-width: 85%;
+            pointer-events: none;
+            transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+            opacity: 0;
+            backdrop-filter: blur(10px);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        `;
+        document.body.appendChild(toast);
+    }
+
+    if (!document.getElementById('autolink-spin-style')) {
+        const style = document.createElement('style');
+        style.id = 'autolink-spin-style';
+        style.textContent = `@keyframes autolink-spin { to { transform: rotate(360deg); } }`;
+        document.head.appendChild(style);
+    }
+
+    let bg = 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)';
+    let iconHtml = `<div style="width:24px;height:24px;border:3px solid rgba(255,255,255,0.2);border-top-color:#38bdf8;border-radius:50%;animation:autolink-spin 0.75s linear infinite;margin:0 auto 10px;"></div>`;
+
+    if (type === 'success') {
+        bg = 'linear-gradient(135deg, #064e3b 0%, #047857 100%)';
+        iconHtml = `<div style="font-size:24px;margin-bottom:6px;">✨</div>`;
+    } else if (type === 'warning') {
+        bg = 'linear-gradient(135deg, #78350f 0%, #b45309 100%)';
+        iconHtml = `<div style="font-size:24px;margin-bottom:6px;">⚠️</div>`;
+    }
+
+    toast.style.background = bg;
+    toast.innerHTML = `
+        ${iconHtml}
+        <div style="color: #ffffff; font-size: 15px; font-weight: 700; letter-spacing: 0.02em;">${title}</div>
+        ${subtext ? `<div style="color: rgba(255,255,255,0.8); font-size: 12px; margin-top: 4px; font-weight: 500;">${subtext}</div>` : ''}
+    `;
+
+    toast.style.display = 'block';
+    requestAnimationFrame(() => {
+        toast.style.opacity = '1';
+        toast.style.transform = 'translate(-50%, -50%) scale(1)';
+    });
+}
+
+function hideStatusToast() {
+    const toast = document.getElementById('clean-autolink-toast');
+    if (toast) {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translate(-50%, -50%) scale(0.95)';
+        setTimeout(() => {
+            toast.style.display = 'none';
+        }, 250);
+    }
+}
+
+/**
  * 🌟 menuCheck.asp（点検メニュー）および menuClean.asp（清掃メニュー）から顧客名を自動取得して保存する関数
  */
 function captureCustomerNameFromMenu() {
@@ -283,7 +360,6 @@ async function processCleanRegistration(cleanNum, cleanVolume) {
 
                             const triggerSubmitAndWait = () => {
                                 clearInterval(timer);
-                                // 🌟 ASPサーバーのレスポンス（読み込み完了）を直接監視するPromise
                                 new Promise((res) => {
                                     iframe.onload = () => {
                                         console.log("🎯 ASPサーバーからの処理完了レスポンスを受信しました！");
@@ -407,7 +483,6 @@ async function triggerCleanPlanAutoSubmit(setUpCode, targetMonth) {
                             const triggerPlanSubmitAndWait = () => {
                                 Step = 2;
                                 clearInterval(checkTimer);
-                                // 🌟 ASPサーバーのレスポンス（読み込み完了）を直接監視するPromise
                                 new Promise((res) => {
                                     iframe.onload = () => {
                                         console.log("✅ 清掃予定の裏登録（ASPレスポンス）が正常完了しました！");
@@ -550,13 +625,17 @@ function setupDialogHook(setUpCode, inputEl) {
                         const hasValidVolume = cleanVolume && !isNaN(parseFloat(cleanVolume)) && parseFloat(cleanVolume) > 0;
 
                         // -------------------------------------------------------------
-                        // 🔀 2. 分岐処理（ASP応答を完全待機）
+                        // 🔀 2. 分岐処理（トースト表示 ＋ ASPリアルタイム応答待機）
                         // -------------------------------------------------------------
                         if (hasValidVolume) {
                             // 【ルート1：清掃実績の自動登録 (clean.asp)】
+                            showStatusToast(`未清掃データを検索中...`, `顧客ID : ${setUpCode}`, 'loading');
+
                             const targetResult = await fetchCleanNumberFromList(setUpCode);
 
                             if (targetResult && targetResult.cleanNum) {
+                                showStatusToast(`清掃実績を自動登録中...`, `汚泥量 : ${cleanVolume} ㎥`, 'loading');
+
                                 const isSuccess = await processCleanRegistration(targetResult.cleanNum, cleanVolume);
                                 if (isSuccess) {
                                     const noticeData = {
@@ -565,16 +644,21 @@ function setupDialogHook(setUpCode, inputEl) {
                                         customerName: targetResult.customerName || storedCustomerName
                                     };
                                     sessionStorage.setItem('clean_autolink_target', JSON.stringify(noticeData));
+                                    showStatusToast(`清掃実績の登録完了！`, `点検票を送信中...`, 'success');
+                                    await sleep(250);
                                 } else {
                                     sessionStorage.removeItem('clean_autolink_target');
                                 }
                             } else {
                                 sessionStorage.removeItem('clean_autolink_target');
+                                hideStatusToast();
                                 alert(`⚠️ 浄化槽番号 [${setUpCode}] の「未清掃」データが見つからなかったため、清掃実績の自動登録をスキップしました。\n（※点検登録のみ実行されます）`);
                             }
 
                         } else if (targetMonth && typeof triggerCleanPlanAutoSubmit === 'function') {
                             // 【ルート2：清掃予定の自動登録 (cleanPlan.asp)】
+                            showStatusToast(`清掃予定を自動登録中...`, `次回希望 : ${targetMonth}月度`, 'loading');
+
                             const planResult = await triggerCleanPlanAutoSubmit(setUpCode, targetMonth);
                             if (planResult && planResult.success) {
                                 const planNoticeData = { 
@@ -584,6 +668,8 @@ function setupDialogHook(setUpCode, inputEl) {
                                     customerName: storedCustomerName
                                 };
                                 sessionStorage.setItem('clean_plan_autolink_target', JSON.stringify(planNoticeData));
+                                showStatusToast(`清掃予定の作成完了！`, `点検票を送信中...`, 'success');
+                                await sleep(250);
                             } else {
                                 sessionStorage.removeItem('clean_plan_autolink_target');
                             }
@@ -594,7 +680,9 @@ function setupDialogHook(setUpCode, inputEl) {
                             sessionStorage.removeItem('clean_plan_autolink_target');
                         }
 
-                        // 📝 3. 裏画面のASP応答が完了した直後に、本表の点検票送信を実行
+                        hideStatusToast();
+
+                        // 📝 3. 本来の点検票書き込み処理を実行
                         if (originalOnClickStr) {
                             try {
                                 new Function(originalOnClickStr)();

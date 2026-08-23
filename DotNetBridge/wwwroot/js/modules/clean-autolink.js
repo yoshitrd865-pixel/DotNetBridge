@@ -334,7 +334,7 @@ async function processCleanRegistration(cleanNum, cleanVolume) {
 }
 
 /**
- * 🌟 清掃予定（cleanPlan.asp）を裏で自動POSTする関数（DOM完全対応・確定版）
+ * 🌟 清掃予定（cleanPlan.asp）を裏で自動POSTする関数（未来日・同月確認ダイアログ追加版）
  */
 async function triggerCleanPlanAutoSubmit(setUpCode, targetMonth) {
     return new Promise((resolve) => {
@@ -378,10 +378,26 @@ async function triggerCleanPlanAutoSubmit(setUpCode, targetMonth) {
                                 selWorkDay.value = '2';
                                 if (typeof selWorkDay.onchange === 'function') selWorkDay.onchange();
 
-                                // 2. 日付文字列を作成して注入 (例: 2026/09/01)
-                                const currentYear = new Date().getFullYear();
-                                const formattedMonth = String(targetMonth).padStart(2, '0');
-                                txtWorkDate.value = `${currentYear}/${formattedMonth}/01`;
+                                // 2. 未来年の判定ロジック
+                                const now = new Date();
+                                const currentYear = now.getFullYear();
+                                const currentMonth = now.getMonth() + 1;
+                                const targetM = parseInt(targetMonth, 10);
+                                let targetYear = currentYear;
+
+                                if (targetM < currentMonth) {
+                                    // 過去月が指定された場合は自動的に「翌年」にする
+                                    targetYear = currentYear + 1;
+                                } else if (targetM === currentMonth) {
+                                    // 当月が指定された場合は確認ダイアログで問い合わせる
+                                    const isThisYear = confirm(`選択された [ ${targetM}月 ] は今月（${currentYear}年${targetM}月）の登録でよろしいですか？\n\n・[ OK ] ➔ 今月（${currentYear}年${targetM}月）\n・[ キャンセル ] ➔ 1年後（${currentYear + 1}年${targetM}月）`);
+                                    if (!isThisYear) {
+                                        targetYear = currentYear + 1;
+                                    }
+                                }
+
+                                const formattedMonth = String(targetM).padStart(2, '0');
+                                txtWorkDate.value = `${targetYear}/${formattedMonth}/01`;
                                 if (typeof txtWorkDate.onchange === 'function') txtWorkDate.onchange();
 
                                 console.log(`📝 清掃予定を入力しました: 日付指定 ➔ ${txtWorkDate.value}`);
@@ -542,11 +558,11 @@ function setupDialogHook(setUpCode, inputEl) {
                             }
                         }
 
-                        // 🌟 汚泥量の判定を厳格化（有効な数値である場合のみ実績ルートへ）
+                        // 汚泥量の判定を厳格化（有効な数値である場合のみ実績ルートへ）
                         const hasValidVolume = cleanVolume && !isNaN(parseFloat(cleanVolume)) && parseFloat(cleanVolume) > 0;
 
                         // -------------------------------------------------------------
-                        // 🔀 2. 完全分離された分岐処理（ゆっくりテスト表示付き！）
+                        // 🔀 2. 完全分離された分岐処理
                         // -------------------------------------------------------------
                         if (hasValidVolume) {
                             // 【ルート1：清掃実績の自動登録 (clean.asp)】

@@ -230,7 +230,7 @@ async function fetchCleanNumberFromList(setUpCode) {
 }
 
 /**
- * 隠し iframe 内で「清掃入力画面 (clean.asp)」を開き、静かにフォーム送信を完走させる関数
+ * 隠し iframe 内で「清掃入力画面 (clean.asp)」を開き、静かにフォーム送信を完走させる関数（ASP読み込み完了待機版）
  */
 async function processCleanRegistration(cleanNum, cleanVolume) {
     return new Promise((resolve) => {
@@ -281,21 +281,29 @@ async function processCleanRegistration(cleanNum, cleanVolume) {
                             const yesBtn = Array.from(iDoc.querySelectorAll('input[type="button"], button, a'))
                                 .find(el => el.value === 'はい' || el.textContent.trim() === 'はい' || el.getAttribute('onclick')?.includes('submitForm_Yes'));
 
-                            if (yesBtn) {
-                                console.log("🎯 「はい」ボタンを裏で自動クリック！ 清掃登録完了！");
-                                yesBtn.click();
+                            const triggerSubmitAndWait = () => {
                                 clearInterval(timer);
-                                if (document.body.contains(iframe)) document.body.removeChild(iframe);
-                                resolve(true);
-                                return;
-                            }
+                                // 🌟 ASPサーバーのレスポンス（読み込み完了）を直接監視するPromise
+                                new Promise((res) => {
+                                    iframe.onload = () => {
+                                        console.log("🎯 ASPサーバーからの処理完了レスポンスを受信しました！");
+                                        res();
+                                    };
 
-                            if (typeof iWin.submitForm_Yes === 'function') {
-                                console.log("🎯 submitForm_Yes() を裏で実行して登録完了！");
-                                iWin.submitForm_Yes();
-                                clearInterval(timer);
-                                if (document.body.contains(iframe)) document.body.removeChild(iframe);
-                                resolve(true);
+                                    if (yesBtn) {
+                                        yesBtn.click();
+                                    } else if (typeof iWin.submitForm_Yes === 'function') {
+                                        iWin.submitForm_Yes();
+                                    }
+                                }).then(() => {
+                                    if (document.body.contains(iframe)) document.body.removeChild(iframe);
+                                    resolve(true);
+                                });
+                            };
+
+                            if (yesBtn || typeof iWin.submitForm_Yes === 'function') {
+                                console.log("🎯 「はい」を実行し、ASPサーバーのPOST応答を待機します...");
+                                triggerSubmitAndWait();
                                 return;
                             }
                         }
@@ -320,7 +328,7 @@ async function processCleanRegistration(cleanNum, cleanVolume) {
 }
 
 /**
- * 🌟 清掃予定（cleanPlan.asp）を裏で自動POSTする関数
+ * 🌟 清掃予定（cleanPlan.asp）を裏で自動POSTする関数（ASP読み込み完了待機版）
  */
 async function triggerCleanPlanAutoSubmit(setUpCode, targetMonth) {
     return new Promise((resolve) => {
@@ -394,24 +402,32 @@ async function triggerCleanPlanAutoSubmit(setUpCode, targetMonth) {
                         }
 
                         if (Step === 1) {
-                            if (typeof iWin.submitForm_Yes === 'function') {
+                            const yesBtn = iDoc.querySelector('input[onclick*="submitForm_Yes"]');
+                            
+                            const triggerPlanSubmitAndWait = () => {
                                 Step = 2;
-                                console.log("🎯 裏画面の submitForm_Yes() を実行して最終登録！");
-                                iWin.submitForm_Yes();
-                            } else {
-                                const yesBtn = iDoc.querySelector('input[onclick*="submitForm_Yes"]');
-                                if (yesBtn) {
-                                    Step = 2;
-                                    console.log("🎯 裏画面の「はい」ボタンをクリックして最終登録！");
-                                    yesBtn.click();
-                                }
-                            }
-
-                            if (Step === 2) {
                                 clearInterval(checkTimer);
-                                console.log("✅ 清掃予定の裏登録が正常完了しました！");
-                                if (document.body.contains(iframe)) document.body.removeChild(iframe);
-                                resolve({ success: true, targetDate: registeredDateStr });
+                                // 🌟 ASPサーバーのレスポンス（読み込み完了）を直接監視するPromise
+                                new Promise((res) => {
+                                    iframe.onload = () => {
+                                        console.log("✅ 清掃予定の裏登録（ASPレスポンス）が正常完了しました！");
+                                        res();
+                                    };
+
+                                    if (typeof iWin.submitForm_Yes === 'function') {
+                                        iWin.submitForm_Yes();
+                                    } else if (yesBtn) {
+                                        yesBtn.click();
+                                    }
+                                }).then(() => {
+                                    if (document.body.contains(iframe)) document.body.removeChild(iframe);
+                                    resolve({ success: true, targetDate: registeredDateStr });
+                                });
+                            };
+
+                            if (typeof iWin.submitForm_Yes === 'function' || yesBtn) {
+                                console.log("🎯 清掃予定の「はい」を実行し、ASPのPOST応答を待機します...");
+                                triggerPlanSubmitAndWait();
                                 return;
                             }
                         }
@@ -534,7 +550,7 @@ function setupDialogHook(setUpCode, inputEl) {
                         const hasValidVolume = cleanVolume && !isNaN(parseFloat(cleanVolume)) && parseFloat(cleanVolume) > 0;
 
                         // -------------------------------------------------------------
-                        // 🔀 2. 分岐処理（完全ウェイトレス＆ノー表示）
+                        // 🔀 2. 分岐処理（ASP応答を完全待機）
                         // -------------------------------------------------------------
                         if (hasValidVolume) {
                             // 【ルート1：清掃実績の自動登録 (clean.asp)】
@@ -578,7 +594,7 @@ function setupDialogHook(setUpCode, inputEl) {
                             sessionStorage.removeItem('clean_plan_autolink_target');
                         }
 
-                        // 📝 3. 本来の点検票書き込み処理をノーウェイトで即実行
+                        // 📝 3. 裏画面のASP応答が完了した直後に、本表の点検票送信を実行
                         if (originalOnClickStr) {
                             try {
                                 new Function(originalOnClickStr)();

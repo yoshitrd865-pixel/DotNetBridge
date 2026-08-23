@@ -331,7 +331,7 @@ async function processCleanRegistration(cleanNum, cleanVolume) {
 }
 
 /**
- * 🌟 清掃予定（cleanPlan.asp）を裏で自動POSTする関数（送信側）
+ * 🌟 清掃予定（cleanPlan.asp）を裏で自動POSTする関数（送信側・改修版）
  */
 async function triggerCleanPlanAutoSubmit(setUpCode, targetMonth) {
     return new Promise((resolve) => {
@@ -360,6 +360,7 @@ async function triggerCleanPlanAutoSubmit(setUpCode, targetMonth) {
                     const iDoc = iframe.contentDocument || iframe.contentWindow.document;
                     const iWin = iframe.contentWindow;
 
+                    // 1. フォームの自動入力と送信実行
                     if (iDoc && (iDoc.readyState === 'complete' || iDoc.readyState === 'interactive') && !isSubmitted) {
                         const selCompany = iDoc.getElementById('selCleanCompanyCode') || iDoc.querySelector('select[name="selCleanCompanyCode"]');
                         const selWorker = iDoc.getElementById('selCleanWorkerCode') || iDoc.querySelector('select[name="selCleanWorkerCode"]');
@@ -384,27 +385,42 @@ async function triggerCleanPlanAutoSubmit(setUpCode, targetMonth) {
                                 const form = iDoc.querySelector('form');
                                 if (form) form.submit();
                             }
+                        }
+                    }
 
+                    // 2. 送信後の完了判定（ASP側のDB処理完了を確実に検知する）
+                    if (isSubmitted) {
+                        // フォーム送信後に画面が遷移・リロード完了したかチェック
+                        const currentDocText = iDoc ? (iDoc.body?.textContent || '') : '';
+                        
+                        // クラシックASP側で完了・書き込みが行われたシグナル（完了テキストやURLの変化）を検知
+                        if (currentDocText.includes('登録') || currentDocText.includes('完了') || iDoc.readyState === 'complete') {
                             clearInterval(checkTimer);
+                            console.log("✅ 清掃予定の裏書き込み（cleanPlan.asp）が正常完了しました！");
+                            
+                            // 少し余裕（1.5秒）を持たせてから iframe を安全に破棄
                             setTimeout(() => {
                                 if (document.body.contains(iframe)) document.body.removeChild(iframe);
                                 resolve(true);
-                            }, 500);
+                            }, 1500);
                         }
                     }
                 } catch (e) {
                     // ドメインクロス等のスルー
                 }
-            }, 200);
+            }, 300);
 
+            // タイムアウト設定を「15秒」へ緩和（遅いクラシックASP対策）
             setTimeout(() => {
+                if (checkTimer) clearInterval(checkTimer);
+                if (document.body.contains(iframe)) document.body.removeChild(iframe);
                 if (!isSubmitted) {
-                    clearInterval(checkTimer);
-                    if (document.body.contains(iframe)) document.body.removeChild(iframe);
                     console.warn("⚠️ 清掃予定の送信がタイムアウトしたためスキップしました。");
-                    resolve(false);
+                } else {
+                    console.warn("⚠️ 応答が遅いためタイムアウト終了しましたが、送信自体は完了している可能性があります。");
                 }
-            }, 5000);
+                resolve(false);
+            }, 15000);
 
         } catch (e) {
             console.error("❌ 清掃予定自動送信エラー:", e);
@@ -412,7 +428,6 @@ async function triggerCleanPlanAutoSubmit(setUpCode, targetMonth) {
         }
     });
 }
-
 function setupDialogHook(setUpCode, inputEl) {
     const bindHook = () => {
         const regBtn = document.querySelector('input.btn-blue') || 

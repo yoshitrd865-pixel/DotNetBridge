@@ -531,21 +531,24 @@ function setupDialogHook(setUpCode, inputEl) {
 
                         const monthInput = document.getElementById('selCleanMonth') || document.querySelector('input[name="selCleanMonth"], select[name="selCleanMonth"]');
         
-        let targetMonth = monthInput ? monthInput.value : '';
-        if (!targetMonth) {
-            const activeBtn = document.querySelector('.btn-clean-m[style*="rgb(2, 132, 199)"], .btn-clean-m[style*="#0284c7"]') 
-                           || document.querySelector('#clean-month-picker-inline .btn-clean-m.active')
-                           || document.querySelector('.btn-month.active');
-            
-            if (activeBtn) {
-                targetMonth = activeBtn.getAttribute('data-month') || activeBtn.textContent.replace('月', '').trim();
-            }
-        }
+                        let targetMonth = monthInput ? monthInput.value : '';
+                        if (!targetMonth) {
+                            const activeBtn = document.querySelector('.btn-clean-m[style*="rgb(2, 132, 199)"], .btn-clean-m[style*="#0284c7"]') 
+                                           || document.querySelector('#clean-month-picker-inline .btn-clean-m.active')
+                                           || document.querySelector('.btn-month.active');
+                            
+                            if (activeBtn) {
+                                targetMonth = activeBtn.getAttribute('data-month') || activeBtn.textContent.replace('月', '').trim();
+                            }
+                        }
+
+                        // 🌟 汚泥量の判定を厳格化（有効な数値である場合のみ実績ルートへ）
+                        const hasValidVolume = cleanVolume && !isNaN(parseFloat(cleanVolume)) && parseFloat(cleanVolume) > 0;
 
                         // -------------------------------------------------------------
                         // 🔀 2. 完全分離された分岐処理（ゆっくりテスト表示付き！）
                         // -------------------------------------------------------------
-                        if (cleanVolume) {
+                        if (hasValidVolume) {
                             // 【ルート1：清掃実績の自動登録 (clean.asp)】
                             showStatusToast(`🔍 [ステップ 1/3]<br>顧客ID [${setUpCode}] の未清掃データを検索中...`, '#0284c7');
                             await sleep(1500);

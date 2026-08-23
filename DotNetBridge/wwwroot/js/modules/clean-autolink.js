@@ -331,7 +331,7 @@ async function processCleanRegistration(cleanNum, cleanVolume) {
 }
 
 /**
- * 🌟 清掃予定（cleanPlan.asp）を裏で自動POSTする関数（送信側・改修版）
+ * 🌟 清掃予定（cleanPlan.asp）を裏で自動POSTする関数（DOM完全対応・確定版）
  */
 async function triggerCleanPlanAutoSubmit(setUpCode, targetMonth) {
     return new Promise((resolve) => {
@@ -341,93 +341,108 @@ async function triggerCleanPlanAutoSubmit(setUpCode, targetMonth) {
             const workMethodCode = urlParams.get('WorkMethodCode') || '1';
             const setUpHistoryCode = urlParams.get('SetUpHistoryCode') || '1';
 
-            if (!checkNumber) {
-                console.warn("⚠️ CheckNumber が見つからないため清掃予定の送信をスキップしました。");
-                return resolve(false);
-            }
+            if (!checkNumber) return resolve(false);
 
-            console.log(`🚀 裏で清掃予定入力(cleanPlan.asp)の自動登録を開始します... (対象月: ${targetMonth}月)`);
+            console.log(`🚀 裏で cleanPlan.asp の自動登録を開始... (SetUpCode: ${setUpCode}, 対象月: ${targetMonth}月)`);
 
             const iframe = document.createElement('iframe');
             iframe.style.display = 'none';
             iframe.src = `/cleanPlan.asp?CheckNumber=${checkNumber}&WorkMethodCode=${workMethodCode}&SetUpCode=${setUpCode}&SetUpHistoryCode=${setUpHistoryCode}`;
             document.body.appendChild(iframe);
 
-            let isSubmitted = false;
+            let Step = 0; // 0:未処理, 1:フォーム入力&登録押し, 2:「はい」押し完了
+            let checkCount = 0;
 
             const checkTimer = setInterval(() => {
+                checkCount++;
                 try {
                     const iDoc = iframe.contentDocument || iframe.contentWindow.document;
                     const iWin = iframe.contentWindow;
 
-                    // 1. フォームの自動入力と送信実行
-                    if (iDoc && (iDoc.readyState === 'complete' || iDoc.readyState === 'interactive') && !isSubmitted) {
-                        const selCompany = iDoc.getElementById('selCleanCompanyCode') || iDoc.querySelector('select[name="selCleanCompanyCode"]');
-                        const selWorker = iDoc.getElementById('selCleanWorkerCode') || iDoc.querySelector('select[name="selCleanWorkerCode"]');
-                        const selMonth = iDoc.getElementById('selCleanMonth') || iDoc.querySelector('select[name="selCleanMonth"]');
+                    if (iDoc && (iDoc.readyState === 'complete' || iDoc.readyState === 'interactive')) {
+                        
+                        // -------------------------------------------------------------
+                        // 【ステップ1】 フォームの入力と「登録」ボタン押下
+                        // -------------------------------------------------------------
+                        if (Step === 0) {
+                            const selWorkDay = iDoc.getElementById('selWorkDay');
+                            const txtWorkDate = iDoc.getElementById('txtWorkDate');
 
-                        if (selCompany && selMonth) {
-                            isSubmitted = true;
+                            if (selWorkDay && txtWorkDate) {
+                                Step = 1;
+                                
+                                // 1. 「日付指定 (value='2')」に変更
+                                selWorkDay.value = '2';
+                                if (typeof selWorkDay.onchange === 'function') selWorkDay.onchange();
 
-                            if (selCompany.options.length > 1 && !selCompany.value) selCompany.selectedIndex = 1;
-                            if (selWorker && selWorker.options.length > 1 && !selWorker.value) selWorker.selectedIndex = 1;
+                                // 2. 日付文字列を作成して注入 (例: 2026/09/01)
+                                const currentYear = new Date().getFullYear();
+                                const formattedMonth = String(targetMonth).padStart(2, '0');
+                                txtWorkDate.value = `${currentYear}/${formattedMonth}/01`;
+                                if (typeof txtWorkDate.onchange === 'function') txtWorkDate.onchange();
 
-                            if (targetMonth) {
-                                const opt = Array.from(selMonth.options).find(o => o.value == targetMonth || o.text.includes(`${targetMonth}月`));
-                                if (opt) selMonth.value = opt.value;
-                            }
+                                console.log(`📝 清掃予定を入力しました: 日付指定 ➔ ${txtWorkDate.value}`);
 
-                            console.log("📝 清掃予定フォームの自動入力完了。送信実行します...");
-
-                            if (typeof iWin.chkWrite === 'function') {
-                                iWin.chkWrite();
-                            } else {
-                                const form = iDoc.querySelector('form');
-                                if (form) form.submit();
+                                // 3. 「登録」の実行（確認ダイアログの表示）
+                                if (typeof iWin.submitForm === 'function') {
+                                    iWin.submitForm();
+                                } else {
+                                    const regBtn = iDoc.querySelector('input[onclick*="submitForm"]');
+                                    if (regBtn) regBtn.click();
+                                }
+                                return;
                             }
                         }
-                    }
 
-                    // 2. 送信後の完了判定（ASP側のDB処理完了を確実に検知する）
-                    if (isSubmitted) {
-                        // フォーム送信後に画面が遷移・リロード完了したかチェック
-                        const currentDocText = iDoc ? (iDoc.body?.textContent || '') : '';
-                        
-                        // クラシックASP側で完了・書き込みが行われたシグナル（完了テキストやURLの変化）を検知
-                        if (currentDocText.includes('登録') || currentDocText.includes('完了') || iDoc.readyState === 'complete') {
-                            clearInterval(checkTimer);
-                            console.log("✅ 清掃予定の裏書き込み（cleanPlan.asp）が正常完了しました！");
-                            
-                            // 少し余裕（1.5秒）を持たせてから iframe を安全に破棄
-                            setTimeout(() => {
-                                if (document.body.contains(iframe)) document.body.removeChild(iframe);
-                                resolve(true);
-                            }, 1500);
+                        // -------------------------------------------------------------
+                        // 【ステップ2】 確認ダイアログの「はい」を押して最終送信
+                        // -------------------------------------------------------------
+                        if (Step === 1) {
+                            // 関数直接実行か、「はい」ボタンクリックを試みる
+                            if (typeof iWin.submitForm_Yes === 'function') {
+                                Step = 2;
+                                console.log("🎯 裏画面の submitForm_Yes() を実行して最終登録！");
+                                iWin.submitForm_Yes();
+                            } else {
+                                const yesBtn = iDoc.querySelector('input[onclick*="submitForm_Yes"]');
+                                if (yesBtn) {
+                                    Step = 2;
+                                    console.log("🎯 裏画面の「はい」ボタンをクリックして最終登録！");
+                                    yesBtn.click();
+                                }
+                            }
+
+                            if (Step === 2) {
+                                clearInterval(checkTimer);
+                                console.log("✅ 清掃予定の裏登録が正常完了しました！");
+                                setTimeout(() => {
+                                    if (document.body.contains(iframe)) document.body.removeChild(iframe);
+                                    resolve(true);
+                                }, 1200);
+                                return;
+                            }
                         }
                     }
                 } catch (e) {
-                    // ドメインクロス等のスルー
+                    // スルー
                 }
-            }, 300);
 
-            // タイムアウト設定を「15秒」へ緩和（遅いクラシックASP対策）
-            setTimeout(() => {
-                if (checkTimer) clearInterval(checkTimer);
-                if (document.body.contains(iframe)) document.body.removeChild(iframe);
-                if (!isSubmitted) {
-                    console.warn("⚠️ 清掃予定の送信がタイムアウトしたためスキップしました。");
-                } else {
-                    console.warn("⚠️ 応答が遅いためタイムアウト終了しましたが、送信自体は完了している可能性があります。");
+                // 10秒タイムアウト保護
+                if (checkCount > 50) {
+                    clearInterval(checkTimer);
+                    if (document.body.contains(iframe)) document.body.removeChild(iframe);
+                    console.warn("⚠️ 清掃予定の自動登録がタイムアウトしました。");
+                    resolve(false);
                 }
-                resolve(false);
-            }, 15000);
+            }, 200);
 
         } catch (e) {
-            console.error("❌ 清掃予定自動送信エラー:", e);
+            console.error("❌ 送信エラー:", e);
             resolve(false);
         }
     });
 }
+
 function setupDialogHook(setUpCode, inputEl) {
     const bindHook = () => {
         const regBtn = document.querySelector('input.btn-blue') || 

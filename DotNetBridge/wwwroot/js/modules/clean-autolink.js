@@ -125,12 +125,12 @@ function hideStatusToast() {
 }
 
 /**
- * 隠し iframe で「未清掃」POST検索を実行し、指定された SetUpCode と完全一致する CleanNumber と顧客名を抜く関数
+ * 隠し iframe で「未清掃」POST検索を実行し、指定された SetUpCode と一致する CleanNumber を抜く関数（DOM構造完全合致版）
  */
 async function fetchCleanNumberFromList(setUpCode) {
     return new Promise((resolve) => {
         try {
-            console.log(`🔍 バックグラウンドで 顧客ID [${setUpCode}] の「未清掃」枠を検索中 (当月➔先月➔来月)...`);
+            console.log(`🔍 バックグラウンドで 顧客ID [${setUpCode}] の「未清掃」枠を検索中...`);
 
             const old = document.getElementById('clean-autolink-iframe');
             if (old) old.remove();
@@ -141,7 +141,7 @@ async function fetchCleanNumberFromList(setUpCode) {
             iframe.src = '/listClean.asp';
             document.body.appendChild(iframe);
 
-            const searchRanges = ["0", "-1", "1"];
+            const searchRanges = ["0", "-1", "1"]; // 当月 ➔ 先月 ➔ 来月
             let rangeIndex = 0;
             let isWaitingForPost = false;
             let checkCount = 0;
@@ -152,68 +152,71 @@ async function fetchCleanNumberFromList(setUpCode) {
                     const iDoc = iframe.contentDocument || iframe.contentWindow.document;
                     const iWin = iframe.contentWindow;
 
-                    if (iDoc && iDoc.readyState === 'complete') {
+                    if (iDoc && (iDoc.readyState === 'complete' || iDoc.readyState === 'interactive')) {
                         const txtSearch = iDoc.getElementById('txtSearchWord') || iDoc.querySelector('input[type="text"]');
                         const selDate = iDoc.getElementById('selDateRange');
-                        
-                        const selects = Array.from(iDoc.querySelectorAll('select'));
-                        const selStatus = selects.find(s => Array.from(s.options).some(o => o.text.includes('未清掃')));
+                        const selStatus = iDoc.getElementById('selSwitchCheck') || iDoc.querySelector('select[name="selSwitchCheck"]');
 
-                        if (!isWaitingForPost && txtSearch && selDate && selStatus) {
+                        // 1. 検索条件のセットと実行
+                        if (!isWaitingForPost && (txtSearch || selStatus)) {
                             isWaitingForPost = true;
 
-                            const targetRange = searchRanges[rangeIndex];
-                            const uncleanedOpt = Array.from(selStatus.options).find(o => o.text.includes('未清掃'));
-                            if (uncleanedOpt) selStatus.value = uncleanedOpt.value;
+                            // 「未清掃 (value="0")」を強制選択
+                            if (selStatus) {
+                                selStatus.value = '0';
+                                if (typeof selStatus.onchange === 'function') selStatus.onchange();
+                            }
 
-                            selDate.value = targetRange;
-                            txtSearch.value = setUpCode;
+                            if (selDate) selDate.value = searchRanges[rangeIndex];
+                            if (txtSearch) txtSearch.value = setUpCode;
 
-                            if (typeof selStatus.onchange === 'function') selStatus.onchange();
-                            if (typeof iWin.readList === 'function') iWin.readList();
+                            console.log(`🔎 一覧検索を実行中 (期間: ${searchRanges[rangeIndex]}, ID: ${setUpCode})...`);
+
+                            if (typeof iWin.readList === 'function') {
+                                iWin.readList();
+                            } else {
+                                const btnSearch = iDoc.querySelector('input[value*="検索"], button[onclick*="readList"]');
+                                if (btnSearch) btnSearch.click();
+                            }
                             return;
                         }
 
-                        if (isWaitingForPost) {
-                            const taskItems = Array.from(iDoc.querySelectorAll('.taskItem, div[class*="taskItem"]'));
-                            
+                        // 2. 実際の DOM (.taskItem) から CleanNumber=572 を抽出
+                        if (isWaitingForPost && checkCount > 2) {
+                            const taskItems = Array.from(iDoc.querySelectorAll('.taskItem'));
+
+                            // 顧客ID (1917) を含むカード項目を特定
                             const targetItem = taskItems.find(item => {
-                                const itemText = item.textContent || item.innerText || '';
-                                return itemText.includes(setUpCode);
+                                const jksNumEl = item.querySelector('.jksNum');
+                                const txt = jksNumEl ? jksNumEl.textContent : item.textContent;
+                                return txt.includes(setUpCode);
                             });
 
                             if (targetItem) {
-                                const card = targetItem.querySelector('.link-area, [onclick*="CleanNumber"], a[href*="CleanNumber"]') || targetItem;
-                                const targetAttr = card.getAttribute('onclick') || card.getAttribute('href') || targetItem.innerHTML || '';
-                                const match = targetAttr.match(/CleanNumber=(\d+)/i) || targetAttr.match(/goTo\([^\)]*['"]?(\d+)['"]?[^\)]*\)/);
+                                // href="menuClean.asp?CleanNumber=572" から番号を抽出
+                                const linkEl = targetItem.querySelector('a.link-area, a[href*="CleanNumber"]');
+                                const href = linkEl ? linkEl.getAttribute('href') : '';
+                                const match = href.match(/CleanNumber=(\d+)/i);
 
                                 if (match && match[1]) {
                                     const cleanNum = match[1];
-                                    
-                                    const fullText = (targetItem.textContent || '').replace(/\s+/g, ' ').trim();
-                                    let customerName = '';
-                                    const nameMatch = fullText.match(new RegExp(`${setUpCode}\\s*([^0-9\\-]+)`));
-                                    if (nameMatch && nameMatch[1]) {
-                                        customerName = nameMatch[1].trim().split(' ')[0];
-                                    }
-
-                                    console.log(`✨【一致成功】 浄化槽番号 [${setUpCode}] (${customerName}) の CleanNumber 【 ${cleanNum} 】 を抽出しました！`);
+                                    console.log(`✨【見つかりました！】 顧客ID [${setUpCode}] の CleanNumber 【 ${cleanNum} 】 を抽出完了！`);
                                     clearInterval(checkTimer);
                                     if (document.body.contains(iframe)) document.body.removeChild(iframe);
                                     
                                     resolve({
                                         cleanNum: cleanNum,
-                                        customerName: customerName
+                                        customerName: ''
                                     });
                                     return;
                                 }
-                            } else if (taskItems.length > 0 && checkCount > 15) {
-                                console.warn(`⚠️ 一覧に顧客ID [${setUpCode}] が見つかりません。別の月範囲を検索します...`);
+                            }
+
+                            // 見つからない場合は期間を切り替えて再検索
+                            if (checkCount % 15 === 0 && rangeIndex < searchRanges.length - 1) {
                                 rangeIndex++;
-                                if (rangeIndex < searchRanges.length) {
-                                    isWaitingForPost = false;
-                                    return;
-                                }
+                                isWaitingForPost = false;
+                                console.warn(`⚠️ 範囲内にないため、次の検索範囲 (${searchRanges[rangeIndex]}) へ切り替えます...`);
                             }
                         }
                     }
@@ -221,8 +224,8 @@ async function fetchCleanNumberFromList(setUpCode) {
                     // スルー
                 }
 
-                if (checkCount > 40) {
-                    console.warn(`⚠️ 顧客ID [${setUpCode}] の「未清掃」枠は見つかりませんでした。`);
+                if (checkCount > 45) {
+                    console.warn(`⚠️ 顧客ID [${setUpCode}] の「未清掃」枠が見つかりませんでした。`);
                     clearInterval(checkTimer);
                     if (document.body.contains(iframe)) document.body.removeChild(iframe);
                     resolve(null);
@@ -230,7 +233,7 @@ async function fetchCleanNumberFromList(setUpCode) {
             }, 200);
 
         } catch (e) {
-            console.error("❌ バックグラウンド処理エラー:", e);
+            console.error("❌ 一覧検索エラー:", e);
             resolve(null);
         }
     });

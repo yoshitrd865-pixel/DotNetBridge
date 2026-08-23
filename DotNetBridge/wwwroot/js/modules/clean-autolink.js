@@ -125,7 +125,7 @@ function hideStatusToast() {
 }
 
 /**
- * 隠し iframe で「未清掃」POST検索を実行し、指定された SetUpCode と一致する CleanNumber を抜く関数（入力リセット＆全期間検索対応版）
+ * 隠し iframe で「未清掃」POST検索を実行し、指定された SetUpCode と一致する CleanNumber と顧客名を抜く関数
  */
 async function fetchCleanNumberFromList(setUpCode) {
     return new Promise((resolve) => {
@@ -159,13 +159,11 @@ async function fetchCleanNumberFromList(setUpCode) {
                         if (!isWaitingForPost && (txtSearch || selStatus)) {
                             isWaitingForPost = true;
 
-                            // 「未清掃 (value="0")」を強制選択
                             if (selStatus) {
                                 selStatus.value = '0';
                                 if (typeof selStatus.onchange === 'function') selStatus.onchange();
                             }
 
-                            // 📅 日付範囲を最も広い範囲（「以降」「全」含むオプション）に変更
                             if (selDate) {
                                 const options = Array.from(selDate.options);
                                 const broadOpt = options.find(o => o.text.includes('以降') || o.text.includes('全') || o.text.includes('すべて')) || options[options.length - 1];
@@ -175,7 +173,6 @@ async function fetchCleanNumberFromList(setUpCode) {
                                 if (typeof selDate.onchange === 'function') selDate.onchange();
                             }
 
-                            // 🧹 検索窓の残留テキスト（名前等）を一度完全にクリアしてから ID のみをセット
                             if (txtSearch) {
                                 txtSearch.value = '';
                                 txtSearch.value = setUpCode;
@@ -192,11 +189,10 @@ async function fetchCleanNumberFromList(setUpCode) {
                             return;
                         }
 
-                        // 2. 実際の DOM (.taskItem) から CleanNumber を抽出
+                        // 2. 実際の DOM (.taskItem) から CleanNumber と 顧客名 を抽出
                         if (isWaitingForPost && checkCount > 2) {
                             const taskItems = Array.from(iDoc.querySelectorAll('.taskItem'));
 
-                            // 顧客ID (1917) を含むカード項目を特定
                             const targetItem = taskItems.find(item => {
                                 const jksNumEl = item.querySelector('.jksNum');
                                 const txt = jksNumEl ? jksNumEl.textContent : item.textContent;
@@ -204,20 +200,24 @@ async function fetchCleanNumberFromList(setUpCode) {
                             });
 
                             if (targetItem) {
-                                // href="menuClean.asp?CleanNumber=572" から番号を抽出
                                 const linkEl = targetItem.querySelector('a.link-area, a[href*="CleanNumber"]');
                                 const href = linkEl ? linkEl.getAttribute('href') : '';
                                 const match = href.match(/CleanNumber=(\d+)/i);
 
+                                // 顧客名の取得（カード内のテキストから抽出）
+                                const fullTxt = (targetItem.textContent || '').replace(/\s+/g, ' ').trim();
+                                const nameMatch = fullTxt.match(/([一-龠ぁ-んァ-ヶa-zA-Z\s]+?)(?=\s*\+付箋|\s*\d{4}\/|\s*\d{3,})/);
+                                const extractedName = nameMatch ? nameMatch[1].replace(setUpCode, '').trim() : '';
+
                                 if (match && match[1]) {
                                     const cleanNum = match[1];
-                                    console.log(`✨【見つかりました！】 顧客ID [${setUpCode}] の CleanNumber 【 ${cleanNum} 】 を抽出完了！`);
+                                    console.log(`✨【見つかりました！】 顧客ID [${setUpCode}] の CleanNumber 【 ${cleanNum} 】 (顧客名: ${extractedName}) を抽出完了！`);
                                     clearInterval(checkTimer);
                                     if (document.body.contains(iframe)) document.body.removeChild(iframe);
                                     
                                     resolve({
                                         cleanNum: cleanNum,
-                                        customerName: ''
+                                        customerName: extractedName
                                     });
                                     return;
                                 }
@@ -338,7 +338,7 @@ async function processCleanRegistration(cleanNum, cleanVolume) {
 }
 
 /**
- * 🌟 清掃予定（cleanPlan.asp）を裏で自動POSTする関数（未来日・同月確認ダイアログ追加版）
+ * 🌟 清掃予定（cleanPlan.asp）を裏で自動POSTする関数（登録日付オブジェクトを返却する版）
  */
 async function triggerCleanPlanAutoSubmit(setUpCode, targetMonth) {
     return new Promise((resolve) => {
@@ -348,7 +348,7 @@ async function triggerCleanPlanAutoSubmit(setUpCode, targetMonth) {
             const workMethodCode = urlParams.get('WorkMethodCode') || '1';
             const setUpHistoryCode = urlParams.get('SetUpHistoryCode') || '1';
 
-            if (!checkNumber) return resolve(false);
+            if (!checkNumber) return resolve(null);
 
             console.log(`🚀 裏で cleanPlan.asp の自動登録を開始... (SetUpCode: ${setUpCode}, 対象月: ${targetMonth}月)`);
 
@@ -359,6 +359,7 @@ async function triggerCleanPlanAutoSubmit(setUpCode, targetMonth) {
 
             let Step = 0; // 0:未処理, 1:フォーム入力&登録押し, 2:「はい」押し完了
             let checkCount = 0;
+            let registeredDateStr = '';
 
             const checkTimer = setInterval(() => {
                 checkCount++;
@@ -368,9 +369,7 @@ async function triggerCleanPlanAutoSubmit(setUpCode, targetMonth) {
 
                     if (iDoc && (iDoc.readyState === 'complete' || iDoc.readyState === 'interactive')) {
                         
-                        // -------------------------------------------------------------
                         // 【ステップ1】 フォームの入力と「登録」ボタン押下
-                        // -------------------------------------------------------------
                         if (Step === 0) {
                             const selWorkDay = iDoc.getElementById('selWorkDay');
                             const txtWorkDate = iDoc.getElementById('txtWorkDate');
@@ -378,11 +377,9 @@ async function triggerCleanPlanAutoSubmit(setUpCode, targetMonth) {
                             if (selWorkDay && txtWorkDate) {
                                 Step = 1;
                                 
-                                // 1. 「日付指定 (value='2')」に変更
                                 selWorkDay.value = '2';
                                 if (typeof selWorkDay.onchange === 'function') selWorkDay.onchange();
 
-                                // 2. 未来年の判定ロジック
                                 const now = new Date();
                                 const currentYear = now.getFullYear();
                                 const currentMonth = now.getMonth() + 1;
@@ -399,12 +396,12 @@ async function triggerCleanPlanAutoSubmit(setUpCode, targetMonth) {
                                 }
 
                                 const formattedMonth = String(targetM).padStart(2, '0');
-                                txtWorkDate.value = `${targetYear}/${formattedMonth}/01`;
+                                registeredDateStr = `${targetYear}/${formattedMonth}/01`;
+                                txtWorkDate.value = registeredDateStr;
                                 if (typeof txtWorkDate.onchange === 'function') txtWorkDate.onchange();
 
                                 console.log(`📝 清掃予定を入力しました: 日付指定 ➔ ${txtWorkDate.value}`);
 
-                                // 3. 「登録」の実行（確認ダイアログの表示）
                                 if (typeof iWin.submitForm === 'function') {
                                     iWin.submitForm();
                                 } else {
@@ -415,9 +412,7 @@ async function triggerCleanPlanAutoSubmit(setUpCode, targetMonth) {
                             }
                         }
 
-                        // -------------------------------------------------------------
                         // 【ステップ2】 確認ダイアログの「はい」を押して最終送信
-                        // -------------------------------------------------------------
                         if (Step === 1) {
                             if (typeof iWin.submitForm_Yes === 'function') {
                                 Step = 2;
@@ -437,7 +432,7 @@ async function triggerCleanPlanAutoSubmit(setUpCode, targetMonth) {
                                 console.log("✅ 清掃予定の裏登録が正常完了しました！");
                                 setTimeout(() => {
                                     if (document.body.contains(iframe)) document.body.removeChild(iframe);
-                                    resolve(true);
+                                    resolve({ success: true, targetDate: registeredDateStr });
                                 }, 1200);
                                 return;
                             }
@@ -451,13 +446,13 @@ async function triggerCleanPlanAutoSubmit(setUpCode, targetMonth) {
                     clearInterval(checkTimer);
                     if (document.body.contains(iframe)) document.body.removeChild(iframe);
                     console.warn("⚠️ 清掃予定の自動登録がタイムアウトしました。");
-                    resolve(false);
+                    resolve(null);
                 }
             }, 200);
 
         } catch (e) {
             console.error("❌ 送信エラー:", e);
-            resolve(false);
+            resolve(null);
         }
     });
 }
@@ -535,6 +530,11 @@ function setupDialogHook(setUpCode, inputEl) {
                         yesBtn.disabled = true;
                         yesBtn.value = "処理中...";
 
+                        // 点検画面のDOMから顧客名を取得（見つからない場合は空文字）
+                        const pageCustomerNameEl = document.querySelector('.customer-name, #divCustomerName, .titleCustomer') || 
+                                                   Array.from(document.querySelectorAll('div, td, span')).find(el => el.children.length === 0 && (el.textContent.includes('柏木') || el.textContent.includes('様')));
+                        const pageCustomerName = pageCustomerNameEl ? pageCustomerNameEl.textContent.replace('様', '').trim() : '';
+
                         // -------------------------------------------------------------
                         // 🔍 1. 条件判定
                         // -------------------------------------------------------------
@@ -559,14 +559,13 @@ function setupDialogHook(setUpCode, inputEl) {
                         const hasValidVolume = cleanVolume && !isNaN(parseFloat(cleanVolume)) && parseFloat(cleanVolume) > 0;
 
                         // -------------------------------------------------------------
-                        // 🔀 2. 完全分離された分岐処理
+                        // 🔀 2. 分岐処理
                         // -------------------------------------------------------------
                         if (hasValidVolume) {
                             // 【ルート1：清掃実績の自動登録 (clean.asp)】
                             showStatusToast(`🔍 [ステップ 1/3]<br>顧客ID [${setUpCode}] の未清掃データを検索中...`, '#0284c7');
                             await sleep(1500);
 
-                            const noticeData = {};
                             const targetResult = await fetchCleanNumberFromList(setUpCode);
 
                             if (targetResult && targetResult.cleanNum) {
@@ -575,10 +574,11 @@ function setupDialogHook(setUpCode, inputEl) {
 
                                 const isSuccess = await processCleanRegistration(targetResult.cleanNum, cleanVolume);
                                 if (isSuccess) {
-                                    noticeData.cleanVolume = cleanVolume;
-                                    noticeData.setUpCode = setUpCode;
-                                    noticeData.cleanNum = targetResult.cleanNum;
-                                    noticeData.customerName = targetResult.customerName || '';
+                                    const noticeData = {
+                                        cleanVolume: cleanVolume,
+                                        setUpCode: setUpCode,
+                                        customerName: targetResult.customerName || pageCustomerName || ''
+                                    };
                                     sessionStorage.setItem('clean_autolink_target', JSON.stringify(noticeData));
 
                                     showStatusToast(`✅ [ステップ 3/3]<br>清掃実績の登録成功！点検票を送信中...`, '#16a34a');
@@ -598,9 +598,14 @@ function setupDialogHook(setUpCode, inputEl) {
                             showStatusToast(`📅 [ステップ 1/2]<br>次回清掃時期 (${targetMonth}月) の予約を自動登録中...`, '#0284c7');
                             await sleep(1500);
 
-                            const isPlanSuccess = await triggerCleanPlanAutoSubmit(setUpCode, targetMonth);
-                            if (isPlanSuccess) {
-                                const planNoticeData = { setUpCode: setUpCode, targetMonth: targetMonth };
+                            const planResult = await triggerCleanPlanAutoSubmit(setUpCode, targetMonth);
+                            if (planResult && planResult.success) {
+                                const planNoticeData = { 
+                                    setUpCode: setUpCode, 
+                                    targetMonth: targetMonth,
+                                    targetDate: planResult.targetDate || '',
+                                    customerName: pageCustomerName || ''
+                                };
                                 sessionStorage.setItem('clean_plan_autolink_target', JSON.stringify(planNoticeData));
 
                                 showStatusToast(`✅ [ステップ 2/2]<br>清掃予定の作成成功！点検票を送信中...`, '#16a34a');
@@ -619,9 +624,7 @@ function setupDialogHook(setUpCode, inputEl) {
 
                         hideStatusToast();
 
-                        // -------------------------------------------------------------
                         // 📝 3. 本来の点検票書き込み処理を実行
-                        // -------------------------------------------------------------
                         if (originalOnClickStr) {
                             try {
                                 new Function(originalOnClickStr)();
@@ -898,14 +901,51 @@ function updateMonthButtonsUI(activeMonth) {
 }
 
 /**
- * 🌟 完了画面で自動登録成功カード（清掃実績 ＆ 清掃予定）を表示する関数
+ * 🌟 完了画面で自動登録成功カード（清掃予定 ＆ 清掃実施）を表示する関数
  */
 function renderCompletionNotice() {
     try {
-        const checkNumEl = document.body;
-        if (!checkNumEl) return;
+        const currentPath = window.location.pathname.toLowerCase();
+        if (!currentPath.includes("writecheck.asp")) return;
 
-        // 1. 清掃実績（回収側）のカード表示チェック
+        // 1. 清掃予定（送信側）のカード表示
+        const rawPlanTarget = sessionStorage.getItem('clean_plan_autolink_target');
+        if (rawPlanTarget) {
+            const planData = JSON.parse(rawPlanTarget);
+            sessionStorage.removeItem('clean_plan_autolink_target');
+
+            const planBox = document.createElement('div');
+            planBox.style.cssText = `
+                margin: 15px auto;
+                padding: 14px 18px;
+                background: #eff6ff;
+                border: 1px solid #93c5fd;
+                border-radius: 12px;
+                max-width: 90%;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+                text-align: center;
+                font-family: sans-serif;
+            `;
+
+            const nameDisplay = planData.customerName ? `${planData.customerName} 様 ` : '';
+            const dateDisplay = planData.targetDate ? planData.targetDate : `${planData.targetMonth}月度`;
+
+            planBox.innerHTML = `
+                <div style="color: #1e40af; font-weight: bold; font-size: 15px; margin-bottom: 6px; display: flex; align-items: center; justify-content: center; gap: 6px;">
+                    <span>📅</span> 清掃予定を自動登録しました
+                </div>
+                <div style="color: #1e3a8a; font-size: 13px; font-weight: 600; margin-bottom: 4px;">
+                    ${nameDisplay}<span style="color: #475569; font-weight: normal;">(顧客ID: <strong>${planData.setUpCode || ''}</strong>)</span>
+                </div>
+                <div style="color: #0284c7; font-size: 13px; font-weight: bold; margin-top: 4px; padding-top: 4px; border-top: 1px dashed #cbd5e1;">
+                    予定日 : ${dateDisplay}
+                </div>
+            `;
+
+            insertNoticeBox(planBox);
+        }
+
+        // 2. 清掃実施（回収側）のカード表示
         const rawTarget = sessionStorage.getItem('clean_autolink_target');
         if (rawTarget) {
             const data = JSON.parse(rawTarget);
@@ -914,67 +954,49 @@ function renderCompletionNotice() {
             const box = document.createElement('div');
             box.style.cssText = `
                 margin: 15px auto;
-                padding: 12px 16px;
+                padding: 14px 18px;
                 background: #f0fdf4;
                 border: 1px solid #86efac;
-                border-radius: 10px;
+                border-radius: 12px;
                 max-width: 90%;
-                box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+                box-shadow: 0 4px 12px rgba(0,0,0,0.08);
                 text-align: center;
                 font-family: sans-serif;
             `;
+
+            const nameDisplay = data.customerName ? `${data.customerName} 様 ` : '';
+
             box.innerHTML = `
-                <div style="color: #166534; font-weight: bold; font-size: 14px; margin-bottom: 4px;">
-                    🧹 清掃実績を自動登録しました
+                <div style="color: #166534; font-weight: bold; font-size: 15px; margin-bottom: 6px; display: flex; align-items: center; justify-content: center; gap: 6px;">
+                    <span>🧹</span> 清掃実施を自動登録しました
                 </div>
-                <div style="color: #15803d; font-size: 12px;">
-                    浄化槽 : <strong>${data.setUpCode || ''}</strong> ${data.customerName ? `(${data.customerName})` : ''}
+                <div style="color: #14532d; font-size: 13px; font-weight: 600; margin-bottom: 4px;">
+                    ${nameDisplay}<span style="color: #475569; font-weight: normal;">(顧客ID: <strong>${data.setUpCode || ''}</strong>)</span>
                 </div>
-                <div style="color: #64748b; font-size: 11px; margin-top: 4px;">
-                    清掃予約 : <span style="color:#0284c7; font-weight:bold;">No.${data.cleanNum || ''}</span> ｜ 汚泥量 : <strong>${data.cleanVolume || ''}㎥</strong>
-                </div>
-            `;
-
-            const targetPos = document.querySelector('.title, h1, h2, div[style*="font-size"]') || document.body.firstChild;
-            if (targetPos && targetPos.parentNode) {
-                targetPos.parentNode.insertBefore(box, targetPos.nextSibling);
-            }
-        }
-
-        // 2. 清掃予定（送信側）のカード表示チェック
-        const rawPlanTarget = sessionStorage.getItem('clean_plan_autolink_target');
-        if (rawPlanTarget) {
-            const planData = JSON.parse(rawPlanTarget);
-            sessionStorage.removeItem('clean_plan_autolink_target');
-
-            const planBox = document.createElement('div');
-            planBox.style.cssText = `
-                margin: 10px auto;
-                padding: 12px 16px;
-                background: #eff6ff;
-                border: 1px solid #93c5fd;
-                border-radius: 10px;
-                max-width: 90%;
-                box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-                text-align: center;
-                font-family: sans-serif;
-            `;
-            planBox.innerHTML = `
-                <div style="color: #1e40af; font-weight: bold; font-size: 14px; margin-bottom: 4px;">
-                    📅 清掃予定を自動登録しました！
-                </div>
-                <div style="color: #1d4ed8; font-size: 12px;">
-                    浄化槽 : <strong>${planData.setUpCode || ''}</strong> ｜ 次回清掃時期 : <strong style="color:#0284c7;">${planData.targetMonth || ''}月</strong>
+                <div style="color: #15803d; font-size: 13px; font-weight: bold; margin-top: 4px; padding-top: 4px; border-top: 1px dashed #cbd5e1;">
+                    搬出汚泥量 : <span style="font-size: 16px; color: #16a34a;">${data.cleanVolume || ''} ㎥</span>
                 </div>
             `;
 
-            const targetPos = document.querySelector('.title, h1, h2, div[style*="font-size"]') || document.body.firstChild;
-            if (targetPos && targetPos.parentNode) {
-                targetPos.parentNode.insertBefore(planBox, targetPos.nextSibling);
-            }
+            insertNoticeBox(box);
         }
 
     } catch (e) {
         console.error("完了通知表示エラー:", e);
+    }
+}
+
+/**
+ * 🌟 カード要素を画面内の最適な位置（「登録しました」の下など）へ挿入するヘルパー関数
+ */
+function insertNoticeBox(boxElement) {
+    const targetPos = document.querySelector('.title, h1, h2, div[style*="font-size"]') || 
+                      document.querySelector('form') || 
+                      document.body.firstChild;
+
+    if (targetPos && targetPos.parentNode) {
+        targetPos.parentNode.insertBefore(boxElement, targetPos.nextSibling);
+    } else {
+        document.body.appendChild(boxElement);
     }
 }

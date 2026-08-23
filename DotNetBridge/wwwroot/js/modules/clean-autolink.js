@@ -108,49 +108,6 @@ function captureCustomerNameFromMenu() {
 }
 
 /**
- * 🌟 テスト用ウエイト関数 (指定ミリ秒待機)
- */
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
-/**
- * 🌟 画面中央にリアルタイムステータスを表示するUI関数
- */
-function showStatusToast(message, bgColor = '#0284c7') {
-    let toast = document.getElementById('clean-autolink-toast');
-    if (!toast) {
-        toast = document.createElement('div');
-        toast.id = 'clean-autolink-toast';
-        toast.style.cssText = `
-            position: fixed;
-            top: 40%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            z-index: 999999;
-            padding: 16px 24px;
-            background: ${bgColor};
-            color: #ffffff;
-            font-size: 15px;
-            font-weight: bold;
-            border-radius: 12px;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.3);
-            text-align: center;
-            max-width: 85%;
-            pointer-events: none;
-            transition: all 0.2s ease;
-        `;
-        document.body.appendChild(toast);
-    }
-    toast.style.background = bgColor;
-    toast.innerHTML = message;
-    toast.style.display = 'block';
-}
-
-function hideStatusToast() {
-    const toast = document.getElementById('clean-autolink-toast');
-    if (toast) toast.style.display = 'none';
-}
-
-/**
  * 隠し iframe で「未清掃」POST検索を実行し、指定された SetUpCode と一致する CleanNumber と顧客名を抜く関数
  */
 async function fetchCleanNumberFromList(setUpCode) {
@@ -328,10 +285,8 @@ async function processCleanRegistration(cleanNum, cleanVolume) {
                                 console.log("🎯 「はい」ボタンを裏で自動クリック！ 清掃登録完了！");
                                 yesBtn.click();
                                 clearInterval(timer);
-                                setTimeout(() => {
-                                    if (document.body.contains(iframe)) document.body.removeChild(iframe);
-                                    resolve(true);
-                                }, 800);
+                                if (document.body.contains(iframe)) document.body.removeChild(iframe);
+                                resolve(true);
                                 return;
                             }
 
@@ -339,10 +294,8 @@ async function processCleanRegistration(cleanNum, cleanVolume) {
                                 console.log("🎯 submitForm_Yes() を裏で実行して登録完了！");
                                 iWin.submitForm_Yes();
                                 clearInterval(timer);
-                                setTimeout(() => {
-                                    if (document.body.contains(iframe)) document.body.removeChild(iframe);
-                                    resolve(true);
-                                }, 800);
+                                if (document.body.contains(iframe)) document.body.removeChild(iframe);
+                                resolve(true);
                                 return;
                             }
                         }
@@ -457,10 +410,8 @@ async function triggerCleanPlanAutoSubmit(setUpCode, targetMonth) {
                             if (Step === 2) {
                                 clearInterval(checkTimer);
                                 console.log("✅ 清掃予定の裏登録が正常完了しました！");
-                                setTimeout(() => {
-                                    if (document.body.contains(iframe)) document.body.removeChild(iframe);
-                                    resolve({ success: true, targetDate: registeredDateStr });
-                                }, 1200);
+                                if (document.body.contains(iframe)) document.body.removeChild(iframe);
+                                resolve({ success: true, targetDate: registeredDateStr });
                                 return;
                             }
                         }
@@ -583,19 +534,13 @@ function setupDialogHook(setUpCode, inputEl) {
                         const hasValidVolume = cleanVolume && !isNaN(parseFloat(cleanVolume)) && parseFloat(cleanVolume) > 0;
 
                         // -------------------------------------------------------------
-                        // 🔀 2. 分岐処理
+                        // 🔀 2. 分岐処理（完全ウェイトレス＆ノー表示）
                         // -------------------------------------------------------------
                         if (hasValidVolume) {
                             // 【ルート1：清掃実績の自動登録 (clean.asp)】
-                            showStatusToast(`🔍 [ステップ 1/3]<br>顧客ID [${setUpCode}] の未清掃データを検索中...`, '#0284c7');
-                            await sleep(1500);
-
                             const targetResult = await fetchCleanNumberFromList(setUpCode);
 
                             if (targetResult && targetResult.cleanNum) {
-                                showStatusToast(`🧹 [ステップ 2/3]<br>清掃実績 (汚泥量 ${cleanVolume}㎥) を自動登録中...`, '#0284c7');
-                                await sleep(1500);
-
                                 const isSuccess = await processCleanRegistration(targetResult.cleanNum, cleanVolume);
                                 if (isSuccess) {
                                     const noticeData = {
@@ -604,24 +549,16 @@ function setupDialogHook(setUpCode, inputEl) {
                                         customerName: targetResult.customerName || storedCustomerName
                                     };
                                     sessionStorage.setItem('clean_autolink_target', JSON.stringify(noticeData));
-
-                                    showStatusToast(`✅ [ステップ 3/3]<br>清掃実績の登録成功！点検票を送信中...`, '#16a34a');
-                                    await sleep(1200);
                                 } else {
                                     sessionStorage.removeItem('clean_autolink_target');
                                 }
                             } else {
                                 sessionStorage.removeItem('clean_autolink_target');
-                                showStatusToast(`⚠️ 未清掃枠が見つからなかったためスキップします`, '#eab308');
-                                await sleep(1500);
                                 alert(`⚠️ 浄化槽番号 [${setUpCode}] の「未清掃」データが見つからなかったため、清掃実績の自動登録をスキップしました。\n（※点検登録のみ実行されます）`);
                             }
 
                         } else if (targetMonth && typeof triggerCleanPlanAutoSubmit === 'function') {
                             // 【ルート2：清掃予定の自動登録 (cleanPlan.asp)】
-                            showStatusToast(`📅 [ステップ 1/2]<br>次回清掃時期 (${targetMonth}月) の予約を自動登録中...`, '#0284c7');
-                            await sleep(1500);
-
                             const planResult = await triggerCleanPlanAutoSubmit(setUpCode, targetMonth);
                             if (planResult && planResult.success) {
                                 const planNoticeData = { 
@@ -631,24 +568,17 @@ function setupDialogHook(setUpCode, inputEl) {
                                     customerName: storedCustomerName
                                 };
                                 sessionStorage.setItem('clean_plan_autolink_target', JSON.stringify(planNoticeData));
-
-                                showStatusToast(`✅ [ステップ 2/2]<br>清掃予定の作成成功！点検票を送信中...`, '#16a34a');
-                                await sleep(1200);
                             } else {
                                 sessionStorage.removeItem('clean_plan_autolink_target');
                             }
 
                         } else {
                             // 【ルート3：通常点検】
-                            showStatusToast(`📝 [通常点検]<br>清掃連動なし。点検票のみ送信します...`, '#64748b');
-                            await sleep(1000);
                             sessionStorage.removeItem('clean_autolink_target');
                             sessionStorage.removeItem('clean_plan_autolink_target');
                         }
 
-                        hideStatusToast();
-
-                        // 📝 3. 本来の点検票書き込み処理を実行
+                        // 📝 3. 本来の点検票書き込み処理をノーウェイトで即実行
                         if (originalOnClickStr) {
                             try {
                                 new Function(originalOnClickStr)();
@@ -1017,7 +947,6 @@ function insertNoticeBox(boxElement) {
     let checkCount = 0;
     const timer = setInterval(() => {
         checkCount++;
-        // 画像で確認した divCondition（(10381)のすぐ下にある要素）の直前を第一優先にする
         const divCondition = document.getElementById('divCondition');
         if (divCondition && divCondition.parentNode) {
             clearInterval(timer);

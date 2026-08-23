@@ -557,7 +557,6 @@ function setupDialogHook(setUpCode, inputEl) {
                         yesBtn.disabled = true;
                         yesBtn.value = "処理中...";
 
-                        // 👤 メニュー画面等で保存した顧客名を取得
                         const storedCustomerName = sessionStorage.getItem('clean_autolink_customer_name') || '';
 
                         // -------------------------------------------------------------
@@ -1012,16 +1011,30 @@ function renderCompletionNotice() {
 }
 
 /**
- * 🌟 カード要素を画面内の最適な位置へ挿入するヘルパー関数
+ * 🌟 カード要素を画面内の最適な位置（id="divCondition" の直前など）へ確実に挿入するヘルパー関数
  */
 function insertNoticeBox(boxElement) {
-    const targetPos = document.querySelector('.title, h1, h2, div[style*="font-size"]') || 
-                      document.querySelector('form') || 
-                      document.body.firstChild;
+    let checkCount = 0;
+    const timer = setInterval(() => {
+        checkCount++;
+        // 画像で確認した divCondition（(10381)のすぐ下にある要素）の直前を第一優先にする
+        const divCondition = document.getElementById('divCondition');
+        if (divCondition && divCondition.parentNode) {
+            clearInterval(timer);
+            divCondition.parentNode.insertBefore(boxElement, divCondition);
+            return;
+        }
 
-    if (targetPos && targetPos.parentNode) {
-        targetPos.parentNode.insertBefore(boxElement, targetPos.nextSibling);
-    } else {
-        document.body.appendChild(boxElement);
-    }
+        const fallbackPos = document.querySelector('center > div, .title, h1, h2');
+        if (fallbackPos && fallbackPos.parentNode) {
+            clearInterval(timer);
+            fallbackPos.parentNode.insertBefore(boxElement, fallbackPos.nextSibling);
+            return;
+        }
+
+        if (checkCount > 15) {
+            clearInterval(timer);
+            document.body.appendChild(boxElement);
+        }
+    }, 100);
 }

@@ -467,12 +467,17 @@ function setupDialogHook(setUpCode, inputEl) {
                         const cleanVolume = (isPanelVisible && volumeInput) ? volumeInput.value.trim() : '';
 
                         const monthInput = document.getElementById('selCleanMonth') || document.querySelector('input[name="selCleanMonth"], select[name="selCleanMonth"]');
-                        const activeMonthBtn = document.querySelector('.btn-month.active, [data-month].active, .btn-clean-m[style*="background: rgb(2, 132, 199)"], .btn-clean-m[style*="background:#0284c7"]');
-                        
-                        let targetMonth = monthInput ? monthInput.value : '';
-                        if (!targetMonth && activeMonthBtn) {
-                            targetMonth = activeMonthBtn.getAttribute('data-month') || activeMonthBtn.textContent.replace('月', '').trim();
-                        }
+        
+        let targetMonth = monthInput ? monthInput.value : '';
+        if (!targetMonth) {
+            const activeBtn = document.querySelector('.btn-clean-m[style*="rgb(2, 132, 199)"], .btn-clean-m[style*="#0284c7"]') 
+                           || document.querySelector('#clean-month-picker-inline .btn-clean-m.active')
+                           || document.querySelector('.btn-month.active');
+            
+            if (activeBtn) {
+                targetMonth = activeBtn.getAttribute('data-month') || activeBtn.textContent.replace('月', '').trim();
+            }
+        }
 
                         // -------------------------------------------------------------
                         // 🔀 2. 完全分離された分岐処理（ゆっくりテスト表示付き！）

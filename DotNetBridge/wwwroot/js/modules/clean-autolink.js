@@ -6,14 +6,21 @@ export function initCleanAutoLink() {
 
     const currentPath = window.location.pathname.toLowerCase();
 
-    // 1. 点検登録完了画面での完了通知表示
+    // 1. 点検メニュー画面 ＆ 清掃メニュー画面での顧客名自動キャッチ
+    if (currentPath.includes("menucheck.asp") || currentPath.includes("menuclean.asp")) {
+        window.__cleanAutoLinkInitialized = true;
+        captureCustomerNameFromMenu();
+        return;
+    }
+
+    // 2. 点検登録完了画面での完了通知表示
     if (currentPath.includes("writecheck.asp")) {
         window.__cleanAutoLinkInitialized = true;
         renderCompletionNotice();
         return;
     }
 
-    // 2. 点検入力画面の処理
+    // 3. 点検入力画面の処理
     const selectEl = document.getElementById('RESULT_300_11');
     const inputEl = document.getElementById('NUMBER_300_12');
 
@@ -79,6 +86,25 @@ export function initCleanAutoLink() {
 
     initVolumePanel(selectEl, inputEl);
     setupDialogHook(setUpCode, inputEl);
+}
+
+/**
+ * 🌟 menuCheck.asp（点検メニュー）および menuClean.asp（清掃メニュー）から顧客名を自動取得して保存する関数
+ */
+function captureCustomerNameFromMenu() {
+    try {
+        const centerDiv = document.querySelector('center div[style*="padding-top"]');
+        if (centerDiv) {
+            let name = centerDiv.childNodes[0]?.textContent || centerDiv.textContent || '';
+            name = name.replace(/\s+/g, ' ').replace('様', '').trim();
+            if (name) {
+                sessionStorage.setItem('clean_autolink_customer_name', name);
+                console.log(`👤 メニュー画面から顧客名を保存しました: 【 ${name} 】`);
+            }
+        }
+    } catch (e) {
+        console.error("❌ 顧客名取得エラー:", e);
+    }
 }
 
 /**
@@ -155,7 +181,6 @@ async function fetchCleanNumberFromList(setUpCode) {
                         const selDate = iDoc.getElementById('selDateRange');
                         const selStatus = iDoc.getElementById('selSwitchCheck') || iDoc.querySelector('select[name="selSwitchCheck"]');
 
-                        // 1. 検索条件のセットと実行
                         if (!isWaitingForPost && (txtSearch || selStatus)) {
                             isWaitingForPost = true;
 
@@ -189,7 +214,6 @@ async function fetchCleanNumberFromList(setUpCode) {
                             return;
                         }
 
-                        // 2. 実際の DOM (.taskItem) から CleanNumber と 顧客名 を抽出
                         if (isWaitingForPost && checkCount > 2) {
                             const taskItems = Array.from(iDoc.querySelectorAll('.taskItem'));
 
@@ -204,20 +228,25 @@ async function fetchCleanNumberFromList(setUpCode) {
                                 const href = linkEl ? linkEl.getAttribute('href') : '';
                                 const match = href.match(/CleanNumber=(\d+)/i);
 
-                                // 顧客名の取得（カード内のテキストから抽出）
-                                const fullTxt = (targetItem.textContent || '').replace(/\s+/g, ' ').trim();
-                                const nameMatch = fullTxt.match(/([一-龠ぁ-んァ-ヶa-zA-Z\s]+?)(?=\s*\+付箋|\s*\d{4}\/|\s*\d{3,})/);
-                                const extractedName = nameMatch ? nameMatch[1].replace(setUpCode, '').trim() : '';
+                                const jksEl = targetItem.querySelector('.jksNum');
+                                let nameText = jksEl ? jksEl.textContent : targetItem.textContent;
+                                nameText = nameText
+                                    .replace(setUpCode, '')
+                                    .replace(/\+付箋/g, '')
+                                    .replace(/\d{4}\/\d{2}\/\d{2}/g, '')
+                                    .replace(/\d{4}\/\d{2}/g, '')
+                                    .replace(/\s+/g, ' ')
+                                    .trim();
 
                                 if (match && match[1]) {
                                     const cleanNum = match[1];
-                                    console.log(`✨【見つかりました！】 顧客ID [${setUpCode}] の CleanNumber 【 ${cleanNum} 】 (顧客名: ${extractedName}) を抽出完了！`);
+                                    console.log(`✨【見つかりました！】 顧客ID [${setUpCode}] (顧客名: ${nameText}) の CleanNumber 【 ${cleanNum} 】 を抽出完了！`);
                                     clearInterval(checkTimer);
                                     if (document.body.contains(iframe)) document.body.removeChild(iframe);
                                     
                                     resolve({
                                         cleanNum: cleanNum,
-                                        customerName: extractedName
+                                        customerName: nameText
                                     });
                                     return;
                                 }
@@ -338,7 +367,7 @@ async function processCleanRegistration(cleanNum, cleanVolume) {
 }
 
 /**
- * 🌟 清掃予定（cleanPlan.asp）を裏で自動POSTする関数（登録日付オブジェクトを返却する版）
+ * 🌟 清掃予定（cleanPlan.asp）を裏で自動POSTする関数
  */
 async function triggerCleanPlanAutoSubmit(setUpCode, targetMonth) {
     return new Promise((resolve) => {
@@ -357,7 +386,7 @@ async function triggerCleanPlanAutoSubmit(setUpCode, targetMonth) {
             iframe.src = `/cleanPlan.asp?CheckNumber=${checkNumber}&WorkMethodCode=${workMethodCode}&SetUpCode=${setUpCode}&SetUpHistoryCode=${setUpHistoryCode}`;
             document.body.appendChild(iframe);
 
-            let Step = 0; // 0:未処理, 1:フォーム入力&登録押し, 2:「はい」押し完了
+            let Step = 0;
             let checkCount = 0;
             let registeredDateStr = '';
 
@@ -369,7 +398,6 @@ async function triggerCleanPlanAutoSubmit(setUpCode, targetMonth) {
 
                     if (iDoc && (iDoc.readyState === 'complete' || iDoc.readyState === 'interactive')) {
                         
-                        // 【ステップ1】 フォームの入力と「登録」ボタン押下
                         if (Step === 0) {
                             const selWorkDay = iDoc.getElementById('selWorkDay');
                             const txtWorkDate = iDoc.getElementById('txtWorkDate');
@@ -412,7 +440,6 @@ async function triggerCleanPlanAutoSubmit(setUpCode, targetMonth) {
                             }
                         }
 
-                        // 【ステップ2】 確認ダイアログの「はい」を押して最終送信
                         if (Step === 1) {
                             if (typeof iWin.submitForm_Yes === 'function') {
                                 Step = 2;
@@ -530,10 +557,8 @@ function setupDialogHook(setUpCode, inputEl) {
                         yesBtn.disabled = true;
                         yesBtn.value = "処理中...";
 
-                        // 点検画面のDOMから顧客名を取得（見つからない場合は空文字）
-                        const pageCustomerNameEl = document.querySelector('.customer-name, #divCustomerName, .titleCustomer') || 
-                                                   Array.from(document.querySelectorAll('div, td, span')).find(el => el.children.length === 0 && (el.textContent.includes('柏木') || el.textContent.includes('様')));
-                        const pageCustomerName = pageCustomerNameEl ? pageCustomerNameEl.textContent.replace('様', '').trim() : '';
+                        // 👤 メニュー画面等で保存した顧客名を取得
+                        const storedCustomerName = sessionStorage.getItem('clean_autolink_customer_name') || '';
 
                         // -------------------------------------------------------------
                         // 🔍 1. 条件判定
@@ -577,7 +602,7 @@ function setupDialogHook(setUpCode, inputEl) {
                                     const noticeData = {
                                         cleanVolume: cleanVolume,
                                         setUpCode: setUpCode,
-                                        customerName: targetResult.customerName || pageCustomerName || ''
+                                        customerName: targetResult.customerName || storedCustomerName
                                     };
                                     sessionStorage.setItem('clean_autolink_target', JSON.stringify(noticeData));
 
@@ -604,7 +629,7 @@ function setupDialogHook(setUpCode, inputEl) {
                                     setUpCode: setUpCode, 
                                     targetMonth: targetMonth,
                                     targetDate: planResult.targetDate || '',
-                                    customerName: pageCustomerName || ''
+                                    customerName: storedCustomerName
                                 };
                                 sessionStorage.setItem('clean_plan_autolink_target', JSON.stringify(planNoticeData));
 
@@ -987,7 +1012,7 @@ function renderCompletionNotice() {
 }
 
 /**
- * 🌟 カード要素を画面内の最適な位置（「登録しました」の下など）へ挿入するヘルパー関数
+ * 🌟 カード要素を画面内の最適な位置へ挿入するヘルパー関数
  */
 function insertNoticeBox(boxElement) {
     const targetPos = document.querySelector('.title, h1, h2, div[style*="font-size"]') || 

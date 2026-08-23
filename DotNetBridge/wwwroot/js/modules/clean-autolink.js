@@ -446,6 +446,51 @@ async function triggerCleanPlanAutoSubmit(setUpCode, targetMonth) {
     });
 }
 
+// -------------------------------------------------------------
+// 🔄 セレクトボックス連動によるUI相互クリア処理
+// -------------------------------------------------------------
+document.addEventListener('change', (e) => {
+    const target = e.target;
+    if (!target || target.tagName !== 'SELECT') return;
+
+    const selectedText = target.options[target.selectedIndex]?.text || '';
+
+    // 【1】「汚泥引抜清掃実施しました。」を選んだ時 ➔ 予定（月）と「引き抜きが必要」をクリア
+    if (selectedText.includes('汚泥引抜清掃実施しました')) {
+        document.querySelectorAll('.btn-clean-m, [data-month]').forEach(btn => {
+            btn.classList.remove('active');
+            btn.style.background = '';
+            btn.style.color = '';
+        });
+
+        document.querySelectorAll('select').forEach(sel => {
+            if (sel !== target && Array.from(sel.options).some(o => o.text.includes('次回点検時汚泥引き抜きが必要'))) {
+                sel.selectedIndex = 0;
+            }
+        });
+        console.log("🧹 実施が選ばれたため、予定（月）選択をリセットしました。");
+    }
+
+    // 【2】「次回点検時汚泥引き抜きが必要です」を選んだ時 ➔ 汚泥量（㎥）と「実施しました」をクリア
+    if (selectedText.includes('次回点検時汚泥引き抜きが必要')) {
+        const inputVolume = document.getElementById('input-clean-volume');
+        if (inputVolume) inputVolume.value = '';
+
+        document.querySelectorAll('.btn-volume, [data-volume]').forEach(btn => {
+            btn.classList.remove('active');
+            btn.style.background = '';
+            btn.style.color = '';
+        });
+
+        document.querySelectorAll('select').forEach(sel => {
+            if (sel !== target && Array.from(sel.options).some(o => o.text.includes('汚泥引抜清掃実施しました'))) {
+                sel.selectedIndex = 0;
+            }
+        });
+        console.log("📅 予定が選ばれたため、実施（汚泥量）入力をリセットしました。");
+    }
+});
+
 function setupDialogHook(setUpCode, inputEl) {
     const bindHook = () => {
         const regBtn = document.querySelector('input.btn-blue') || 

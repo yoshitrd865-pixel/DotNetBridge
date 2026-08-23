@@ -526,6 +526,86 @@ async function triggerCleanPlanAutoSubmit(setUpCode, targetMonth) {
     });
 }
 
+/**
+ * 🌟 listClean.asp の検索条件（日付範囲を「当月: value=0」、検索文字を空）へ戻す初期化関数
+ */
+async function resetListCleanToDefault() {
+    return new Promise((resolve) => {
+        try {
+            console.log("🔄 listClean.asp の検索ステータスを「当月(value=0)」へ復元中...");
+
+            const old = document.getElementById('clean-reset-iframe');
+            if (old) old.remove();
+
+            const iframe = document.createElement('iframe');
+            iframe.id = 'clean-reset-iframe';
+            iframe.style.display = 'none';
+            iframe.src = '/listClean.asp';
+            document.body.appendChild(iframe);
+
+            let isResetDone = false;
+            let checkCount = 0;
+
+            const timer = setInterval(() => {
+                checkCount++;
+                try {
+                    const iDoc = iframe.contentDocument || iframe.contentWindow.document;
+                    const iWin = iframe.contentWindow;
+
+                    if (iDoc && (iDoc.readyState === 'complete' || iDoc.readyState === 'interactive')) {
+                        const txtSearch = iDoc.getElementById('txtSearchWord') || iDoc.querySelector('input[type="text"]');
+                        const selDate = iDoc.getElementById('selDateRange');
+
+                        if (!isResetDone && (txtSearch || selDate)) {
+                            isResetDone = true;
+
+                            // 1. 日付を「当月(value="0")」へセット
+                            if (selDate) {
+                                selDate.value = '0';
+                                if (typeof selDate.onchange === 'function') selDate.onchange();
+                            }
+
+                            // 2. 検索ワードをクリア
+                            if (txtSearch) {
+                                txtSearch.value = '';
+                            }
+
+                            // 3. 検索実行してASPセッション更新
+                            if (typeof iWin.readList === 'function') {
+                                iWin.readList();
+                            } else {
+                                const btnSearch = iDoc.querySelector('input[value*="検索"], button[onclick*="readList"]');
+                                if (btnSearch) btnSearch.click();
+                            }
+
+                            // 4. レスポンス完了を待ってクリア終了
+                            iframe.onload = () => {
+                                clearInterval(timer);
+                                if (document.body.contains(iframe)) document.body.removeChild(iframe);
+                                console.log("✨ listClean.asp のステータス初期化が完了しました！");
+                                resolve(true);
+                            };
+                            return;
+                        }
+                    }
+                } catch (e) {
+                    // スルー
+                }
+
+                if (checkCount > 25) {
+                    clearInterval(timer);
+                    if (document.body.contains(iframe)) document.body.removeChild(iframe);
+                    resolve(false);
+                }
+            }, 200);
+
+        } catch (e) {
+            console.error("❌ リセット処理エラー:", e);
+            resolve(false);
+        }
+    });
+}
+
 // -------------------------------------------------------------
 // 🔄 セレクトボックス連動によるUI相互クリア処理
 // -------------------------------------------------------------
@@ -644,6 +724,11 @@ function setupDialogHook(setUpCode, inputEl) {
                                         customerName: targetResult.customerName || storedCustomerName
                                     };
                                     sessionStorage.setItem('clean_autolink_target', JSON.stringify(noticeData));
+
+                                    // 🧹 登録成功後、listClean.asp の検索条件（当月: 0, ワードクリア）を復元
+                                    showStatusToast(`検索ステータスをリセット中...`, `初期状態に戻しています`, 'loading');
+                                    await resetListCleanToDefault();
+
                                     showStatusToast(`清掃実績の登録完了！`, `点検票を送信中...`, 'success');
                                     await sleep(250);
                                 } else {

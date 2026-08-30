@@ -15,28 +15,30 @@
 </script>
     <!-- ★ スマホで画面が小さくなるのを防ぐ必須のビューポート設定 -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>DotNetBridge - ログイン</title>
+    <title>HHC アカウント - ログイン</title>
     <style>
         * {
             box-sizing: border-box;
         }
         body { 
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; 
+            font-family: 'Plus Jakarta Sans', 'Noto Sans JP', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; 
             display: flex; 
             justify-content: center; 
             align-items: flex-start; 
             min-height: 100vh; 
             background: #f4f6f9; 
             margin: 0; 
-            padding: 10vh 1rem 1rem 1rem;
+            padding: 6vh 1rem 2rem 1rem;
         }
         .login-card { 
             background: white; 
             padding: 2.5rem 2rem; 
-            border-radius: 12px; 
-            box-shadow: 0 4px 20px rgba(0,0,0,0.08); 
+            border-radius: 16px; 
+            box-shadow: 0 10px 25px rgba(0,0,0,0.05); 
             width: 100%;
             max-width: 380px; /* スマホでは横幅いっぱいにフィット、PCでは程よい大きさに */
+            display: flex;
+            flex-direction: column; /* 縦並びを確実に強制 */
         }
         h2 {
             margin-top: 0;
@@ -45,32 +47,33 @@
             color: #333;
         }
         .field { margin-bottom: 1.2rem; }
-        label { display: block; margin-bottom: 0.5rem; font-size: 0.95rem; color: #555; }
+        label { display: block; margin-bottom: 0.5rem; font-size: 0.9rem; color: #475569; font-weight: 600; }
         input[type="text"], input[type="password"] { 
             width: 100%; 
             padding: 0.75rem; 
             font-size: 1rem; /* スマホでの自動ズーム防止 */
-            border: 1px solid #ccc; 
-            border-radius: 6px; 
-            transition: border-color 0.2s;
+            border: 1px solid #cbd5e1; 
+            border-radius: 8px; 
+            transition: border-color 0.2s, box-shadow 0.2s;
         }
         input[type="text"]:focus, input[type="password"]:focus {
             outline: none;
-            border-color: #007bff;
+            border-color: #2563eb;
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
         }
         button { 
             width: 100%; 
-            padding: 0.8rem; 
-            background: #007bff; 
+            padding: 0.85rem; 
+            background: #2563eb; 
             color: white; 
             border: none; 
-            border-radius: 6px; 
+            border-radius: 8px; 
             cursor: pointer; 
             font-size: 1rem;
-            font-weight: bold; 
+            font-weight: 700; 
             transition: background 0.2s;
         }
-        button:hover { background: #0056b3; }
+        button:hover { background: #1d4ed8; }
         .error { color: #dc3545; font-size: 0.88rem; margin-bottom: 1rem; text-align: center; }
         
         /* 区切り線スタイル */
@@ -79,13 +82,13 @@
             align-items: center;
             text-align: center;
             margin: 1.5rem 0;
-            color: #888;
+            color: #94a3b8;
             font-size: 0.85rem;
         }
         .divider::before, .divider::after {
             content: '';
             flex: 1;
-            border-bottom: 1px solid #eee;
+            border-bottom: 1px solid #e2e8f0;
         }
         .divider span {
             padding: 0 10px;
@@ -100,17 +103,17 @@
             padding: 0.75rem;
             background-color: #ffffff;
             color: #333333;
-            border: 1px solid #dadce0;
-            border-radius: 6px;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
             font-size: 0.95rem;
-            font-weight: 500;
+            font-weight: 600;
             text-decoration: none;
-            transition: background-color 0.2s, box-shadow 0.2s;
+            transition: background-color 0.2s, border-color 0.2s;
             box-shadow: 0 1px 3px rgba(0,0,0,0.05);
         }
         .btn-google:hover {
-            background-color: #f8f9fa;
-            border-color: #d2e3fc;
+            background-color: #f8fafc;
+            border-color: #94a3b8;
         }
         .btn-google svg {
             margin-right: 10px;
@@ -120,17 +123,19 @@
     </style>
 </head>
 <body>
-    <div style="text-align: center; margin-bottom: 2rem;">
-    <!-- メインタイトル：シャープで太めのフォント ＆ 絶妙な字間 -->
-    <h2 style="font-family: 'Plus Jakarta Sans', 'Noto Sans JP', sans-serif; font-weight: 800; font-size: 1.65rem; color: #0f172a; margin: 0 0 0.5rem 0; letter-spacing: -0.3px;">
-        HHC アカウント
-    </h2>
-    
-    <!-- サブタイトル：カプセル型の洗練されたバッジデザイン -->
-    <span style="display: inline-block; background: #f1f5f9; color: #475569; font-size: 0.75rem; font-weight: 700; padding: 4px 12px; border-radius: 20px; letter-spacing: 1px; text-transform: uppercase;">
-        ECOPRO / EcoMaster
-    </span>
-</div>
+    <div class="login-card">
+        <div style="text-align: center; margin-bottom: 2rem;">
+            <!-- メインタイトル：シャープで太めのフォント ＆ 絶妙な字間 -->
+            <h2 style="font-family: 'Plus Jakarta Sans', 'Noto Sans JP', sans-serif; font-weight: 800; font-size: 1.65rem; color: #0f172a; margin: 0 0 0.5rem 0; letter-spacing: -0.3px;">
+                HHC アカウント
+            </h2>
+            
+            <!-- サブタイトル：カプセル型の洗練されたバッジデザイン -->
+            <span style="display: inline-block; background: #f1f5f9; color: #475569; font-size: 0.75rem; font-weight: 700; padding: 4px 12px; border-radius: 20px; letter-spacing: 1px; text-transform: uppercase;">
+                ECOPRO / EcoMaster
+            </span>
+        </div>
+
         @if (ViewBag.Error != null)
         {
             <div class="error">@ViewBag.Error</div>

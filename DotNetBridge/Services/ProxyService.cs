@@ -170,7 +170,9 @@ else
                 // ▼▼▼ ここから追加 (PWAマニフェストの挿入) ▼▼▼
                 if (htmlContent.Contains("</head>", StringComparison.OrdinalIgnoreCase))
                 {
-                    htmlContent = Regex.Replace(htmlContent, "</head>", "<link rel=\"manifest\" href=\"/manifest.json\">\n</head>", RegexOptions.IgnoreCase);
+                    var pwaTags = "<link rel=\"manifest\" href=\"/manifest.json\">\n" +
+                                  "<meta name=\"theme-color\" content=\"#000000\">\n";
+                    htmlContent = Regex.Replace(htmlContent, "</head>", pwaTags + "</head>", RegexOptions.IgnoreCase);
                 }
                 // ▲▲▲ ここまで追加 ▲▲▲
                 

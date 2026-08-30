@@ -1,13 +1,13 @@
 # DotNetBridge プロジェクト概要・仕様書 (PROJECT_SUMMARY.md)
 
-本ドキュメントは、**DotNetBridge**（ASP.NET Core Webアプリケーション）の全体アーキテクチャ、ルーティング、Stripe決済連携、リバースプロキシ動作、各種拡張モジュール（クラウド付箋くん等）、データベース永続化仕様、および今後の課題についてまとめたプロジェクトサミリーです。
+本ドキュメントは、**DotNetBridge**（ASP.NET Core Webアプリケーション）の全体アーキテクチャ、ルーティング、Stripe決済連携、リバースプロキシ動作、各種拡張モジュール（クラウド付箋くん・清掃オートリンク機能等）、データベース永続化仕様、および今後の課題についてまとめたプロジェクトサミリーです。
 
 ---
 
 ## 1. プロジェクト概要・技術スタック
 
 ### 概要
-`DotNetBridge` は、外部のレガシーWebシステム（`https://hhc-eco11.com/EcoToubuF3/mobile60_ToubuF/`）へのアクセスを独自認証で保護しながらリバースプロキシ経由で中継しつつ、特定のページ（請求画面等）に対して自動的に JavaScript（Stripe決済QR生成機能やクラウド付箋くん等）をインジェクション・統合するシステムです。また、Stripe Checkoutを用いたクレジットカード決済のWebhook処理および、業務効率化アシスタント（Tampermonkey「アシストくん」）向けの消込データ連携APIを提供します。
+`DotNetBridge` は、外部のレガシーWebシステム（`https://hhc-eco11.com/EcoToubuF3/mobile60_ToubuF/`）へのアクセスを独自認証で保護しながらリバースプロキシ経由で中継しつつ、特定のページ（請求画面や点検入力画面等）に対して自動的に JavaScript（Stripe決済QR生成機能、クラウド付箋くん、清掃オートリンク機能等）をインジェクション・統合するシステムです。また、Stripe Checkoutを用いたクレジットカード決済のWebhook処理および、業務効率化アシスタント（Tampermonkey「アシストくん」）向けの消込データ連携APIを提供します。
 
 ### 技術スタック
 - **フレームワーク**: ASP.NET Core (C# / .NET 8.0)
@@ -26,6 +26,7 @@
 - **現在の状態**: 
   - Render上に Persistent Disk（Mount path: `/var/data`）を導入し、`fusen.db` および `payment.db` を永続化。
   - クラウド付箋くん（`fusen-kun.js`）のハイブリッド画面判定強化、ブルー系UI（`#0284C7` / `#007AFF`）へのテーマカラー統一、旧本番ドメインデータ（`hhc-eco11.com_EcoToubuF3` / 21KB）の一括移行・永続保存が完了。
+  - 点検入力画面（`check.asp`）での操作から清掃実績（`clean.asp`）または清掃予定（`cleanPlan.asp`）を非同期自動連携する**清掃オートリンク機能（`clean-autolink.js`）**を新規構築・完元。
 
 ### 🚫 2. 絶対的な設計方針と禁止事項（厳守）
 - **サーバー側（C#）での代理ログイン実装は絶対厳禁！**
@@ -36,6 +37,9 @@
 
 - **DOM監視（MutationObserver）の無限ループ・ピクつき防止**
    - DOMを変更する際、要素や親要素に `dataset.copyInjected = "true"` などの処理済みフラグを刻み、再描画ループを完封する。
+
+- **非同期通信の同期制御（`async/await` + `iframe.onload`）**
+   - 不確定な `setTimeout` や `sleep` による時間稼ぎではなく、隠し `iframe` の `load` イベント（Promise化）を利用して ASP サーバーからの POST 完了レスポンスをリアルタイム検出。親画面のページ遷移（`writeCheck.asp`）による強制切断事故を防止する。
 
 ---
 
@@ -77,10 +81,13 @@
 6. **`continuous-upload.js`**: `viewFile.asp` / `viewInfo.asp` での連続写真アップロードUI。
 7. **`inspection-warp.js`**: 顧客BOX横の空きマス乗っ取り点検BOXワープボタン ＆ `viewFile.asp` の `window.close` 戻るボタン修復。
 8. **`zandaka-copy.js`**: 伝票・残高情報のクリップボードコピー＆自動整理機能。
-9. **`fusen-kun.js`**: クラウド付箋くん
-   - **ハイブリッド画面判定**: UserAgentだけでなくDOM要素（`.ui-page`, `.taskItem`, `.pagetitle`）や `listcheck.asp` の存在を検知し、PCブラウザでスマホUIを開いている場合でも正しくモバイル表示ロジックが動作するよう改善。
-   - **UIテーマカラーの統一**: ボタンやヘッダーライン、アクセントカラーを従来のオレンジ系（`#F39C12`）からブランドUIに合わせたブルー系（`#0284C7` / `#007AFF`）に統一（付箋自体のデフォルトカラーは黄色を維持）。
-   - **旧データ移行ユーティリティ**: `window.migrateFusenData` により、旧ドメインキーのLocalStorageデータをワンクリックでサーバーDBへ一括移行可能。
+9. **`fusen-kun.js`**: クラウド付箋くん（ハイブリッド画面判定、ブルー系統一UI、旧データ移行機能付き）。
+10. **`clean-autolink.js`**: 清掃オートリンク機能
+    - **顧客名の動的キャッチとセッション保持**: `menuCheck.asp` / `menuclean.asp` から顧客名を自動取得し `sessionStorage` (`clean_autolink_customer_name`) に保持。最終完了画面まで確実に引き継ぐ。
+    - **清掃実績（汚泥量入力時）の自動連動**: 汚泥量（1〜3㎥・直接入力）選択時に発火。隠し `iframe` で `listClean.asp` を呼び出して顧客IDと日付範囲（全期間）で検索、該当顧客の `CleanNumber` を自動抽出して `clean.asp` で汚泥量をセットし自動送信。送信後は `listClean.asp` の検索条件を「当月」かつワードクリアへ自動リセット（`resetListCleanToDefault`）。
+    - **清掃予定（次回月選択時）の自動連動**: 汚泥量未入力で次回清掃月（1〜12月）選択時に発火。未来年自動判定（過去月なら翌年化、同月なら確認ダイアログ）を行い、隠し `iframe` で `cleanPlan.asp` を開き `YYYY/MM/01` 形式で自動送信。
+    - **非同期通信の同期制御**: `iframe.onload`（Promise）によりASPからのPOST完了をリアルタイム検出し、親画面遷移による切断を100%防止。
+    - **UI/UX・相互排他制御 & 完了通知カード**: 実績と予定の相互打ち消し制御、ダークグラデーション＋ローディングスピナー付きトースト表示（`showStatusToast`）、点検完了画面（`writeCheck.asp`）の `id="divCondition"` 直前へのスタイリッシュな完了通知カード挿入。
 
 ---
 

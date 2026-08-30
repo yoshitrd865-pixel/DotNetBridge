@@ -16,6 +16,12 @@
   - **ハイブリッド画面判定の強化**: UserAgentだけでなくDOM要素（`.ui-page`, `.taskItem`, `.pagetitle`）や `listcheck.asp` の存在を検知し、PCブラウザでスマホUIを開いている場合でも正しくモバイル表示ロジックが動作するよう改善。
   - **UIテーマカラーの統一**: ボタンやヘッダーライン、アクセントカラーを従来のオレンジ系（`#F39C12`）からブランドUIに合わせたブルー系（`#0284C7` / `#007AFF`）に統一（デフォルト付箋カラーは黄色維持）。
   - **旧データ移行ユーティリティ**: 旧本番ドメイン `hhc-eco11.com_EcoToubuF3` の旧データをワンクリックで一括移行できる機能（`window.migrateFusenData`）を実装。
+- **清掃オートリンク機能（`clean-autolink.js`）の新規構築・完元**:
+  - **顧客名の動的キャッチとセッション保持**: `menuCheck.asp` / `menuclean.asp` から顧客名を自動取得し `sessionStorage` (`clean_autolink_customer_name`) に保持。最終完了画面まで確実に引き継ぐ構造を確立。
+  - **清掃実績（汚泥量入力時）の自動連動ルート**: 汚泥量（1㎥、1.5㎥、2㎥、3㎥、直接入力）選択時に発火。隠し `iframe` で `listClean.asp` を呼び出し、検索窓クリア＆顧客ID＋全期間検索で該当顧客の `CleanNumber` を自動抽出。裏画面で `clean.asp?CleanNumber=XXX` を開き汚泥量をセットしてフォーム送信＆確認ダイアログ自動クリック。処理後は `listClean.asp` の検索条件を「当月」かつワードクリアへ自動リセット（`resetListCleanToDefault`）してセッションクリーンを維持。
+  - **清掃予定（次回月選択時）の自動連動ルート**: 汚泥量未入力で次回清掃月（1〜12月）選択時に発火。未来年自動判定（過去月なら翌年化、同月なら確認ダイアログ）を行い、隠し `iframe` で `cleanPlan.asp` を開き `YYYY/MM/01` 形式で注入して送信完走。
+  - **非同期通信の同期制御（`async/await` + `iframe.onload`）**: 隠し `iframe` の `onload` イベント（Promise化）を利用して ASP サーバーからの POST 完了レスポンスをリアルタイム検出し、親画面遷移による強制切断事故を100%防止。
+  - **UI/UX・相互排他制御 & 完了通知カード**: 実績と予定の相互打ち消し制御、ダークグラデーション＋ローディングスピナー付きトースト表示（`showStatusToast`）、点検完了画面（`writeCheck.asp`）の `id="divCondition"` 直前へのスタイリッシュな完了通知カード挿入。
 - **Render 永続ディスク（Persistent Disk）とデータベース保護**:
   - Mount path `/var/data` (Size: 1GB) を導入し、再デプロイや再起動でデータが消失しない構成を確立。
   - `Program.cs` の SQLite 接続文字列を `/var/data/fusen.db` および `/var/data/payment.db` に変更。
@@ -25,7 +31,7 @@
 - **Render HTTPS / Proxy 対応**: `app.UseForwardedHeaders(...)` を追加し、`redirect_uri_mismatch` (エラー 400) を解消
 - **モバイル UX / レスポンシブ**: `Login.cshtml` の Viewport 設定、レスポンシブデザイン、Google公式風ログインボタン追加
 - **セッション永続化**: `AddDataProtection().PersistKeysToFileSystem(...)` による再デプロイ時の鍵リセット防止
-- **拡張モジュール群の統合**: `auto-login.js`, `stripe-pay.js`, `continuous-upload.js`, `inspection-warp.js`, `zandaka-copy.js`, `fusen-kun.js` のモジュール化と `custom-inject.js` からの動的ロード・ガード制御
+- **拡張モジュール群の統合**: `auto-login.js`, `stripe-pay.js`, `continuous-upload.js`, `inspection-warp.js`, `zandaka-copy.js`, `fusen-kun.js`, `clean-autolink.js` のモジュール化と `custom-inject.js` からの動的ロード・ガード制御
 
 ### 3. モジュール設計と役割分担
 - **`settings.js`**: 設定状態の保持（`localStorage`）と設定UI・機能ON/OFFトグルの管理
@@ -38,10 +44,12 @@
   - `inspection-warp.js` (`tenkenbox_worp`): 顧客BOX横の空きマス乗っ取り点検BOXワープボタン ＆ `viewFile.asp` の `window.close` 戻るボタン修復パッチ
   - `zandaka-copy.js` (`zandaka_copy` 等): 伝票・残高情報のクリップボードコピー＆自動整理機能
   - `fusen-kun.js` (`fusen_kun`): クラウド付箋くん（ハイブリッド画面判定、ブルー系統一UI、旧データ移行機能付き）
+  - `clean-autolink.js` (`clean_autolink`): 清掃オートリンク機能（点検入力画面から清掃実績/清掃予定を非同期iframe自動連動、検索条件自動リセット、完了通知カード）
 
 ### 4. 重要なノウハウ・開発ガードレール（バグ防止原則）
 - **サーバー側（C#）での代理ログイン実装は絶対厳禁！**: プロキシ基盤（`ProxyService.cs`）は「完全ステートレスな土管」として聖域化し、レガシーASPへのログインやセッション維持はフロントエンド（JS）に100%任せる。
-- **DOM監視（MutationObserver）の無限ループ・ピクつき防止**: `observeDOM` 下でテキストやDOMを変更する際、要素や親要素に `dataset.copyInjected = "true"` や `dataset.added = "true"` などの処理済みフラグを刻み、再描画・上書きループを完封すること。
+- **DOM監視（MutationObserver）の無限ループ・ピクつき防止**: `observeDOM` 下でテキストやDOMを変更する際、要素や親要素に `dataset.copyInjected = "true"` などの処理済みフラグを刻み、再描画・上書きループを完封すること。
+- **非同期通信の同期制御（`async/await` + `iframe.onload`）**: 隠し `iframe` の読み込み完了（`load` イベントの Promise 化）により ASP の POST レスポンス完了を確実・安全に検知し、親画面の予期せぬ遷移切れ（キャンセル）を防ぐこと。
 - **OS/ブラウザ差分（iOS WebKit vs Android Blink）への配慮**: iOS特有の過敏なDOM変化検知に耐えられるよう、`innerHTML` 全置き換えを避け `innerText` 書き換えにとどめること。
 
 ### 5. 最新の主要ファイル構成
@@ -214,9 +222,10 @@ DotNetBridgeApp/
                 ├── continuous-upload.js
                 ├── inspection-warp.js
                 ├── zandaka-copy.js
-                └── fusen-kun.js
+                ├── fusen-kun.js
+                └── clean-autolink.js
 ```
 
 ---
-以上の前提とソースコードを理解したら、「DotNetBridgeの最新状態（全モジュール・アーキテクチャ・ガードレール）を完璧に把握しました！次は何を実装・調整しますか？」と短く返答してください。
+以上の前提とソースコードを理解したら、「DotNetBridgeの最新状態（清掃オートリンク機能・全モジュール・アーキテクチャ・ガードレール）を完璧に把握しました！次は何を実装・調整しますか？」と短く返答してください。
 ```

@@ -167,6 +167,13 @@ else
                                          .Replace("http://hhc-eco1.com", "https://hhc-eco11.com")
                                          .Replace("//hhc-eco1.com", "//hhc-eco11.com");
 
+                // ▼▼▼ ここから追加 (PWAマニフェストの挿入) ▼▼▼
+                if (htmlContent.Contains("</head>", StringComparison.OrdinalIgnoreCase))
+                {
+                    htmlContent = Regex.Replace(htmlContent, "</head>", "<link rel=\"manifest\" href=\"/manifest.json\">\n</head>", RegexOptions.IgnoreCase);
+                }
+                // ▲▲▲ ここまで追加 ▲▲▲
+                
                 // JSタグの挿入
                 var scriptTag = "<script type=\"module\" src=\"/js/custom-inject.js\"></script>";
                 if (htmlContent.Contains("</body>", StringComparison.OrdinalIgnoreCase))

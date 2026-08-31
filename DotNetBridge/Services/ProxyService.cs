@@ -5,8 +5,6 @@ namespace DotNetBridge.Services
 {
     public class ProxyService
     {
-        private const string TargetBase = "https://hhc-eco11.com/EcoToubuF3/mobile60_ToubuF/";
-
         private static readonly string[] HopByHopHeaders =
         {
             "transfer-encoding", "content-length", "content-encoding", "connection", "keep-alive"
@@ -21,6 +19,26 @@ namespace DotNetBridge.Services
 
         public async Task ProcessProxyAsync(HttpContext context)
         {
+            // セッションからGoogleログイン時に保持した動的接続先URLを取得
+            var targetBaseUrl = context.Session.GetString("TargetAspUrl");
+
+            // セッション切れ・未ログイン時はログイン画面へ戻す
+            if (string.IsNullOrEmpty(targetBaseUrl))
+            {
+                context.Response.Redirect("/Account/Login");
+                return;
+            }
+
+            // 末尾をスラッシュで統一
+            if (!targetBaseUrl.EndsWith("/"))
+            {
+                targetBaseUrl += "/";
+            }
+
+            // 親ディレクトリのURL（Mobile60/画像等へのアクセス用）を算出
+            var baseUri = new Uri(targetBaseUrl);
+            var parentUri = new Uri(baseUri, "../").AbsoluteUri;
+
             var path = context.Request.Path.Value?.TrimStart('/') ?? string.Empty;
 
             if (string.IsNullOrEmpty(path))
@@ -29,33 +47,33 @@ namespace DotNetBridge.Services
             }
 
             // --- パス正規化ロジック ---
-// リクエストパスから不要な先頭プレフィックス（EcoToubuF3/ や mobile60_ToubuF/）を削る
-while (true)
-{
-    var prevPath = path;
-    if (path.StartsWith("EcoToubuF3/", StringComparison.OrdinalIgnoreCase))
-        path = path.Substring("EcoToubuF3/".Length);
+            // リクエストパスから不要な先頭プレフィックス（EcoToubuF3/ や mobile60_ToubuF/）を削る
+            while (true)
+            {
+                var prevPath = path;
+                if (path.StartsWith("EcoToubuF3/", StringComparison.OrdinalIgnoreCase))
+                    path = path.Substring("EcoToubuF3/".Length);
 
-    if (path.StartsWith("mobile60_ToubuF/", StringComparison.OrdinalIgnoreCase))
-        path = path.Substring("mobile60_ToubuF/".Length);
+                if (path.StartsWith("mobile60_ToubuF/", StringComparison.OrdinalIgnoreCase))
+                    path = path.Substring("mobile60_ToubuF/".Length);
 
-    if (path == prevPath) break;
-}
+                if (path == prevPath) break;
+            }
 
-// 万が一パスの中に二重で mobile60_ToubuF/ や EcoToubuF3/ が含まれている場合の緊急補正
-path = Regex.Replace(path, @"(?i)(mobile60_ToubuF/|EcoToubuF3/)+", "");
+            // 万が一パスの中に二重で mobile60_ToubuF/ や EcoToubuF3/ が含まれている場合の緊急補正
+            path = Regex.Replace(path, @"(?i)(mobile60_ToubuF/|EcoToubuF3/)+", "");
 
-string targetUri;
+            string targetUri;
 
-// ★画像のパス（Mobile60/tenken/... や Mobile60/kokyaku/...）の場合は EcoToubuF3/ 直下へつなぐ！
-if (path.StartsWith("Mobile60/", StringComparison.OrdinalIgnoreCase))
-{
-    targetUri = "https://hhc-eco11.com/EcoToubuF3/" + path + context.Request.QueryString.Value;
-}
-else
-{
-    targetUri = TargetBase + path + context.Request.QueryString.Value;
-}
+            // 動的親URLを利用した画像・リソースパスの振り分け
+            if (path.StartsWith("Mobile60/", StringComparison.OrdinalIgnoreCase))
+            {
+                targetUri = parentUri + path + context.Request.QueryString.Value;
+            }
+            else
+            {
+                targetUri = targetBaseUrl + path + context.Request.QueryString.Value;
+            }
 
             using var client = _httpClientFactory.CreateClient("NoRedirectClient");
             using var upstreamRequest = new HttpRequestMessage(new HttpMethod(context.Request.Method), targetUri);
@@ -77,8 +95,8 @@ else
                     var marker = "/proxy/";
                     var idx = original.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
                     var rewrittenValue = idx >= 0
-                        ? TargetBase + original.Substring(idx + marker.Length)
-                        : TargetBase;
+                        ? targetBaseUrl + original.Substring(idx + marker.Length)
+                        : targetBaseUrl;
 
                     upstreamRequest.Headers.TryAddWithoutValidation(key, rewrittenValue);
                     continue;
@@ -167,14 +185,13 @@ else
                                          .Replace("http://hhc-eco1.com", "https://hhc-eco11.com")
                                          .Replace("//hhc-eco1.com", "//hhc-eco11.com");
 
-                // ▼▼▼ ここから追加 (PWAマニフェストの挿入) ▼▼▼
+                // PWAマニフェストの挿入
                 if (htmlContent.Contains("</head>", StringComparison.OrdinalIgnoreCase))
                 {
                     var pwaTags = "<link rel=\"manifest\" href=\"/manifest.json\">\n" +
                                   "<meta name=\"theme-color\" content=\"#000000\">\n";
                     htmlContent = Regex.Replace(htmlContent, "</head>", pwaTags + "</head>", RegexOptions.IgnoreCase);
                 }
-                // ▲▲▲ ここまで追加 ▲▲▲
                 
                 // JSタグの挿入
                 var scriptTag = "<script type=\"module\" src=\"/js/custom-inject.js\"></script>";

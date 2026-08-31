@@ -105,6 +105,21 @@ using (var scope = app.Services.CreateScope())
     // ★ サブスク・Googleアカウント管理用DBの初期化を追加
     var subDb = scope.ServiceProvider.GetRequiredService<SubscriptionDbContext>();
     subDb.Database.EnsureCreated();
+
+// ★★★ ここから追記：テスト用初期データの自動登録 ★★★
+    if (!subDb.TenantSubscriptions.Any())
+    {
+        subDb.TenantSubscriptions.Add(new TenantSubscription
+        {
+            GoogleEmail = "eco@tfkankyo.com", // ★ご自身のGoogleメールアドレスに変更
+            TargetAspUrl = "https://hhc-eco11.com/EcoToubuF3/mobile60_ToubuF/", // ★テスト転送先URL
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow
+        });
+        subDb.SaveChanges();
+    }
+    // ★★★ ここまで追記 ★★★
+
 }
 
 app.UseStaticFiles(); // wwwroot配下の配信を許可

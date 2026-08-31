@@ -106,29 +106,35 @@ using (var scope = app.Services.CreateScope())
     var fusenDb = scope.ServiceProvider.GetRequiredService<FusenDbContext>();
     fusenDb.Database.EnsureCreated();
 
-    // サブスク・Googleアカウント管理用DBの初期化
-    var subDb = scope.ServiceProvider.GetRequiredService<SubscriptionDbContext>();
-    
-    // ★ DBファイルが既に存在していてもテーブルを強制生成する処理
-    var creator = subDb.Database.GetService<IRelationalDatabaseCreator>();
-    if (!creator.HasTables())
-    {
-        creator.CreateTables();
-    }
+    // ★ サブスク・Googleアカウント管理用DBの初期化
+        var subDb = scope.ServiceProvider.GetRequiredService<SubscriptionDbContext>();
 
-    // テスト用初期データの自動登録
-    if (!subDb.TenantSubscriptions.Any())
-    {
-        subDb.TenantSubscriptions.Add(new TenantSubscription
+        // ★ 既存DBファイルがあっても TenantSubscriptions テーブルを確実に生成
+        subDb.Database.ExecuteSqlRaw(@"
+            CREATE TABLE IF NOT EXISTS ""TenantSubscriptions"" (
+                ""Id"" INTEGER NOT NULL CONSTRAINT ""PK_TenantSubscriptions"" PRIMARY KEY AUTOINCREMENT,
+                ""GoogleEmail"" TEXT NOT NULL,
+                ""TargetAspUrl"" TEXT NOT NULL,
+                ""StripeCustomerId"" TEXT NULL,
+                ""StripeSubscriptionId"" TEXT NULL,
+                ""IsActive"" INTEGER NOT NULL,
+                ""CreatedAt"" TEXT NOT NULL
+            );
+        ");
+
+        // ★ テスト用初期データの自動登録
+        if (!subDb.TenantSubscriptions.Any())
         {
-            GoogleEmail = "eco@tfkankyo.com",
-            TargetAspUrl = "https://hhc-eco11.com/EcoToubuF3/mobile60_ToubuF/",
-            IsActive = true,
-            CreatedAt = DateTime.UtcNow
-        });
-        subDb.SaveChanges();
-    }
-}
+            subDb.TenantSubscriptions.Add(new TenantSubscription
+            {
+                GoogleEmail = "eco@tfkankyo.com",
+                TargetAspUrl = "https://hhc-eco11.com/EcoToubuF3/mobile60_ToubuF/",
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow
+            });
+            subDb.SaveChanges();
+        }
+}        
 
 app.UseStaticFiles(); // wwwroot配下の配信を許可
 app.UseRouting();

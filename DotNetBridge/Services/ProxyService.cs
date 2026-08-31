@@ -48,7 +48,7 @@ namespace DotNetBridge.Services
                 return;
             }
 
-            // DBからリアルタイムで最新の接続先URLを取得（URL変更も即時反映）
+            // DBからリアルタイムで最新の接続先URLを取得
             var targetBaseUrl = tenant.TargetAspUrl;
 
             if (string.IsNullOrEmpty(targetBaseUrl))
@@ -63,6 +63,17 @@ namespace DotNetBridge.Services
                 targetBaseUrl += "/";
             }
 
+            // ★ 3. 接続先URLの変更検知＆新しいASPのログイン画面（トップ）への切り替え
+            var lastTargetUrl = context.Session.GetString("LastTargetAspUrl");
+            if (!string.IsNullOrEmpty(lastTargetUrl) && lastTargetUrl != targetBaseUrl)
+            {
+                // セッションの保持URLを更新し、新しいASPのログイン画面へ強制リダイレクト
+                context.Session.SetString("LastTargetAspUrl", targetBaseUrl);
+                context.Response.Redirect("/");
+                return;
+            }
+            context.Session.SetString("LastTargetAspUrl", targetBaseUrl);
+
             // 親ディレクトリのURL（Mobile60/画像等へのアクセス用）を算出
             var baseUri = new Uri(targetBaseUrl);
             var parentUri = new Uri(baseUri, "../").AbsoluteUri;
@@ -75,7 +86,6 @@ namespace DotNetBridge.Services
             }
 
             // --- パス正規化ロジック ---
-            // リクエストパスから不要な先頭プレフィックス（EcoToubuF3/ や mobile60_ToubuF/）を削る
             while (true)
             {
                 var prevPath = path;
@@ -88,12 +98,10 @@ namespace DotNetBridge.Services
                 if (path == prevPath) break;
             }
 
-            // 万が一パスの中に二重で mobile60_ToubuF/ や EcoToubuF3/ が含まれている場合の緊急補正
             path = Regex.Replace(path, @"(?i)(mobile60_ToubuF/|EcoToubuF3/)+", "");
 
             string targetUri;
 
-            // 動的親URLを利用した画像・リソースパスの振り分け
             if (path.StartsWith("Mobile60/", StringComparison.OrdinalIgnoreCase))
             {
                 targetUri = parentUri + path + context.Request.QueryString.Value;
@@ -171,7 +179,6 @@ namespace DotNetBridge.Services
 
                 if (key.Equals("Set-Cookie", StringComparison.OrdinalIgnoreCase))
                 {
-                    // クッキーのDomainとPath制限を解除してすべてのリクエストで送信可能にする
                     var modifiedCookies = header.Value.Select(cookie =>
                     {
                         var c = Regex.Replace(cookie, @"Domain=[^;]+;?", string.Empty, RegexOptions.IgnoreCase);
@@ -194,7 +201,6 @@ namespace DotNetBridge.Services
             // --- 5. レスポンス処理 (極小Pass-through) ---
             var contentType = upstreamResponse.Content.Headers.ContentType?.ToString() ?? string.Empty;
 
-            // json_ や .asp のAPI類は一切触らずそのままバイナリストリーム転送
             bool isHtml = contentType.Contains("text/html", StringComparison.OrdinalIgnoreCase);
             bool isApiCall = path.Contains("json_", StringComparison.OrdinalIgnoreCase);
 
@@ -208,12 +214,10 @@ namespace DotNetBridge.Services
 
                 var htmlContent = encoding.GetString(rawBytes);
 
-                // 画像等の旧ドメイン（hhc-eco1.com）を現行ドメイン（hhc-eco11.com）へ置換
                 htmlContent = htmlContent.Replace("https://hhc-eco1.com", "https://hhc-eco11.com")
                                          .Replace("http://hhc-eco1.com", "https://hhc-eco11.com")
                                          .Replace("//hhc-eco1.com", "//hhc-eco11.com");
 
-                // PWAマニフェストの挿入
                 if (htmlContent.Contains("</head>", StringComparison.OrdinalIgnoreCase))
                 {
                     var pwaTags = "<link rel=\"manifest\" href=\"/manifest.json\">\n" +
@@ -221,7 +225,6 @@ namespace DotNetBridge.Services
                     htmlContent = Regex.Replace(htmlContent, "</head>", pwaTags + "</head>", RegexOptions.IgnoreCase);
                 }
                 
-                // JSタグの挿入
                 var scriptTag = "<script type=\"module\" src=\"/js/custom-inject.js\"></script>";
                 if (htmlContent.Contains("</body>", StringComparison.OrdinalIgnoreCase))
                 {
@@ -238,7 +241,6 @@ namespace DotNetBridge.Services
             }
             else
             {
-                // APIや画像などは生データを完全無加工でスルー
                 await upstreamResponse.Content.CopyToAsync(context.Response.Body);
             }
         }

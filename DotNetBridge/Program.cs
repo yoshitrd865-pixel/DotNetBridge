@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Authentication.Cookies;
-using Microsoft.AspNetCore.Authentication.Google; // ★ Google認証用に追加
-using Microsoft.AspNetCore.DataProtection; // ★ 先頭に追加
+using Microsoft.AspNetCore.Authentication.Google;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using DotNetBridge.Services;
 using DotNetBridge.Data;
@@ -28,6 +28,14 @@ builder.Services.AddDataProtection()
 builder.Services.AddControllersWithViews();
 builder.Services.AddScoped<ProxyService>();
 
+// ★ セッション機能の追加（Googleログイン時の会社専用URL保持に必須）
+builder.Services.AddSession(options =>
+{
+    options.IdleTimeout = TimeSpan.FromHours(8);
+    options.Cookie.HttpOnly = true;
+    options.Cookie.IsEssential = true;
+});
+
 builder.Services.AddHttpClient("NoRedirectClient", client => { })
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
     {
@@ -48,7 +56,7 @@ builder.Services.AddAuthentication(options =>
         options.Cookie.HttpOnly = true;
         options.SlidingExpiration = true;
     })
-    .AddGoogle(options => // ★ Google 認証設定を追加 
+    .AddGoogle(options => // ★ Google 認証設定
     {
         options.ClientId = builder.Configuration["GOOGLE_CLIENT_ID"] ?? "";
         options.ClientSecret = builder.Configuration["GOOGLE_CLIENT_SECRET"] ?? "";
@@ -57,17 +65,22 @@ builder.Services.AddAuthentication(options =>
 // Render の PORT 環境変数を読み込む
 builder.WebHost.UseUrls($"http://*:{Environment.GetEnvironmentVariable("PORT") ?? "8080"}");
 
-// SQLite の接続設定　appsetting.jsonに本番のLinux環境のパスが書いてあります。
+// SQLite の接続設定 appsetting.jsonに本番のLinux環境のパスが書いてあります。
 builder.Services.AddDbContext<PaymentDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("PaymentConnection")));
 
-// (独立した fusen.db を作成)　appsetting.jsonに本番のLinux環境のパスが書いてあります。
+// (独立した fusen.db を作成) appsetting.jsonに本番のLinux環境のパスが書いてあります。
 builder.Services.AddDbContext<FusenDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("FusenConnection")));
 
+// ★ サブスク＆Googleアカウント管理用DB (SubscriptionDbContext) を追加
+builder.Services.AddDbContext<SubscriptionDbContext>(options =>
+    options.UseSqlite(builder.Configuration.GetConnectionString("SubscriptionConnection") 
+        ?? builder.Configuration.GetConnectionString("PaymentConnection")));
+
 var app = builder.Build();
 
-// ★ 追加：Renderなどのプロキシ環境下で https を正しく認識させる設定
+// ★ Renderなどのプロキシ環境下で https を正しく認識させる設定
 var forwardedHeadersOptions = new ForwardedHeadersOptions
 {
     ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto
@@ -85,13 +98,20 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<PaymentDbContext>();
     db.Database.EnsureCreated();
 
-    // 👇ここを追加（付箋用DB初期化）
+    // 付箋用DB初期化
     var fusenDb = scope.ServiceProvider.GetRequiredService<FusenDbContext>();
     fusenDb.Database.EnsureCreated();
+
+    // ★ サブスク・Googleアカウント管理用DBの初期化を追加
+    var subDb = scope.ServiceProvider.GetRequiredService<SubscriptionDbContext>();
+    subDb.Database.EnsureCreated();
 }
 
 app.UseStaticFiles(); // wwwroot配下の配信を許可
 app.UseRouting();
+
+app.UseSession(); // ★ セッションミドルウェアを追加（UseRoutingとUseAuthenticationの間に配置）
+
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -107,13 +127,13 @@ app.Use(async (context, next) =>
 {
     var path = context.Request.Path;
 
-    // 先ほど作成した /success と /cancel、および Google 認証コールバック (/signin-google) をプロキシから除外
+    // /success、/cancel、および Google 認証コールバック (/signin-google) をプロキシから除外
     if (path.StartsWithSegments("/Account", StringComparison.OrdinalIgnoreCase) ||
         path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase) ||
         path.StartsWithSegments("/admin", StringComparison.OrdinalIgnoreCase) ||
         path.StartsWithSegments("/success", StringComparison.OrdinalIgnoreCase) ||
         path.StartsWithSegments("/cancel", StringComparison.OrdinalIgnoreCase) ||
-        path.StartsWithSegments("/signin-google", StringComparison.OrdinalIgnoreCase)) // ★ Google認証応答パスを除外
+        path.StartsWithSegments("/signin-google", StringComparison.OrdinalIgnoreCase))
     {
         await next();
         return;

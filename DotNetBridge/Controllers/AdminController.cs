@@ -4,6 +4,7 @@ using DotNetBridge.Data;
 
 namespace DotNetBridge.Controllers
 {
+    [Route("admin")]
     public class AdminController : Controller
     {
         private readonly SubscriptionDbContext _db;
@@ -13,8 +14,9 @@ namespace DotNetBridge.Controllers
             _db = db;
         }
 
-        // 一覧表示 (/admin)
-        [HttpGet]
+        // 一覧表示 (/admin または /admin/index)
+        [HttpGet("")]
+        [HttpGet("index")]
         public async Task<IActionResult> Index()
         {
             var tenants = await _db.TenantSubscriptions
@@ -23,14 +25,14 @@ namespace DotNetBridge.Controllers
             return View(tenants);
         }
 
-        // 新規登録・既存編集
-        [HttpPost]
+        // 新規登録・既存編集 (/admin/save)
+        [HttpPost("save")]
         public async Task<IActionResult> Save(TenantSubscription model)
         {
             if (string.IsNullOrWhiteSpace(model.GoogleEmail) || string.IsNullOrWhiteSpace(model.TargetAspUrl))
             {
                 TempData["Error"] = "メールアドレスと接続先URLは必須です。";
-                return RedirectToAction("Index");
+                return RedirectToAction(nameof(Index));
             }
 
             if (model.Id == 0)
@@ -51,11 +53,11 @@ namespace DotNetBridge.Controllers
 
             await _db.SaveChangesAsync();
             TempData["Success"] = "保存しました。";
-            return RedirectToAction("Index");
+            return RedirectToAction(nameof(Index));
         }
 
-        // アカウントの停止 / 有効化 切り替え
-        [HttpPost]
+        // アカウントの停止 / 有効化 切り替え (/admin/toggleactive)
+        [HttpPost("toggleactive")]
         public async Task<IActionResult> ToggleActive(int id)
         {
             var tenant = await _db.TenantSubscriptions.FindAsync(id);
@@ -64,11 +66,11 @@ namespace DotNetBridge.Controllers
                 tenant.IsActive = !tenant.IsActive;
                 await _db.SaveChangesAsync();
             }
-            return RedirectToAction("Index");
+            return RedirectToAction(nameof(Index));
         }
 
-        // アカウント削除
-        [HttpPost]
+        // アカウント削除 (/admin/delete)
+        [HttpPost("delete")]
         public async Task<IActionResult> Delete(int id)
         {
             var tenant = await _db.TenantSubscriptions.FindAsync(id);
@@ -77,7 +79,7 @@ namespace DotNetBridge.Controllers
                 _db.TenantSubscriptions.Remove(tenant);
                 await _db.SaveChangesAsync();
             }
-            return RedirectToAction("Index");
+            return RedirectToAction(nameof(Index));
         }
     }
 }

@@ -121,19 +121,6 @@ using (var scope = app.Services.CreateScope())
                 ""CreatedAt"" TEXT NOT NULL
             );
         ");
-
-        // ★ テスト用初期データの自動登録
-        if (!subDb.TenantSubscriptions.Any())
-        {
-            subDb.TenantSubscriptions.Add(new TenantSubscription
-            {
-                GoogleEmail = "eco@tfkankyo.com",
-                TargetAspUrl = "https://hhc-eco11.com/EcoToubuF3/mobile60_ToubuF/",
-                IsActive = true,
-                CreatedAt = DateTime.UtcNow
-            });
-            subDb.SaveChanges();
-        }
 }        
 
 app.UseStaticFiles(); // wwwroot配下の配信を許可

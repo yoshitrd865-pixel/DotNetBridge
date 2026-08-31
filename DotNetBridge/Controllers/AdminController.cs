@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.EntityFrameworkCore;
 using DotNetBridge.Data;
 
@@ -8,13 +9,68 @@ namespace DotNetBridge.Controllers
     public class AdminController : Controller
     {
         private readonly SubscriptionDbContext _db;
+        private readonly IConfiguration _config;
 
-        public AdminController(SubscriptionDbContext db)
+        public AdminController(SubscriptionDbContext db, IConfiguration config)
         {
             _db = db;
+            _config = config;
         }
 
-        // 一覧表示 (/admin または /admin/index)
+        // 管理者認証チェック（未認証時はログイン画面へ）
+        public override void OnActionExecuting(ActionExecutingContext context)
+        {
+            var actionName = context.ActionDescriptor.RouteValues["action"]?.ToLower();
+            
+            // ログイン画面・認証処理自体はチェック対象外
+            if (actionName == "login" || actionName == "auth")
+            {
+                base.OnActionExecuting(context);
+                return;
+            }
+
+            // セッションに認証フラグがない場合は /admin/login へ強制リダイレクト
+            if (HttpContext.Session.GetString("IsAdminAuthenticated") != "true")
+            {
+                context.Result = new RedirectToActionResult("Login", "Admin", null);
+                return;
+            }
+
+            base.OnActionExecuting(context);
+        }
+
+        // 管理者ログイン画面 (/admin/login)
+        [HttpGet("login")]
+        public IActionResult Login()
+        {
+            return View();
+        }
+
+        // 認証処理 (/admin/auth)
+        [HttpPost("auth")]
+        public IActionResult Auth(string password)
+        {
+            var adminPassword = _config["ADMIN_PASSWORD"] ?? "admin1234";
+
+            if (password == adminPassword)
+            {
+                HttpContext.Session.SetString("IsAdminAuthenticated", "true");
+                return RedirectToAction(nameof(Index));
+            }
+
+            TempData["Error"] = "パスワードが正しくありません。";
+            return RedirectToAction(nameof(Login));
+        }
+
+        // ログアウト (/admin/logout)
+        [HttpPost("logout")]
+        public IActionResult Logout()
+        {
+            HttpContext.Session.Remove("IsAdminAuthenticated");
+            return RedirectToAction(nameof(Login));
+        }
+
+        // 一覧表示 (/admin)
         [HttpGet("")]
         [HttpGet("index")]
         public async Task<IActionResult> Index()

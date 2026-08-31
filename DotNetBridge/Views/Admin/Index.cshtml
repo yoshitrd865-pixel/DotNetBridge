@@ -57,14 +57,14 @@
                                 </td>
                                 <td>
                                     <div class="d-flex gap-2">
-                                        <form asp-action="ToggleActive" method="post">
+                                        <form action="/admin/toggleactive" method="post">
                                             <input type="hidden" name="id" value="@item.Id" />
                                             <button type="submit" class="btn btn-sm @(item.IsActive ? "btn-outline-warning" : "btn-outline-success")">
                                                 @(item.IsActive ? "停止" : "有効化")
                                             </button>
                                         </form>
                                         <button class="btn btn-sm btn-outline-primary" onclick="editTenant(@item.Id, '@item.GoogleEmail', '@item.TargetAspUrl', @item.IsActive.ToString().ToLower())" data-bs-toggle="modal" data-bs-target="#tenantModal">編集</button>
-                                        <form asp-action="Delete" method="post" onsubmit="return confirm('本当に削除しますか？');">
+                                        <form action="/admin/delete" method="post" onsubmit="return confirm('本当に削除しますか？');">
                                             <input type="hidden" name="id" value="@item.Id" />
                                             <button type="submit" class="btn btn-sm btn-outline-danger">削除</button>
                                         </form>
@@ -82,7 +82,7 @@
     <div class="modal fade" id="tenantModal" tabindex="-1">
         <div class="modal-dialog">
             <div class="modal-content">
-                <form asp-action="Save" method="post">
+                <form action="/admin/save" method="post">
                     <div class="modal-header">
                         <h5 class="modal-title" id="modalTitle">顧客アカウント登録 / 編集</h5>
                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>

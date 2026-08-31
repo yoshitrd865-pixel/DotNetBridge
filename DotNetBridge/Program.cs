@@ -2,6 +2,10 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.Google;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure; // ★ 追加 (GetService 用)
+using Microsoft.EntityFrameworkCore.Storage;        // ★ 追加 (IRelationalDatabaseCreator 用)
+using Microsoft.Extensions.DependencyInjection;     // ★ 追加 (CreateScope 用)
+using System.Linq;                                 // ★ 追加 (.Any() 用)
 using DotNetBridge.Services;
 using DotNetBridge.Data;
 
@@ -102,24 +106,28 @@ using (var scope = app.Services.CreateScope())
     var fusenDb = scope.ServiceProvider.GetRequiredService<FusenDbContext>();
     fusenDb.Database.EnsureCreated();
 
-    // ★ サブスク・Googleアカウント管理用DBの初期化を追加
+    // サブスク・Googleアカウント管理用DBの初期化
     var subDb = scope.ServiceProvider.GetRequiredService<SubscriptionDbContext>();
-    subDb.Database.EnsureCreated();
+    
+    // ★ DBファイルが既に存在していてもテーブルを強制生成する処理
+    var creator = subDb.Database.GetService<IRelationalDatabaseCreator>();
+    if (!creator.HasTables())
+    {
+        creator.CreateTables();
+    }
 
-// ★★★ ここから追記：テスト用初期データの自動登録 ★★★
+    // テスト用初期データの自動登録
     if (!subDb.TenantSubscriptions.Any())
     {
         subDb.TenantSubscriptions.Add(new TenantSubscription
         {
-            GoogleEmail = "eco@tfkankyo.com", // ★ご自身のGoogleメールアドレスに変更
-            TargetAspUrl = "https://hhc-eco11.com/EcoToubuF3/mobile60_ToubuF/", // ★テスト転送先URL
+            GoogleEmail = "eco@tfkankyo.com",
+            TargetAspUrl = "https://hhc-eco11.com/EcoToubuF3/mobile60_ToubuF/",
             IsActive = true,
             CreatedAt = DateTime.UtcNow
         });
         subDb.SaveChanges();
     }
-    // ★★★ ここまで追記 ★★★
-
 }
 
 app.UseStaticFiles(); // wwwroot配下の配信を許可

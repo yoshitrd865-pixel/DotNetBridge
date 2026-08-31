@@ -7,7 +7,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@700;800&family=Noto+Sans+JP:wght@500;700&display=swap" rel="stylesheet">
     <meta charset="utf-8" />
     <link rel="manifest" href="/manifest.json">
-    <meta name="theme-color" content="#000000">
+    <meta name="theme-color" content="#2563eb">
     <script>
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js');
@@ -25,21 +25,54 @@
             justify-content: center; 
             align-items: flex-start; 
             min-height: 100vh; 
-            background: #f4f6f9; 
+            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); 
             margin: 0; 
-            padding: 10vh 1rem 2rem 1rem;
+            padding: 8vh 1rem 2rem 1rem;
         }
         .login-card { 
             background: white; 
-            padding: 2.5rem 2rem; 
-            border-radius: 16px; 
-            box-shadow: 0 10px 25px rgba(0,0,0,0.05); 
+            padding: 2.2rem 2rem 1.8rem 2rem; 
+            border-radius: 20px; 
+            box-shadow: 0 20px 30px -10px rgba(15, 23, 42, 0.08); 
             width: 100%;
             max-width: 380px;
             display: flex;
             flex-direction: column;
+            position: relative;
+            overflow: hidden;
+        }
+        /* カード上部のグラデーションライン */
+        .login-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 5px;
+            background: linear-gradient(90deg, #2563eb, #3b82f6, #60a5fa);
+        }
+        /* アイコンエリア */
+        .brand-icon {
+            width: 52px;
+            height: 52px;
+            background: #eff6ff;
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 1.2rem auto;
+            color: #2563eb;
         }
         .error { color: #dc3545; font-size: 0.88rem; margin-bottom: 1rem; text-align: center; }
+
+        /* 案内テキスト */
+        .info-text {
+            font-size: 0.85rem;
+            color: #64748b;
+            text-align: center;
+            margin: 0 0 1.5rem 0;
+            line-height: 1.5;
+        }
 
         /* Google ログインボタン */
         .btn-google {
@@ -50,30 +83,54 @@
             padding: 0.85rem;
             background-color: #ffffff;
             color: #1e293b;
-            border: 1px solid #cbd5e1;
-            border-radius: 8px;
+            border: 1.5px solid #cbd5e1;
+            border-radius: 12px;
             font-size: 0.95rem;
             font-weight: 700;
             text-decoration: none;
             transition: all 0.2s ease;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.03);
         }
         .btn-google:hover {
             background-color: #f8fafc;
-            border-color: #94a3b8;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            border-color: #2563eb;
+            transform: translateY(-1px);
+            box-shadow: 0 6px 16px rgba(37, 99, 235, 0.12);
         }
         .btn-google svg {
-            margin-right: 10px;
+            margin-right: 12px;
             width: 20px;
             height: 20px;
+        }
+
+        /* フッターの保護表示 */
+        .footer-note {
+            margin-top: 1.8rem;
+            padding-top: 1.2rem;
+            border-top: 1px solid #f1f5f9;
+            text-align: center;
+            font-size: 0.78rem;
+            color: #94a3b8;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
         }
     </style>
 </head>
 <body>
     <div class="login-card">
-        <div style="text-align: center; margin-bottom: 2rem;">
-            <h2 style="font-family: 'Plus Jakarta Sans', 'Noto Sans JP', sans-serif; font-weight: 800; font-size: 1.65rem; color: #0f172a; margin: 0 0 0.5rem 0; letter-spacing: -0.3px;">
+        <!-- セキュリティ/鍵アイコン -->
+        <div class="brand-icon">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+            </svg>
+        </div>
+
+        <!-- タイトルエリア -->
+        <div style="text-align: center; margin-bottom: 1rem;">
+            <h2 style="font-family: 'Plus Jakarta Sans', 'Noto Sans JP', sans-serif; font-weight: 800; font-size: 1.65rem; color: #0f172a; margin: 0 0 0.4rem 0; letter-spacing: -0.3px;">
                 HHC アカウント
             </h2>
             <span style="display: inline-block; background: #f1f5f9; color: #475569; font-size: 0.75rem; font-weight: 700; padding: 4px 12px; border-radius: 20px; letter-spacing: 1px; text-transform: uppercase;">
@@ -81,12 +138,17 @@
             </span>
         </div>
 
+        <!-- 案内テキスト -->
+        <p class="info-text">
+            ご登録済みの Google アカウントで<br>安全にログインしてください
+        </p>
+
         @if (ViewBag.Error != null)
         {
             <div class="error">@ViewBag.Error</div>
         }
 
-        <!-- Google ログインボタンのみ -->
+        <!-- Google ログインボタン -->
         <a href="/Account/GoogleLogin" class="btn-google">
             <svg viewBox="0 0 24 24">
                 <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
@@ -96,6 +158,12 @@
             </svg>
             Google アカウントでログイン
         </a>
+
+        <!-- 安心感を与えるフッター -->
+        <div class="footer-note">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+            SSL 暗号化通信で保護されています
+        </div>
     </div>
 </body>
 </html>

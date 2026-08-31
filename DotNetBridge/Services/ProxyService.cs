@@ -1,5 +1,10 @@
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.EntityFrameworkCore;
+using DotNetBridge.Data;
 
 namespace DotNetBridge.Services
 {
@@ -19,10 +24,33 @@ namespace DotNetBridge.Services
 
         public async Task ProcessProxyAsync(HttpContext context)
         {
-            // セッションからGoogleログイン時に保持した動的接続先URLを取得
-            var targetBaseUrl = context.Session.GetString("TargetAspUrl");
+            // ★ 1. ログイン中のGoogleメールアドレスを取得
+            var userEmail = context.User.FindFirst(ClaimTypes.Email)?.Value 
+                            ?? context.User.Identity?.Name;
 
-            // セッション切れ・未ログイン時はログイン画面へ戻す
+            if (string.IsNullOrEmpty(userEmail))
+            {
+                context.Response.Redirect("/Account/Login");
+                return;
+            }
+
+            // ★ 2. 毎リクエストごとにDBを参照し、最新の契約状態と接続先URLを取得
+            var db = context.RequestServices.GetRequiredService<SubscriptionDbContext>();
+            var tenant = await db.TenantSubscriptions
+                .FirstOrDefaultAsync(t => t.GoogleEmail == userEmail);
+
+            // アカウントが存在しない、または「停止中（IsActive = false）」の場合は即座にログアウト＆遮断
+            if (tenant == null || !tenant.IsActive)
+            {
+                await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+                context.Session.Clear();
+                context.Response.Redirect("/Account/Login");
+                return;
+            }
+
+            // DBからリアルタイムで最新の接続先URLを取得（URL変更も即時反映）
+            var targetBaseUrl = tenant.TargetAspUrl;
+
             if (string.IsNullOrEmpty(targetBaseUrl))
             {
                 context.Response.Redirect("/Account/Login");

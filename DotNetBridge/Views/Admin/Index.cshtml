@@ -1,0 +1,133 @@
+@model IEnumerable<DotNetBridge.Data.TenantSubscription>
+@{
+    Layout = null;
+}
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>既存顧客アカウント管理</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+    <div class="container py-5">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2>既存顧客アカウント管理ポータル</h2>
+            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#tenantModal" onclick="clearForm()">+ 新規顧客登録</button>
+        </div>
+
+        @if (TempData["Success"] != null)
+        {
+            <div class="alert alert-success">@TempData["Success"]</div>
+        }
+        @if (TempData["Error"] != null)
+        {
+            <div class="alert alert-danger">@TempData["Error"]</div>
+        }
+
+        <div class="card shadow-sm">
+            <div class="card-body p-0">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>ID</th>
+                            <th>Googleメールアドレス</th>
+                            <th>接続先エコマスターURL</th>
+                            <th>状態</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in Model)
+                        {
+                            <tr>
+                                <td>@item.Id</td>
+                                <td><strong>@item.GoogleEmail</strong></td>
+                                <td><small class="text-muted">@item.TargetAspUrl</small></td>
+                                <td>
+                                    @if (item.IsActive)
+                                    {
+                                        <span class="badge bg-success">有効</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-secondary">停止中</span>
+                                    }
+                                </td>
+                                <td>
+                                    <div class="d-flex gap-2">
+                                        <form asp-action="ToggleActive" method="post">
+                                            <input type="hidden" name="id" value="@item.Id" />
+                                            <button type="submit" class="btn btn-sm @(item.IsActive ? "btn-outline-warning" : "btn-outline-success")">
+                                                @(item.IsActive ? "停止" : "有効化")
+                                            </button>
+                                        </form>
+                                        <button class="btn btn-sm btn-outline-primary" onclick="editTenant(@item.Id, '@item.GoogleEmail', '@item.TargetAspUrl', @item.IsActive.ToString().ToLower())" data-bs-toggle="modal" data-bs-target="#tenantModal">編集</button>
+                                        <form asp-action="Delete" method="post" onsubmit="return confirm('本当に削除しますか？');">
+                                            <input type="hidden" name="id" value="@item.Id" />
+                                            <button type="submit" class="btn btn-sm btn-outline-danger">削除</button>
+                                        </form>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- モーダルダイアログ -->
+    <div class="modal fade" id="tenantModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <form asp-action="Save" method="post">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="modalTitle">顧客アカウント登録 / 編集</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <input type="hidden" name="Id" id="tenantId" value="0" />
+                        <div class="mb-3">
+                            <label class="form-label">Google メールアドレス</label>
+                            <input type="email" name="GoogleEmail" id="tenantEmail" class="form-control" required placeholder="user@company.com" />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">接続先エコマスターURL</label>
+                            <input type="url" name="TargetAspUrl" id="tenantUrl" class="form-control" required placeholder="https://hhc-eco11.com/..." />
+                        </div>
+                        <div class="form-check mb-3">
+                            <input class="form-check-input" type="checkbox" name="IsActive" value="true" id="tenantActive" checked />
+                            <label class="form-check-label" for="tenantActive">アカウントを有効にする</label>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">キャンセル</button>
+                        <button type="submit" class="btn btn-primary">保存</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        function clearForm() {
+            document.getElementById('tenantId').value = "0";
+            document.getElementById('tenantEmail').value = "";
+            document.getElementById('tenantUrl').value = "https://hhc-eco11.com/EcoToubuF3/mobile60_ToubuF/";
+            document.getElementById('tenantActive').checked = true;
+            document.getElementById('modalTitle').innerText = "顧客アカウント新規登録";
+        }
+
+        function editTenant(id, email, url, isActive) {
+            document.getElementById('tenantId').value = id;
+            document.getElementById('tenantEmail').value = email;
+            document.getElementById('tenantUrl').value = url;
+            document.getElementById('tenantActive').checked = isActive;
+            document.getElementById('modalTitle').innerText = "顧客アカウント編集";
+        }
+    </script>
+</body>
+</html>

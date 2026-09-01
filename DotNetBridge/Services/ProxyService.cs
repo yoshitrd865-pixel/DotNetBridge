@@ -55,10 +55,25 @@ namespace DotNetBridge.Services
                 return;
             }
 
-            if (!targetBaseUrl.EndsWith("/"))
+            // ★ URL表記ブレ補正：末尾にファイル名（.html, .asp 等）があれば自動除去してディレクトリパス化
+            var uri = new Uri(targetBaseUrl);
+            string absolutePath = uri.AbsolutePath;
+
+            if (Path.HasExtension(absolutePath))
             {
-                targetBaseUrl += "/";
+                int lastSlash = absolutePath.LastIndexOf('/');
+                if (lastSlash >= 0)
+                {
+                    absolutePath = absolutePath.Substring(0, lastSlash + 1);
+                }
             }
+
+            if (!absolutePath.EndsWith("/"))
+            {
+                absolutePath += "/";
+            }
+
+            targetBaseUrl = $"{uri.Scheme}://{uri.Host}:{uri.Port}{absolutePath}";
 
             // ★ 3. 接続先URLの変更検知
             var lastTargetUrl = context.Session.GetString("LastTargetAspUrl");
@@ -213,7 +228,7 @@ namespace DotNetBridge.Services
                                          .Replace("http://hhc-eco1.com", "https://hhc-eco11.com")
                                          .Replace("//hhc-eco1.com", "//hhc-eco11.com");
 
-                // ★ 共通: 相対パス解決用の <base> タグは ECOPRO / EcoMaster どちらにも注入
+                // ★ 共通: 相対パス解決用の <base> タグ注入
                 var baseTag = $"<base href=\"{targetBaseUrl}\">";
                 if (htmlContent.Contains("<head>", StringComparison.OrdinalIgnoreCase))
                 {
@@ -224,12 +239,11 @@ namespace DotNetBridge.Services
                     htmlContent = baseTag + htmlContent;
                 }
 
-                // ★ システム判定: URLに mobile60 が含まれる場合のみ EcoMaster（現場用）とみなす
+                // ★ システム判定: mobile60 が含まれる場合のみ EcoMaster と判定
                 bool isEcoMaster = targetBaseUrl.Contains("mobile60", StringComparison.OrdinalIgnoreCase);
 
                 if (isEcoMaster)
                 {
-                    // --- EcoMaster（モバイル用）専用のJS・PWA処理 ---
                     if (htmlContent.Contains("</head>", StringComparison.OrdinalIgnoreCase))
                     {
                         var pwaTags = "<link rel=\"manifest\" href=\"/manifest.json\">\n" +
@@ -247,7 +261,6 @@ namespace DotNetBridge.Services
                         htmlContent += scriptTag;
                     }
                 }
-                // ECOPRO（事務所用）の場合は上記のJS注入を行わず、クリーンな状態のHTMLを返す
 
                 var modifiedBytes = encoding.GetBytes(htmlContent);
                 context.Response.ContentLength = modifiedBytes.Length;

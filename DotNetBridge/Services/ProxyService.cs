@@ -228,8 +228,10 @@ namespace DotNetBridge.Services
                                          .Replace("http://hhc-eco1.com", "https://hhc-eco11.com")
                                          .Replace("//hhc-eco1.com", "//hhc-eco11.com");
 
-                // ★ 共通: 相対パス解決用の <base> タグ注入
-                var baseTag = $"<base href=\"{targetBaseUrl}\">";
+                // ★ 相対パス解決用 <base> タグをプロキシ（自身）のドメインに向ける修正
+                var proxyBaseUrl = $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}/";
+                var baseTag = $"<base href=\"{proxyBaseUrl}\">";
+
                 if (htmlContent.Contains("<head>", StringComparison.OrdinalIgnoreCase))
                 {
                     htmlContent = Regex.Replace(htmlContent, "(<head[^>]*>)", $"$1\n    {baseTag}", RegexOptions.IgnoreCase);

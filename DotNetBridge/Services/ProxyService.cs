@@ -228,8 +228,9 @@ namespace DotNetBridge.Services
                                          .Replace("http://hhc-eco1.com", "https://hhc-eco11.com")
                                          .Replace("//hhc-eco1.com", "//hhc-eco11.com");
 
-                // ★ 画像・CSS・JSを本家から正しく読み込むため、<base> は本家URLを指定
-                var baseTag = $"<base href=\"{targetBaseUrl}\">";
+                // ★ 相対パス補正用 <base> タグ（プロキシドメイン宛てに変更してCORSエラーを解消）
+                var proxyBaseUrl = $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}/";
+                var baseTag = $"<base href=\"{proxyBaseUrl}\">";
 
                 if (htmlContent.Contains("<head>", StringComparison.OrdinalIgnoreCase))
                 {
@@ -239,25 +240,6 @@ namespace DotNetBridge.Services
                 {
                     htmlContent = baseTag + htmlContent;
                 }
-
-                // ★ フォーム送信で本家へ飛ぶのを防ぎ、プロキシドメイン宛てに書き換え
-                var proxyBaseUrl = $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}/";
-                htmlContent = Regex.Replace(
-                    htmlContent,
-                    @"(<form[^>]*\baction=[""'])([^""']+)([""'])",
-                    m =>
-                    {
-                        var actionVal = m.Groups[2].Value;
-                        if (!actionVal.StartsWith("http", StringComparison.OrdinalIgnoreCase) &&
-                            !actionVal.StartsWith("/"))
-                        {
-                            var relativePath = actionVal.TrimStart('.', '/');
-                            return $"{m.Groups[1].Value}{proxyBaseUrl}{relativePath}{m.Groups[3].Value}";
-                        }
-                        return m.Value;
-                    },
-                    RegexOptions.IgnoreCase
-                );
 
                 // ★ システム判定: mobile60 が含まれる場合のみ EcoMaster と判定
                 bool isEcoMaster = targetBaseUrl.Contains("mobile60", StringComparison.OrdinalIgnoreCase);

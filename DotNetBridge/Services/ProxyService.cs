@@ -240,16 +240,19 @@ namespace DotNetBridge.Services
                     htmlContent = baseTag + htmlContent;
                 }
 
-                // ★ フォーム送信で本家へ飛んでしまうのを防ぐため、action属性をプロキシ経由（絶対パス化）に補正
+                // ★ フォーム送信で本家へ飛ぶのを防ぎ、プロキシドメイン宛てに書き換え
+                var proxyBaseUrl = $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}/";
                 htmlContent = Regex.Replace(
                     htmlContent,
                     @"(<form[^>]*\baction=[""'])([^""']+)([""'])",
                     m =>
                     {
                         var actionVal = m.Groups[2].Value;
-                        if (!actionVal.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                        if (!actionVal.StartsWith("http", StringComparison.OrdinalIgnoreCase) &&
+                            !actionVal.StartsWith("/"))
                         {
-                            return $"{m.Groups[1].Value}/{actionVal.TrimStart('/')}{m.Groups[3].Value}";
+                            var relativePath = actionVal.TrimStart('.', '/');
+                            return $"{m.Groups[1].Value}{proxyBaseUrl}{relativePath}{m.Groups[3].Value}";
                         }
                         return m.Value;
                     },

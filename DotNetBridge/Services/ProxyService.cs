@@ -39,7 +39,6 @@ namespace DotNetBridge.Services
             var tenant = await db.TenantSubscriptions
                 .FirstOrDefaultAsync(t => t.GoogleEmail == userEmail);
 
-            // アカウントが存在しない、または「停止中（IsActive = false）」の場合は即座にログアウト＆遮断
             if (tenant == null || !tenant.IsActive)
             {
                 await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
@@ -48,7 +47,6 @@ namespace DotNetBridge.Services
                 return;
             }
 
-            // DBからリアルタイムで最新の接続先URLを取得
             var targetBaseUrl = tenant.TargetAspUrl;
 
             if (string.IsNullOrEmpty(targetBaseUrl))
@@ -57,24 +55,21 @@ namespace DotNetBridge.Services
                 return;
             }
 
-            // 末尾をスラッシュで統一
             if (!targetBaseUrl.EndsWith("/"))
             {
                 targetBaseUrl += "/";
             }
 
-            // ★ 3. 接続先URLの変更検知＆新しいASPのログイン画面（トップ）への切り替え
+            // ★ 3. 接続先URLの変更検知
             var lastTargetUrl = context.Session.GetString("LastTargetAspUrl");
             if (!string.IsNullOrEmpty(lastTargetUrl) && lastTargetUrl != targetBaseUrl)
             {
-                // セッションの保持URLを更新し、新しいASPのログイン画面へ強制リダイレクト
                 context.Session.SetString("LastTargetAspUrl", targetBaseUrl);
                 context.Response.Redirect("/");
                 return;
             }
             context.Session.SetString("LastTargetAspUrl", targetBaseUrl);
 
-            // 親ディレクトリのURL（Mobile60/画像等へのアクセス用）を算出
             var baseUri = new Uri(targetBaseUrl);
             var parentUri = new Uri(baseUri, "../").AbsoluteUri;
 
@@ -114,7 +109,7 @@ namespace DotNetBridge.Services
             using var client = _httpClientFactory.CreateClient("NoRedirectClient");
             using var upstreamRequest = new HttpRequestMessage(new HttpMethod(context.Request.Method), targetUri);
 
-            // --- 1. リクエストヘッダー転送 (無加工) ---
+            // --- 1. リクエストヘッダー転送 ---
             foreach (var header in context.Request.Headers)
             {
                 var key = header.Key;
@@ -141,7 +136,7 @@ namespace DotNetBridge.Services
                 upstreamRequest.Headers.TryAddWithoutValidation(key, header.Value.ToArray());
             }
 
-            // --- 2. リクエストボディ転送 (生バイナリ無加工) ---
+            // --- 2. リクエストボディ転送 ---
             if (HttpMethods.IsPost(context.Request.Method) ||
                 HttpMethods.IsPut(context.Request.Method) ||
                 HttpMethods.IsPatch(context.Request.Method))
@@ -198,7 +193,7 @@ namespace DotNetBridge.Services
                 context.Response.Headers[key] = header.Value.ToArray();
             }
 
-            // --- 5. レスポンス処理 (極小Pass-through) ---
+            // --- 5. レスポンス処理 ---
             var contentType = upstreamResponse.Content.Headers.ContentType?.ToString() ?? string.Empty;
 
             bool isHtml = contentType.Contains("text/html", StringComparison.OrdinalIgnoreCase);
@@ -218,22 +213,41 @@ namespace DotNetBridge.Services
                                          .Replace("http://hhc-eco1.com", "https://hhc-eco11.com")
                                          .Replace("//hhc-eco1.com", "//hhc-eco11.com");
 
-                if (htmlContent.Contains("</head>", StringComparison.OrdinalIgnoreCase))
+                // ★ 共通: 相対パス解決用の <base> タグは ECOPRO / EcoMaster どちらにも注入
+                var baseTag = $"<base href=\"{targetBaseUrl}\">";
+                if (htmlContent.Contains("<head>", StringComparison.OrdinalIgnoreCase))
                 {
-                    var pwaTags = "<link rel=\"manifest\" href=\"/manifest.json\">\n" +
-                                  "<meta name=\"theme-color\" content=\"#000000\">\n";
-                    htmlContent = Regex.Replace(htmlContent, "</head>", pwaTags + "</head>", RegexOptions.IgnoreCase);
-                }
-                
-                var scriptTag = "<script type=\"module\" src=\"/js/custom-inject.js\"></script>";
-                if (htmlContent.Contains("</body>", StringComparison.OrdinalIgnoreCase))
-                {
-                    htmlContent = htmlContent.Replace("</body>", $"{scriptTag}\n</body>", StringComparison.OrdinalIgnoreCase);
+                    htmlContent = Regex.Replace(htmlContent, "(<head[^>]*>)", $"$1\n    {baseTag}", RegexOptions.IgnoreCase);
                 }
                 else
                 {
-                    htmlContent += scriptTag;
+                    htmlContent = baseTag + htmlContent;
                 }
+
+                // ★ システム判定: URLに mobile60 が含まれる場合のみ EcoMaster（現場用）とみなす
+                bool isEcoMaster = targetBaseUrl.Contains("mobile60", StringComparison.OrdinalIgnoreCase);
+
+                if (isEcoMaster)
+                {
+                    // --- EcoMaster（モバイル用）専用のJS・PWA処理 ---
+                    if (htmlContent.Contains("</head>", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var pwaTags = "<link rel=\"manifest\" href=\"/manifest.json\">\n" +
+                                      "<meta name=\"theme-color\" content=\"#000000\">\n";
+                        htmlContent = Regex.Replace(htmlContent, "</head>", pwaTags + "</head>", RegexOptions.IgnoreCase);
+                    }
+                    
+                    var scriptTag = "<script type=\"module\" src=\"/js/custom-inject.js\"></script>";
+                    if (htmlContent.Contains("</body>", StringComparison.OrdinalIgnoreCase))
+                    {
+                        htmlContent = htmlContent.Replace("</body>", $"{scriptTag}\n</body>", StringComparison.OrdinalIgnoreCase);
+                    }
+                    else
+                    {
+                        htmlContent += scriptTag;
+                    }
+                }
+                // ECOPRO（事務所用）の場合は上記のJS注入を行わず、クリーンな状態のHTMLを返す
 
                 var modifiedBytes = encoding.GetBytes(htmlContent);
                 context.Response.ContentLength = modifiedBytes.Length;

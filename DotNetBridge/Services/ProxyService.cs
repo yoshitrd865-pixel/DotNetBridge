@@ -228,9 +228,22 @@ namespace DotNetBridge.Services
                                          .Replace("http://hhc-eco1.com", "https://hhc-eco11.com")
                                          .Replace("//hhc-eco1.com", "//hhc-eco11.com");
 
-                // ★ 相対パス補正用 <base> タグ（プロキシドメイン宛てに変更してCORSエラーを解消）
-                var proxyBaseUrl = $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}/";
-                var baseTag = $"<base href=\"{proxyBaseUrl}\">";
+                // ★ システム判定: mobile60 が含まれる場合のみ EcoMaster（現場）と判定
+                bool isEcoMaster = targetBaseUrl.Contains("mobile60", StringComparison.OrdinalIgnoreCase);
+
+                // ★ <base> タグの動的分岐
+                string baseTag;
+                if (isEcoMaster)
+                {
+                    // EcoMaster（現場）: プロキシドメイン宛て
+                    var proxyBaseUrl = $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}/";
+                    baseTag = $"<base href=\"{proxyBaseUrl}\">";
+                }
+                else
+                {
+                    // ECOPRO（事務所）: 本家ターゲットURL宛て（/css/ や /Inc/ 等のリソース404を解消）
+                    baseTag = $"<base href=\"{targetBaseUrl}\">";
+                }
 
                 if (htmlContent.Contains("<head>", StringComparison.OrdinalIgnoreCase))
                 {
@@ -241,9 +254,7 @@ namespace DotNetBridge.Services
                     htmlContent = baseTag + htmlContent;
                 }
 
-                // ★ システム判定: mobile60 が含まれる場合のみ EcoMaster と判定
-                bool isEcoMaster = targetBaseUrl.Contains("mobile60", StringComparison.OrdinalIgnoreCase);
-
+                // ★ EcoMaster 専用の PWA & JS 注入処理
                 if (isEcoMaster)
                 {
                     if (htmlContent.Contains("</head>", StringComparison.OrdinalIgnoreCase))

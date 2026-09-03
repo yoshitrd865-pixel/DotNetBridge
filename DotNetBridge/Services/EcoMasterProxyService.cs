@@ -24,18 +24,16 @@ namespace DotNetBridge.Services
 
         public async Task ProcessProxyAsync(HttpContext context)
         {
-            // 1. ログイン中のGoogleメールアドレスを取得
             var userEmail = context.User.FindFirst(ClaimTypes.Email)?.Value 
                             ?? context.User.Identity?.Name;
 
             if (string.IsNullOrEmpty(userEmail))
             {
                 context.Response.ContentType = "text/html; charset=utf-8";
-                await context.Response.WriteAsync("<html><body><script>window.top.location.href = '/Account/Login';</script></body></html>");
+                await context.Response.WriteAsync("<html><body><script>window.top.location.href = '/Account/Suspended';</script></body></html>");
                 return;
             }
 
-            // 2. 毎リクエストごとにDBを参照し契約状態と接続先URLを取得
             var db = context.RequestServices.GetRequiredService<SubscriptionDbContext>();
             var tenant = await db.TenantSubscriptions
                 .FirstOrDefaultAsync(t => t.GoogleEmail == userEmail);
@@ -45,13 +43,12 @@ namespace DotNetBridge.Services
                 await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
                 context.Session.Clear();
                 context.Response.ContentType = "text/html; charset=utf-8";
-                await context.Response.WriteAsync("<html><body><script>window.top.location.href = '/Account/Login';</script></body></html>");
+                await context.Response.WriteAsync("<html><body><script>window.top.location.href = '/Account/Suspended';</script></body></html>");
                 return;
             }
 
             var targetBaseUrl = tenant.TargetAspUrl;
 
-            // URL表記ブレ補正
             var uri = new Uri(targetBaseUrl);
             string absolutePath = uri.AbsolutePath;
 
@@ -71,7 +68,6 @@ namespace DotNetBridge.Services
 
             targetBaseUrl = $"{uri.Scheme}://{uri.Host}:{uri.Port}{absolutePath}";
 
-            // 3. 接続先URLの変更検知
             var lastTargetUrl = context.Session.GetString("LastTargetAspUrl");
             if (!string.IsNullOrEmpty(lastTargetUrl) && lastTargetUrl != targetBaseUrl)
             {
@@ -91,7 +87,6 @@ namespace DotNetBridge.Services
                 path = "login.html";
             }
 
-            // --- パス正規化ロジック ---
             while (true)
             {
                 var prevPath = path;
@@ -120,7 +115,6 @@ namespace DotNetBridge.Services
             using var client = _httpClientFactory.CreateClient("NoRedirectClient");
             using var upstreamRequest = new HttpRequestMessage(new HttpMethod(context.Request.Method), targetUri);
 
-            // --- 1. リクエストヘッダー転送 ---
             foreach (var header in context.Request.Headers)
             {
                 var key = header.Key;
@@ -147,7 +141,6 @@ namespace DotNetBridge.Services
                 upstreamRequest.Headers.TryAddWithoutValidation(key, header.Value.ToArray());
             }
 
-            // --- 2. リクエストボディ転送 ---
             if (HttpMethods.IsPost(context.Request.Method) ||
                 HttpMethods.IsPut(context.Request.Method) ||
                 HttpMethods.IsPatch(context.Request.Method))
@@ -164,7 +157,6 @@ namespace DotNetBridge.Services
                 upstreamRequest.Content = streamContent;
             }
 
-            // --- 3. 通信実行 ---
             HttpResponseMessage upstreamResponse;
             try
             {
@@ -175,7 +167,6 @@ namespace DotNetBridge.Services
                 return;
             }
 
-            // --- 4. レスポンスヘッダー転送 ---
             context.Response.StatusCode = (int)upstreamResponse.StatusCode;
 
             foreach (var header in upstreamResponse.Headers)
@@ -204,7 +195,6 @@ namespace DotNetBridge.Services
                 context.Response.Headers[key] = header.Value.ToArray();
             }
 
-            // --- 5. レスポンス処理 ---
             var contentType = upstreamResponse.Content.Headers.ContentType?.ToString() ?? string.Empty;
 
             bool isHtml = contentType.Contains("text/html", StringComparison.OrdinalIgnoreCase);

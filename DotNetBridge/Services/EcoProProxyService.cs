@@ -62,32 +62,43 @@ namespace DotNetBridge.Services
 
             targetBaseUrl = $"{uri.Scheme}://{uri.Host}:{uri.Port}{absolutePath}";
 
-            var path = context.Request.Path.Value?.TrimStart('/') ?? string.Empty;
-            if (string.IsNullOrEmpty(path))
+            string reqPath = context.Request.Path.Value?.TrimStart('/') ?? string.Empty;
+            if (string.IsNullOrEmpty(reqPath))
             {
-                path = "login.html";
+                reqPath = "login.html";
             }
 
-            // --- 候補URLリスト（自動フォールバック階層）の生成 ---
-            var candidateUris = new List<string>();
-            candidateUris.Add(targetBaseUrl + path + context.Request.QueryString.Value);
-
+            // --- 階層補正：候補URLリストの生成 ---
             string schemeHostPort = $"{uri.Scheme}://{uri.Host}:{uri.Port}";
             string pathOnly = uri.AbsolutePath.Trim('/');
             var segments = pathOnly.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            string baseFirstSegment = segments.FirstOrDefault() ?? "";
 
+            var candidateUris = new List<string>();
+
+            // リクエストパスがルートディレクトリ名（EcoHHCDemo等）から始まっている場合
+            if (!string.IsNullOrEmpty(baseFirstSegment) && reqPath.StartsWith(baseFirstSegment, StringComparison.OrdinalIgnoreCase))
+            {
+                candidateUris.Add($"{schemeHostPort}/{reqPath}{context.Request.QueryString.Value}");
+            }
+
+            // 標準結合（例: .../main/PrintDaily/...）
+            candidateUris.Add(targetBaseUrl + reqPath + context.Request.QueryString.Value);
+
+            // 親階層結合（例: .../EcoHHCDemo/PrintDaily/...）★帳票系の本命
             for (int i = segments.Length - 1; i >= 0; i--)
             {
                 string subPath = string.Join('/', segments.Take(i));
                 if (!string.IsNullOrEmpty(subPath)) subPath += "/";
-                string altUri = $"{schemeHostPort}/{subPath}{path}{context.Request.QueryString.Value}";
+                string altUri = $"{schemeHostPort}/{subPath}{reqPath}{context.Request.QueryString.Value}";
                 if (!candidateUris.Contains(altUri))
                 {
                     candidateUris.Add(altUri);
                 }
             }
 
-            string rootUri = $"{schemeHostPort}/{path}{context.Request.QueryString.Value}";
+            // ルート直下結合
+            string rootUri = $"{schemeHostPort}/{reqPath}{context.Request.QueryString.Value}";
             if (!candidateUris.Contains(rootUri))
             {
                 candidateUris.Add(rootUri);
@@ -172,6 +183,7 @@ namespace DotNetBridge.Services
 
             // 4. レスポンスヘッダー転送
             context.Response.StatusCode = (int)upstreamResponse.StatusCode;
+            var proxyOrigin = $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}";
 
             foreach (var header in upstreamResponse.Headers)
             {
@@ -186,6 +198,16 @@ namespace DotNetBridge.Services
                         return Regex.Replace(c, @"Path=[^;]+;?", "Path=/;", RegexOptions.IgnoreCase);
                     }).ToArray();
                     context.Response.Headers[key] = modifiedCookies;
+                    continue;
+                }
+
+                if (key.Equals("Location", StringComparison.OrdinalIgnoreCase))
+                {
+                    var loc = header.Value.FirstOrDefault() ?? "";
+                    loc = loc.Replace($"https://{uri.Host}", proxyOrigin)
+                             .Replace($"http://{uri.Host}", proxyOrigin)
+                             .Replace($"//{uri.Host}", proxyOrigin.Replace("https:", "").Replace("http:", ""));
+                    context.Response.Headers[key] = loc;
                     continue;
                 }
 
@@ -215,12 +237,9 @@ namespace DotNetBridge.Services
 
                 var textContent = encoding.GetString(rawBytes);
 
-                var proxyOrigin = $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}";
-                var targetHost = uri.Host;
-
-                textContent = textContent.Replace($"https://{targetHost}", proxyOrigin)
-                                         .Replace($"http://{targetHost}", proxyOrigin)
-                                         .Replace($"//{targetHost}", proxyOrigin.Replace("https:", "").Replace("http:", ""))
+                textContent = textContent.Replace($"https://{uri.Host}", proxyOrigin)
+                                         .Replace($"http://{uri.Host}", proxyOrigin)
+                                         .Replace($"//{uri.Host}", proxyOrigin.Replace("https:", "").Replace("http:", ""))
                                          .Replace("https://hhc-eco1.com", proxyOrigin)
                                          .Replace("http://hhc-eco1.com", proxyOrigin)
                                          .Replace("//hhc-eco1.com", proxyOrigin.Replace("https:", "").Replace("http:", ""));

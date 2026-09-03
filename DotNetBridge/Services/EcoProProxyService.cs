@@ -63,28 +63,37 @@ namespace DotNetBridge.Services
                 reqPath = "login.html";
             }
 
-            // --- 3. スマートパス判定 (帳票も通常画面も1発直撃) ---
+            // --- 3. 正確なルーティング判定 (main階層の保持) ---
             string targetUri;
 
             if (!string.IsNullOrEmpty(appRootName) && reqPath.StartsWith(appRootName, StringComparison.OrdinalIgnoreCase))
             {
+                // すでにルートアプリ名が入っている場合 (例: EcoHHCDemo/Report/...)
                 targetUri = $"{schemeHostPort}/{reqPath}{context.Request.QueryString.Value}";
             }
-            else if (reqPath.Contains('/'))
+            else
             {
                 var firstDir = reqPath.Split('/')[0];
-                if (firstDir.Equals("main", StringComparison.OrdinalIgnoreCase))
+
+                // 本家の AppRoot (/EcoHHCDemo/) 直下に存在する特定フォルダ群
+                if (firstDir.Equals("Report", StringComparison.OrdinalIgnoreCase) ||
+                    firstDir.Equals("PrintDaily", StringComparison.OrdinalIgnoreCase) ||
+                    firstDir.Equals("Mobile60_Hyojun", StringComparison.OrdinalIgnoreCase))
                 {
                     targetUri = appRootUrl + reqPath + context.Request.QueryString.Value;
                 }
                 else
                 {
-                    targetUri = appRootUrl + reqPath + context.Request.QueryString.Value;
+                    // 上記以外の通常画面 (Check/..., Master/..., main/... 等) はすべて targetBaseUrl (.../main/) に結合
+                    if (reqPath.StartsWith("main/", StringComparison.OrdinalIgnoreCase))
+                    {
+                        targetUri = appRootUrl + reqPath + context.Request.QueryString.Value;
+                    }
+                    else
+                    {
+                        targetUri = targetBaseUrl + reqPath + context.Request.QueryString.Value;
+                    }
                 }
-            }
-            else
-            {
-                targetUri = targetBaseUrl + reqPath + context.Request.QueryString.Value;
             }
 
             // POSTリクエストボディの取得
@@ -103,7 +112,7 @@ namespace DotNetBridge.Services
 
             var proxyOrigin = $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}";
 
-            // --- 4. リクエストヘッダー転送（IIS完全互換Cookie整形） ---
+            // --- 4. リクエストヘッダー転送 ---
             foreach (var header in context.Request.Headers)
             {
                 var key = header.Key;
@@ -116,7 +125,6 @@ namespace DotNetBridge.Services
                     continue;
                 }
 
-                // Cookie ヘッダーを重複なくセミコロン区切りで本家へ渡す
                 if (key.Equals("Cookie", StringComparison.OrdinalIgnoreCase))
                 {
                     var cookieValues = header.Value
@@ -166,7 +174,7 @@ namespace DotNetBridge.Services
                 return;
             }
 
-            // --- 5. レスポンスヘッダー転送（Set-Cookieの1行ずつ独立返却） ---
+            // --- 5. レスポンスヘッダー転送 ---
             context.Response.StatusCode = (int)upstreamResponse.StatusCode;
 
             foreach (var header in upstreamResponse.Headers)
@@ -174,7 +182,6 @@ namespace DotNetBridge.Services
                 var key = header.Key;
                 if (HopByHopHeaders.Contains(key.ToLowerInvariant())) continue;
 
-                // 複数の Set-Cookie を独立したヘッダーとして追加
                 if (key.Equals("Set-Cookie", StringComparison.OrdinalIgnoreCase))
                 {
                     foreach (var cookie in header.Value)

@@ -110,7 +110,7 @@ forwardedHeadersOptions.KnownProxies.Clear();
 
 app.UseForwardedHeaders(forwardedHeadersOptions);
 
-// 起動時に DB テーブルが存在しなければ自動生成
+// 起動時に DB テーブルおよびカラムの補正を自動実行
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<PaymentDbContext>();
@@ -120,6 +120,11 @@ using (var scope = app.Services.CreateScope())
     fusenDb.Database.EnsureCreated();
 
     var subDb = scope.ServiceProvider.GetRequiredService<SubscriptionDbContext>();
+    
+    // 1. 基本テーブルの自動生成（SystemSettingsテーブル等を追加）
+    subDb.Database.EnsureCreated();
+
+    // 2. 既存の TenantSubscriptions テーブル作成（未存在時）
     subDb.Database.ExecuteSqlRaw(@"
         CREATE TABLE IF NOT EXISTS ""TenantSubscriptions"" (
             ""Id"" INTEGER NOT NULL CONSTRAINT ""PK_TenantSubscriptions"" PRIMARY KEY AUTOINCREMENT,
@@ -128,9 +133,20 @@ using (var scope = app.Services.CreateScope())
             ""StripeCustomerId"" TEXT NULL,
             ""StripeSubscriptionId"" TEXT NULL,
             ""IsActive"" INTEGER NOT NULL,
+            ""PaidAt"" TEXT NOT NULL DEFAULT '0001-01-01 00:00:00',
             ""CreatedAt"" TEXT NOT NULL
         );
     ");
+
+    // 3. 既存のテーブルに PaidAt カラムが存在しない場合の救済（エラー無視）
+    try
+    {
+        subDb.Database.ExecuteSqlRaw(@"ALTER TABLE ""TenantSubscriptions"" ADD COLUMN ""PaidAt"" TEXT NOT NULL DEFAULT '0001-01-01 00:00:00';");
+    }
+    catch
+    {
+        // 既に PaidAt カラムが存在する場合は何も行わない
+    }
 }        
 
 app.UseStaticFiles();
@@ -170,7 +186,6 @@ app.Use(async (context, next) =>
         context.Response.Redirect("/Account/Login");
         return;
     }
-
 
     var dispatcher = context.RequestServices.GetRequiredService<ProxyDispatcher>();
     await dispatcher.DispatchAsync(context);

@@ -42,7 +42,7 @@ namespace DotNetBridge.Services
 
             var targetBaseUrl = tenant.TargetAspUrl;
 
-            // URL構造解析 (例: http://hhc-eco13.com/EcoHHCDemo/main/)
+            // URL構造解析
             var uri = new Uri(targetBaseUrl);
             string schemeHostPort = $"{uri.Scheme}://{uri.Host}:{uri.Port}";
             
@@ -63,7 +63,7 @@ namespace DotNetBridge.Services
                 reqPath = "login.html";
             }
 
-            // --- 3. スマートパス判定 (一番良かったコードの条件分岐を精密化) ---
+            // --- 3. スマートパス判定 ---
             string targetUri;
 
             if (!string.IsNullOrEmpty(appRootName) && reqPath.StartsWith(appRootName, StringComparison.OrdinalIgnoreCase))
@@ -72,40 +72,19 @@ namespace DotNetBridge.Services
             }
             else if (reqPath.Contains('/'))
             {
-                var firstDir = reqPath.Split('/')[0].ToLowerInvariant();
-
-                // アプリルート(/EcoHHCDemo/) 直下に存在するフォルダ群
-                var rootFolders = new[] { "report", "printdaily", "mobile60_hyojun", "icon", "css", "img", "images", "js" };
-
-                if (rootFolders.Contains(firstDir))
+                var firstDir = reqPath.Split('/')[0];
+                if (firstDir.Equals("main", StringComparison.OrdinalIgnoreCase))
                 {
                     targetUri = appRootUrl + reqPath + context.Request.QueryString.Value;
                 }
                 else
                 {
-                    // 業務画面フォルダ (Check/, Master/, main/ 等) はすべて targetBaseUrl (.../main/) に結合
-                    if (reqPath.StartsWith("main/", StringComparison.OrdinalIgnoreCase))
-                    {
-                        targetUri = appRootUrl + reqPath + context.Request.QueryString.Value;
-                    }
-                    else
-                    {
-                        targetUri = targetBaseUrl + reqPath + context.Request.QueryString.Value;
-                    }
+                    targetUri = appRootUrl + reqPath + context.Request.QueryString.Value;
                 }
             }
             else
             {
-                // 単一ファイル名や静的ファイル
-                var ext = Path.GetExtension(reqPath)?.ToLowerInvariant() ?? "";
-                if (ext == ".css" || ext == ".png" || ext == ".jpg" || ext == ".svg" || ext == ".js")
-                {
-                    targetUri = appRootUrl + reqPath + context.Request.QueryString.Value;
-                }
-                else
-                {
-                    targetUri = targetBaseUrl + reqPath + context.Request.QueryString.Value;
-                }
+                targetUri = targetBaseUrl + reqPath + context.Request.QueryString.Value;
             }
 
             // POSTリクエストボディの取得
@@ -124,7 +103,7 @@ namespace DotNetBridge.Services
 
             var proxyOrigin = $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}";
 
-            // --- 4. リクエストヘッダー転送（一番良かったクッキー整形処理をそのまま維持） ---
+            // --- 4. リクエストヘッダー転送（IIS互換Cookie成形） ---
             foreach (var header in context.Request.Headers)
             {
                 var key = header.Key;
@@ -137,21 +116,17 @@ namespace DotNetBridge.Services
                     continue;
                 }
 
+                // Cookie ヘッダーを IIS が確実に認識できるセミコロン区切りに統一
                 if (key.Equals("Cookie", StringComparison.OrdinalIgnoreCase))
                 {
                     var cookieValues = header.Value
                         .SelectMany(v => v.Split(';'))
                         .Select(c => c.Trim())
-                        .Where(c => !string.IsNullOrEmpty(c) &&
-                                    !c.StartsWith(".AspNetCore", StringComparison.OrdinalIgnoreCase) &&
-                                    !c.StartsWith("Session", StringComparison.OrdinalIgnoreCase))
+                        .Where(c => !string.IsNullOrEmpty(c))
                         .Distinct();
 
-                    if (cookieValues.Any())
-                    {
-                        string formattedCookie = string.Join("; ", cookieValues);
-                        upstreamRequest.Headers.TryAddWithoutValidation("Cookie", formattedCookie);
-                    }
+                    string formattedCookie = string.Join("; ", cookieValues);
+                    upstreamRequest.Headers.TryAddWithoutValidation("Cookie", formattedCookie);
                     continue;
                 }
 

@@ -163,13 +163,13 @@ app.Use(async (context, next) =>
         await next();
         return;
     }
-    /*プロキシ作成中だけ一時的にGoogleログインオフ
+    
     if (context.User.Identity?.IsAuthenticated != true)
     {
         context.Response.Redirect("/Account/Login");
         return;
     }
-    */
+
 
     var dispatcher = context.RequestServices.GetRequiredService<ProxyDispatcher>();
     await dispatcher.DispatchAsync(context);

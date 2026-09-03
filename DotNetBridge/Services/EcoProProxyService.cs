@@ -24,8 +24,14 @@ namespace DotNetBridge.Services
 
         public async Task ProcessProxyAsync(HttpContext context)
         {
-            // 1. 一時テスト用：メールアドレスを直接固定（ログイン省略）
-            var userEmail = "yoshi.trd865@gmail.com";
+            // 1. Googleログイン情報からメールアドレスを取得
+            var userEmail = context.User.FindFirst(ClaimTypes.Email)?.Value;
+
+            if (string.IsNullOrEmpty(userEmail))
+            {
+             context.Response.Redirect("/Account/Login");
+            return;
+            }
 
             // 2. DBを参照し接続先URLを取得
             var db = context.RequestServices.GetRequiredService<SubscriptionDbContext>();

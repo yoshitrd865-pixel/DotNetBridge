@@ -26,16 +26,6 @@ namespace DotNetBridge.Services
         {
             // 1. 一時テスト用：メールアドレスを直接固定（ログイン省略）
             var userEmail = "yoshi.trd865@gmail.com";
-            /*
-            var userEmail = context.User.FindFirst(ClaimTypes.Email)?.Value 
-                            ?? context.User.Identity?.Name;
-
-            if (string.IsNullOrEmpty(userEmail))
-            {
-                context.Response.Redirect("/Account/Login");
-                return;
-            }
-            */
 
             // 2. DBを参照し接続先URLを取得
             var db = context.RequestServices.GetRequiredService<SubscriptionDbContext>();
@@ -52,7 +42,7 @@ namespace DotNetBridge.Services
 
             var targetBaseUrl = tenant.TargetAspUrl;
 
-            // URL表記ブレ補正：末尾をディレクトリ化
+            // URL表記ブレ補正
             var uri = new Uri(targetBaseUrl);
             string absolutePath = uri.AbsolutePath;
 
@@ -163,11 +153,13 @@ namespace DotNetBridge.Services
                 context.Response.Headers[key] = header.Value.ToArray();
             }
 
-            // --- 5. ECOPRO専用レスポンス処理 ---
+            // --- 5. ドメイン完全置換レスポンス処理 ---
             var contentType = upstreamResponse.Content.Headers.ContentType?.ToString() ?? string.Empty;
-            bool isHtml = contentType.Contains("text/html", StringComparison.OrdinalIgnoreCase);
+            bool isText = contentType.Contains("text/html", StringComparison.OrdinalIgnoreCase) ||
+                         contentType.Contains("javascript", StringComparison.OrdinalIgnoreCase) ||
+                         contentType.Contains("text/css", StringComparison.OrdinalIgnoreCase);
 
-            if (isHtml)
+            if (isText)
             {
                 var rawBytes = await upstreamResponse.Content.ReadAsByteArrayAsync();
                 
@@ -175,55 +167,21 @@ namespace DotNetBridge.Services
                 try { encoding = Encoding.GetEncoding(932); }
                 catch { encoding = Encoding.UTF8; }
 
-                var htmlContent = encoding.GetString(rawBytes);
+                var textContent = encoding.GetString(rawBytes);
 
-                // ドメインおよび直リンクの強制補正
+                // プロキシのOrigin（https://tfk-env.onrender.com 等）
                 var proxyOrigin = $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}";
-                
-                htmlContent = htmlContent.Replace("https://hhc-eco1.com", "https://hhc-eco11.com")
-                                         .Replace("http://hhc-eco1.com", "https://hhc-eco11.com")
-                                         .Replace("//hhc-eco1.com", "//hhc-eco11.com");
+                var targetHost = uri.Host; // hhc-eco13.com 等
 
-                // 本家フルURLが埋め込まれている箇所をプロキシOriginに書き換え
-                htmlContent = htmlContent.Replace(targetBaseUrl.TrimEnd('/'), proxyOrigin);
+                // 本家ドメインのフルURL表現をすべてプロキシドメインへ置換（Same-Originの維持）
+                textContent = textContent.Replace($"https://{targetHost}", proxyOrigin)
+                                         .Replace($"http://{targetHost}", proxyOrigin)
+                                         .Replace($"//{targetHost}", proxyOrigin.Replace("https:", "").Replace("http:", ""))
+                                         .Replace("https://hhc-eco1.com", proxyOrigin)
+                                         .Replace("http://hhc-eco1.com", proxyOrigin)
+                                         .Replace("//hhc-eco1.com", proxyOrigin.Replace("https:", "").Replace("http:", ""));
 
-                // 静的リソースは本家から読み込ませ、HTMLナビゲーションのみプロキシに閉じ込めるスクリプト
-                string injectionScript = $@"
-    <base href=""{targetBaseUrl}"">
-    <script>
-        (function() {{
-            const proxyOrigin = '{proxyOrigin}';
-            
-            document.addEventListener('DOMContentLoaded', function() {{
-                // 1. フォームの送信先をプロキシ経由に固定
-                document.querySelectorAll('form').forEach(f => {{
-                    let act = f.getAttribute('action');
-                    if (act && !act.startsWith('http') && !act.startsWith('//')) {{
-                        f.action = proxyOrigin + (act.startsWith('/') ? '' : '/') + act;
-                    }}
-                }});
-
-                // 2. リンク（aタグ）の画面遷移をプロキシ宛てに補正
-                document.querySelectorAll('a').forEach(a => {{
-                    let href = a.getAttribute('href');
-                    if (href && !href.startsWith('http') && !href.startsWith('javascript:') && !href.startsWith('#')) {{
-                        a.href = proxyOrigin + (href.startsWith('/') ? '' : '/') + href;
-                    }}
-                }});
-            }});
-        }})();
-    </script>";
-
-                if (htmlContent.Contains("<head>", StringComparison.OrdinalIgnoreCase))
-                {
-                    htmlContent = Regex.Replace(htmlContent, "(<head[^>]*>)", $"$1\n{injectionScript}", RegexOptions.IgnoreCase);
-                }
-                else
-                {
-                    htmlContent = injectionScript + "\n" + htmlContent;
-                }
-
-                var modifiedBytes = encoding.GetBytes(htmlContent);
+                var modifiedBytes = encoding.GetBytes(textContent);
                 context.Response.ContentLength = modifiedBytes.Length;
                 await context.Response.Body.WriteAsync(modifiedBytes, 0, modifiedBytes.Length);
             }

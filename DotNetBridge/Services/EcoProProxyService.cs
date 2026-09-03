@@ -42,7 +42,7 @@ namespace DotNetBridge.Services
 
             var targetBaseUrl = tenant.TargetAspUrl;
 
-            // URL構造解析
+            // URL構造解析 (例: http://hhc-eco13.com/EcoHHCDemo/main/)
             var uri = new Uri(targetBaseUrl);
             string schemeHostPort = $"{uri.Scheme}://{uri.Host}:{uri.Port}";
             
@@ -63,7 +63,7 @@ namespace DotNetBridge.Services
                 reqPath = "login.html";
             }
 
-            // --- 3. スマートパス判定 ---
+            // --- 3. スマートパス判定 (帳票も通常画面も1発直撃) ---
             string targetUri;
 
             if (!string.IsNullOrEmpty(appRootName) && reqPath.StartsWith(appRootName, StringComparison.OrdinalIgnoreCase))
@@ -103,7 +103,7 @@ namespace DotNetBridge.Services
 
             var proxyOrigin = $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}";
 
-            // --- 4. リクエストヘッダー転送（セッションクッキーの完全保持） ---
+            // --- 4. リクエストヘッダー転送（IIS完全互換Cookie整形） ---
             foreach (var header in context.Request.Headers)
             {
                 var key = header.Key;
@@ -116,20 +116,21 @@ namespace DotNetBridge.Services
                     continue;
                 }
 
-                // プロキシ内部用クッキーのみ除外して、全ASPSESSIONIDを無加工で本家IISへ通過させる
+                // Cookie ヘッダーを重複なくセミコロン区切りで本家へ渡す
                 if (key.Equals("Cookie", StringComparison.OrdinalIgnoreCase))
                 {
-                    var validCookies = header.Value.ToString()
-                        .Split(';')
+                    var cookieValues = header.Value
+                        .SelectMany(v => v.Split(';'))
                         .Select(c => c.Trim())
                         .Where(c => !string.IsNullOrEmpty(c) &&
                                     !c.StartsWith(".AspNetCore", StringComparison.OrdinalIgnoreCase) &&
                                     !c.StartsWith("Session", StringComparison.OrdinalIgnoreCase))
-                        .ToList();
+                        .Distinct();
 
-                    if (validCookies.Any())
+                    if (cookieValues.Any())
                     {
-                        upstreamRequest.Headers.TryAddWithoutValidation("Cookie", string.Join("; ", validCookies));
+                        string formattedCookie = string.Join("; ", cookieValues);
+                        upstreamRequest.Headers.TryAddWithoutValidation("Cookie", formattedCookie);
                     }
                     continue;
                 }
@@ -165,7 +166,7 @@ namespace DotNetBridge.Services
                 return;
             }
 
-            // --- 5. レスポンスヘッダー転送（Set-Cookieの独立追加） ---
+            // --- 5. レスポンスヘッダー転送（Set-Cookieの1行ずつ独立返却） ---
             context.Response.StatusCode = (int)upstreamResponse.StatusCode;
 
             foreach (var header in upstreamResponse.Headers)
@@ -173,7 +174,7 @@ namespace DotNetBridge.Services
                 var key = header.Key;
                 if (HopByHopHeaders.Contains(key.ToLowerInvariant())) continue;
 
-                // 複数Set-Cookieの崩れを防ぐため Append で個別ヘッダー化
+                // 複数の Set-Cookie を独立したヘッダーとして追加
                 if (key.Equals("Set-Cookie", StringComparison.OrdinalIgnoreCase))
                 {
                     foreach (var cookie in header.Value)

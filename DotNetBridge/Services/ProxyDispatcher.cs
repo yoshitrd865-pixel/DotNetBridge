@@ -45,8 +45,8 @@ namespace DotNetBridge.Services
             var path = context.Request.Path.Value ?? string.Empty;
 
             // 3. TargetAspUrl または リクエストパスに "mobile60" が含まれているかで判定
-            bool isEcoMaster = targetBaseUrl.Contains("mobile60", StringComparison.OrdinalIgnoreCase) ||
-                               path.Contains("mobile60", StringComparison.OrdinalIgnoreCase);
+            // 【変更後】リクエストパスに惑わされず、DBの TargetAspUrl のみで完全分離
+            bool isEcoMaster = targetBaseUrl.Contains("mobile60", StringComparison.OrdinalIgnoreCase);
 
             if (isEcoMaster)
             {

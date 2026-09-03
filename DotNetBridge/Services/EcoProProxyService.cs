@@ -63,49 +63,48 @@ namespace DotNetBridge.Services
                 reqPath = "login.html";
             }
 
-            // --- 3. ルーティング & フォールバック候補の生成 ---
-            var candidateUris = new List<string>();
-            var ext = Path.GetExtension(reqPath)?.ToLowerInvariant() ?? "";
-            
-            // 静的アセット（CSS, JS, 画像）の判定
-            bool isStaticAsset = ext == ".css" || ext == ".js" || ext == ".png" || ext == ".jpg" || 
-                                 ext == ".jpeg" || ext == ".gif" || ext == ".svg" || ext == ".ico" || 
-                                 ext == ".woff" || ext == ".woff2" || ext == ".ttf";
-
-            string firstDir = reqPath.Contains('/') ? reqPath.Split('/')[0] : "";
-
-            // 本家 AppRoot (/EcoHHCDemo/) 直下に存在するフォルダ群
-            var rootFolders = new[] { 
-                "report", "printdaily", "mobile60_hyojun", 
-                "icon", "css", "img", "images", "js" 
-            };
+            // --- 3. スマートパス判定 (一番良かったコードの条件分岐を精密化) ---
+            string targetUri;
 
             if (!string.IsNullOrEmpty(appRootName) && reqPath.StartsWith(appRootName, StringComparison.OrdinalIgnoreCase))
             {
-                candidateUris.Add($"{schemeHostPort}/{reqPath}{context.Request.QueryString.Value}");
+                targetUri = $"{schemeHostPort}/{reqPath}{context.Request.QueryString.Value}";
             }
-            else if (!string.IsNullOrEmpty(firstDir) && rootFolders.Contains(firstDir.ToLowerInvariant()))
+            else if (reqPath.Contains('/'))
             {
-                // AppRoot 直下フォルダ (icon/, Css/, Report/ 等)
-                candidateUris.Add(appRootUrl + reqPath + context.Request.QueryString.Value);
-                candidateUris.Add(targetBaseUrl + reqPath + context.Request.QueryString.Value);
-            }
-            else if (isStaticAsset)
-            {
-                // ルート直下の CSS/JS/画像など
-                candidateUris.Add(appRootUrl + reqPath + context.Request.QueryString.Value);
-                candidateUris.Add(targetBaseUrl + reqPath + context.Request.QueryString.Value);
-            }
-            else
-            {
-                // 通常のASP画面 (Check/..., Master/..., FrameMain.asp 等)
-                if (reqPath.StartsWith("main/", StringComparison.OrdinalIgnoreCase))
+                var firstDir = reqPath.Split('/')[0].ToLowerInvariant();
+
+                // アプリルート(/EcoHHCDemo/) 直下に存在するフォルダ群
+                var rootFolders = new[] { "report", "printdaily", "mobile60_hyojun", "icon", "css", "img", "images", "js" };
+
+                if (rootFolders.Contains(firstDir))
                 {
-                    candidateUris.Add(appRootUrl + reqPath + context.Request.QueryString.Value);
+                    targetUri = appRootUrl + reqPath + context.Request.QueryString.Value;
                 }
                 else
                 {
-                    candidateUris.Add(targetBaseUrl + reqPath + context.Request.QueryString.Value);
+                    // 業務画面フォルダ (Check/, Master/, main/ 等) はすべて targetBaseUrl (.../main/) に結合
+                    if (reqPath.StartsWith("main/", StringComparison.OrdinalIgnoreCase))
+                    {
+                        targetUri = appRootUrl + reqPath + context.Request.QueryString.Value;
+                    }
+                    else
+                    {
+                        targetUri = targetBaseUrl + reqPath + context.Request.QueryString.Value;
+                    }
+                }
+            }
+            else
+            {
+                // 単一ファイル名や静的ファイル
+                var ext = Path.GetExtension(reqPath)?.ToLowerInvariant() ?? "";
+                if (ext == ".css" || ext == ".png" || ext == ".jpg" || ext == ".svg" || ext == ".js")
+                {
+                    targetUri = appRootUrl + reqPath + context.Request.QueryString.Value;
+                }
+                else
+                {
+                    targetUri = targetBaseUrl + reqPath + context.Request.QueryString.Value;
                 }
             }
 
@@ -121,94 +120,74 @@ namespace DotNetBridge.Services
             }
 
             using var client = _httpClientFactory.CreateClient("NoRedirectClient");
-            HttpResponseMessage upstreamResponse = null;
+            using var upstreamRequest = new HttpRequestMessage(new HttpMethod(context.Request.Method), targetUri);
 
-            // 候補URLを試行（静的アセットの404救出）
-            foreach (var candidateUri in candidateUris)
+            var proxyOrigin = $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}";
+
+            // --- 4. リクエストヘッダー転送（一番良かったクッキー整形処理をそのまま維持） ---
+            foreach (var header in context.Request.Headers)
             {
-                using var upstreamRequest = new HttpRequestMessage(new HttpMethod(context.Request.Method), candidateUri);
-
-                foreach (var header in context.Request.Headers)
+                var key = header.Key;
+                if (key.Equals("Host", StringComparison.OrdinalIgnoreCase) ||
+                    key.Equals("Content-Length", StringComparison.OrdinalIgnoreCase) ||
+                    key.Equals("Accept-Encoding", StringComparison.OrdinalIgnoreCase) ||
+                    key.StartsWith(":", StringComparison.Ordinal) ||
+                    key.Equals("Content-Type", StringComparison.OrdinalIgnoreCase))
                 {
-                    var key = header.Key;
-                    if (key.Equals("Host", StringComparison.OrdinalIgnoreCase) ||
-                        key.Equals("Content-Length", StringComparison.OrdinalIgnoreCase) ||
-                        key.Equals("Accept-Encoding", StringComparison.OrdinalIgnoreCase) ||
-                        key.StartsWith(":", StringComparison.Ordinal) ||
-                        key.Equals("Content-Type", StringComparison.OrdinalIgnoreCase))
-                    {
-                        continue;
-                    }
-
-                    if (key.Equals("Cookie", StringComparison.OrdinalIgnoreCase))
-                    {
-                        var cookieValues = header.Value
-                            .SelectMany(v => v.Split(';'))
-                            .Select(c => c.Trim())
-                            .Where(c => !string.IsNullOrEmpty(c) &&
-                                        !c.StartsWith(".AspNetCore", StringComparison.OrdinalIgnoreCase) &&
-                                        !c.StartsWith("Session", StringComparison.OrdinalIgnoreCase))
-                            .Distinct();
-
-                        if (cookieValues.Any())
-                        {
-                            string formattedCookie = string.Join("; ", cookieValues);
-                            upstreamRequest.Headers.TryAddWithoutValidation("Cookie", formattedCookie);
-                        }
-                        continue;
-                    }
-
-                    if (key.Equals("Referer", StringComparison.OrdinalIgnoreCase) ||
-                        key.Equals("Origin", StringComparison.OrdinalIgnoreCase))
-                    {
-                        var proxyOriginHost = $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}";
-                        var val = header.Value.ToString().Replace(proxyOriginHost, schemeHostPort);
-                        upstreamRequest.Headers.TryAddWithoutValidation(key, val);
-                        continue;
-                    }
-
-                    upstreamRequest.Headers.TryAddWithoutValidation(key, header.Value.ToArray());
+                    continue;
                 }
 
-                if (bodyBytes.Length > 0)
+                if (key.Equals("Cookie", StringComparison.OrdinalIgnoreCase))
                 {
-                    var streamContent = new ByteArrayContent(bodyBytes);
-                    if (context.Request.ContentType != null)
+                    var cookieValues = header.Value
+                        .SelectMany(v => v.Split(';'))
+                        .Select(c => c.Trim())
+                        .Where(c => !string.IsNullOrEmpty(c) &&
+                                    !c.StartsWith(".AspNetCore", StringComparison.OrdinalIgnoreCase) &&
+                                    !c.StartsWith("Session", StringComparison.OrdinalIgnoreCase))
+                        .Distinct();
+
+                    if (cookieValues.Any())
                     {
-                        streamContent.Headers.TryAddWithoutValidation("Content-Type", context.Request.ContentType);
+                        string formattedCookie = string.Join("; ", cookieValues);
+                        upstreamRequest.Headers.TryAddWithoutValidation("Cookie", formattedCookie);
                     }
-                    upstreamRequest.Content = streamContent;
+                    continue;
                 }
 
-                try
+                if (key.Equals("Referer", StringComparison.OrdinalIgnoreCase) ||
+                    key.Equals("Origin", StringComparison.OrdinalIgnoreCase))
                 {
-                    var res = await client.SendAsync(upstreamRequest, HttpCompletionOption.ResponseHeadersRead, context.RequestAborted);
-                    if (res.StatusCode != System.Net.HttpStatusCode.NotFound)
-                    {
-                        upstreamResponse = res;
-                        break;
-                    }
+                    var val = header.Value.ToString().Replace(proxyOrigin, schemeHostPort);
+                    upstreamRequest.Headers.TryAddWithoutValidation(key, val);
+                    continue;
+                }
 
-                    if (candidateUri == candidateUris.Last())
-                    {
-                        upstreamResponse = res;
-                    }
-                    else
-                    {
-                        res.Dispose();
-                    }
-                }
-                catch (TaskCanceledException)
-                {
-                    return;
-                }
+                upstreamRequest.Headers.TryAddWithoutValidation(key, header.Value.ToArray());
             }
 
-            if (upstreamResponse == null) return;
+            if (bodyBytes.Length > 0)
+            {
+                var streamContent = new ByteArrayContent(bodyBytes);
+                if (context.Request.ContentType != null)
+                {
+                    streamContent.Headers.TryAddWithoutValidation("Content-Type", context.Request.ContentType);
+                }
+                upstreamRequest.Content = streamContent;
+            }
 
-            // --- 4. レスポンスヘッダー転送 ---
+            HttpResponseMessage upstreamResponse;
+            try
+            {
+                upstreamResponse = await client.SendAsync(upstreamRequest, HttpCompletionOption.ResponseHeadersRead, context.RequestAborted);
+            }
+            catch (TaskCanceledException)
+            {
+                return;
+            }
+
+            // --- 5. レスポンスヘッダー転送 ---
             context.Response.StatusCode = (int)upstreamResponse.StatusCode;
-            var proxyOrigin = $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}";
 
             foreach (var header in upstreamResponse.Headers)
             {
@@ -217,7 +196,7 @@ namespace DotNetBridge.Services
 
                 if (key.Equals("Set-Cookie", StringComparison.OrdinalIgnoreCase))
                 {
-                    foreach (var cookie in header.Value)
+                    var modifiedCookies = header.Value.Select(cookie =>
                     {
                         var c = Regex.Replace(cookie, @"Domain=[^;]+;?", string.Empty, RegexOptions.IgnoreCase);
                         c = Regex.Replace(c, @"Path=[^;]+;?", "Path=/;", RegexOptions.IgnoreCase);
@@ -225,8 +204,9 @@ namespace DotNetBridge.Services
                         {
                             c += "; SameSite=Lax";
                         }
-                        context.Response.Headers.Append("Set-Cookie", c);
-                    }
+                        return c;
+                    }).ToArray();
+                    context.Response.Headers[key] = modifiedCookies;
                     continue;
                 }
 
@@ -253,7 +233,7 @@ namespace DotNetBridge.Services
                 context.Response.Headers[key] = header.Value.ToArray();
             }
 
-            // --- 5. レスポンス本文処理 ---
+            // --- 6. レスポンス本文処理 ---
             var contentType = upstreamResponse.Content.Headers.ContentType?.ToString() ?? string.Empty;
             bool isText = contentType.Contains("text/html", StringComparison.OrdinalIgnoreCase) ||
                          contentType.Contains("javascript", StringComparison.OrdinalIgnoreCase) ||

@@ -20,31 +20,29 @@ namespace DotNetBridge.Services
             // 1. ログイン中のGoogleメールアドレスを取得
             var userEmail = context.User.FindFirst(ClaimTypes.Email)?.Value 
                             ?? context.User.Identity?.Name;
-            
-            
 
             if (string.IsNullOrEmpty(userEmail))
             {
-                context.Response.Redirect("/Account/Login");
+                context.Response.ContentType = "text/html; charset=utf-8";
+                await context.Response.WriteAsync("<html><body><script>window.top.location.href = '/Account/Login';</script></body></html>");
                 return;
             }
 
-            // 2. 元コードと同じ SubscriptionDbContext から契約状態を取得
+            // 2. SubscriptionDbContext から契約状態を取得
             var db = context.RequestServices.GetRequiredService<SubscriptionDbContext>();
             var tenant = await db.TenantSubscriptions
                 .FirstOrDefaultAsync(t => t.GoogleEmail == userEmail);
 
             if (tenant == null || !tenant.IsActive || string.IsNullOrEmpty(tenant.TargetAspUrl))
             {
-                context.Response.Redirect("/Account/Login");
+                context.Response.ContentType = "text/html; charset=utf-8";
+                await context.Response.WriteAsync("<html><body><script>window.top.location.href = '/Account/Login';</script></body></html>");
                 return;
             }
 
             var targetBaseUrl = tenant.TargetAspUrl;
-            var path = context.Request.Path.Value ?? string.Empty;
 
-            // 3. TargetAspUrl または リクエストパスに "mobile60" が含まれているかで判定
-            // 【変更後】リクエストパスに惑わされず、DBの TargetAspUrl のみで完全分離
+            // 3. DBの TargetAspUrl のみでシステム判定
             bool isEcoMaster = targetBaseUrl.Contains("mobile60", StringComparison.OrdinalIgnoreCase);
 
             if (isEcoMaster)

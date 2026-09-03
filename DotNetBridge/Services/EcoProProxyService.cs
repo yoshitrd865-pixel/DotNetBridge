@@ -25,12 +25,14 @@ namespace DotNetBridge.Services
         public async Task ProcessProxyAsync(HttpContext context)
         {
             // 1. Googleログイン情報からメールアドレスを取得
-            var userEmail = context.User.FindFirst(ClaimTypes.Email)?.Value;
+            var userEmail = context.User.FindFirst(ClaimTypes.Email)?.Value
+                            ?? context.User.Identity?.Name;
 
             if (string.IsNullOrEmpty(userEmail))
             {
-             context.Response.Redirect("/Account/Login");
-            return;
+                context.Response.ContentType = "text/html; charset=utf-8";
+                await context.Response.WriteAsync("<html><body><script>window.top.location.href = '/Account/Login';</script></body></html>");
+                return;
             }
 
             // 2. DBを参照し接続先URLを取得
@@ -42,7 +44,8 @@ namespace DotNetBridge.Services
             {
                 await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
                 context.Session.Clear();
-                context.Response.Redirect("/Account/Login");
+                context.Response.ContentType = "text/html; charset=utf-8";
+                await context.Response.WriteAsync("<html><body><script>window.top.location.href = '/Account/Login';</script></body></html>");
                 return;
             }
 
@@ -122,7 +125,6 @@ namespace DotNetBridge.Services
                     continue;
                 }
 
-                // Cookie ヘッダーを IIS が確実に認識できるセミコロン区切りに統一
                 if (key.Equals("Cookie", StringComparison.OrdinalIgnoreCase))
                 {
                     var cookieValues = header.Value

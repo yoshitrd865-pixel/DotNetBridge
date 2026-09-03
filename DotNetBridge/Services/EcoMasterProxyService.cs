@@ -24,38 +24,34 @@ namespace DotNetBridge.Services
 
         public async Task ProcessProxyAsync(HttpContext context)
         {
-            // ★ 1. ログイン中のGoogleメールアドレスを取得
+            // 1. ログイン中のGoogleメールアドレスを取得
             var userEmail = context.User.FindFirst(ClaimTypes.Email)?.Value 
                             ?? context.User.Identity?.Name;
 
             if (string.IsNullOrEmpty(userEmail))
             {
-                context.Response.Redirect("/Account/Login");
+                context.Response.ContentType = "text/html; charset=utf-8";
+                await context.Response.WriteAsync("<html><body><script>window.top.location.href = '/Account/Login';</script></body></html>");
                 return;
             }
 
-            // ★ 2. 毎リクエストごとにDBを参照し、最新の契約状態と接続先URLを取得
+            // 2. 毎リクエストごとにDBを参照し契約状態と接続先URLを取得
             var db = context.RequestServices.GetRequiredService<SubscriptionDbContext>();
             var tenant = await db.TenantSubscriptions
                 .FirstOrDefaultAsync(t => t.GoogleEmail == userEmail);
 
-            if (tenant == null || !tenant.IsActive)
+            if (tenant == null || !tenant.IsActive || string.IsNullOrEmpty(tenant.TargetAspUrl))
             {
                 await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
                 context.Session.Clear();
-                context.Response.Redirect("/Account/Login");
+                context.Response.ContentType = "text/html; charset=utf-8";
+                await context.Response.WriteAsync("<html><body><script>window.top.location.href = '/Account/Login';</script></body></html>");
                 return;
             }
 
             var targetBaseUrl = tenant.TargetAspUrl;
 
-            if (string.IsNullOrEmpty(targetBaseUrl))
-            {
-                context.Response.Redirect("/Account/Login");
-                return;
-            }
-
-            // ★ URL表記ブレ補正：末尾にファイル名（.html, .asp 等）があれば自動除去してディレクトリパス化
+            // URL表記ブレ補正
             var uri = new Uri(targetBaseUrl);
             string absolutePath = uri.AbsolutePath;
 
@@ -75,7 +71,7 @@ namespace DotNetBridge.Services
 
             targetBaseUrl = $"{uri.Scheme}://{uri.Host}:{uri.Port}{absolutePath}";
 
-            // ★ 3. 接続先URLの変更検知
+            // 3. 接続先URLの変更検知
             var lastTargetUrl = context.Session.GetString("LastTargetAspUrl");
             if (!string.IsNullOrEmpty(lastTargetUrl) && lastTargetUrl != targetBaseUrl)
             {
@@ -228,20 +224,16 @@ namespace DotNetBridge.Services
                                          .Replace("http://hhc-eco1.com", "https://hhc-eco11.com")
                                          .Replace("//hhc-eco1.com", "//hhc-eco11.com");
 
-                // ★ システム判定: mobile60 が含まれる場合のみ EcoMaster（現場）と判定
                 bool isEcoMaster = targetBaseUrl.Contains("mobile60", StringComparison.OrdinalIgnoreCase);
 
-                // ★ <base> タグの動的分岐
                 string baseTag;
                 if (isEcoMaster)
                 {
-                    // EcoMaster（現場）: プロキシドメイン宛て
                     var proxyBaseUrl = $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}/";
                     baseTag = $"<base href=\"{proxyBaseUrl}\">";
                 }
                 else
                 {
-                    // ECOPRO（事務所）: 本家ターゲットURL宛て（/css/ や /Inc/ 等のリソース404を解消）
                     baseTag = $"<base href=\"{targetBaseUrl}\">";
                 }
 
@@ -254,7 +246,6 @@ namespace DotNetBridge.Services
                     htmlContent = baseTag + htmlContent;
                 }
 
-                // ★ EcoMaster 専用の PWA & JS 注入処理
                 if (isEcoMaster)
                 {
                     if (htmlContent.Contains("</head>", StringComparison.OrdinalIgnoreCase))

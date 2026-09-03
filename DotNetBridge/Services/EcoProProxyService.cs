@@ -42,25 +42,20 @@ namespace DotNetBridge.Services
 
             var targetBaseUrl = tenant.TargetAspUrl;
 
-            // URL表記ブレ補正
+            // URL構造解析 (例: http://hhc-eco13.com/EcoHHCDemo/main/)
             var uri = new Uri(targetBaseUrl);
-            string absolutePath = uri.AbsolutePath;
+            string schemeHostPort = $"{uri.Scheme}://{uri.Host}:{uri.Port}";
+            
+            var segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            string appRootName = segments.FirstOrDefault() ?? ""; // 例: EcoHHCDemo
+            string appRootUrl = !string.IsNullOrEmpty(appRootName) 
+                ? $"{schemeHostPort}/{appRootName}/" 
+                : $"{schemeHostPort}/";
 
-            if (Path.HasExtension(absolutePath))
+            if (!targetBaseUrl.EndsWith("/"))
             {
-                int lastSlash = absolutePath.LastIndexOf('/');
-                if (lastSlash >= 0)
-                {
-                    absolutePath = absolutePath.Substring(0, lastSlash + 1);
-                }
+                targetBaseUrl += "/";
             }
-
-            if (!absolutePath.EndsWith("/"))
-            {
-                absolutePath += "/";
-            }
-
-            targetBaseUrl = $"{uri.Scheme}://{uri.Host}:{uri.Port}{absolutePath}";
 
             string reqPath = context.Request.Path.Value?.TrimStart('/') ?? string.Empty;
             if (string.IsNullOrEmpty(reqPath))
@@ -68,43 +63,32 @@ namespace DotNetBridge.Services
                 reqPath = "login.html";
             }
 
-            // --- 階層補正：候補URLリストの生成 ---
-            string schemeHostPort = $"{uri.Scheme}://{uri.Host}:{uri.Port}";
-            string pathOnly = uri.AbsolutePath.Trim('/');
-            var segments = pathOnly.Split('/', StringSplitOptions.RemoveEmptyEntries);
-            string baseFirstSegment = segments.FirstOrDefault() ?? "";
+            // --- 3. スマートパス判定 (1発で本家の正しいURLを自動生成) ---
+            string targetUri;
 
-            var candidateUris = new List<string>();
-
-            // リクエストパスがルートディレクトリ名（EcoHHCDemo等）から始まっている場合
-            if (!string.IsNullOrEmpty(baseFirstSegment) && reqPath.StartsWith(baseFirstSegment, StringComparison.OrdinalIgnoreCase))
+            if (!string.IsNullOrEmpty(appRootName) && reqPath.StartsWith(appRootName, StringComparison.OrdinalIgnoreCase))
             {
-                candidateUris.Add($"{schemeHostPort}/{reqPath}{context.Request.QueryString.Value}");
+                // すでにルート名が入っている場合 (例: EcoHHCDemo/Report/...)
+                targetUri = $"{schemeHostPort}/{reqPath}{context.Request.QueryString.Value}";
             }
-
-            // 親階層結合（例: .../EcoHHCDemo/PrintDaily/...）★帳票・レポート処理の最優先候補
-            for (int i = segments.Length - 1; i >= 0; i--)
+            else if (reqPath.Contains('/'))
             {
-                string subPath = string.Join('/', segments.Take(i));
-                if (!string.IsNullOrEmpty(subPath)) subPath += "/";
-                string altUri = $"{schemeHostPort}/{subPath}{reqPath}{context.Request.QueryString.Value}";
-                if (!candidateUris.Contains(altUri))
+                // サブフォルダ指定がある場合 (例: PrintDaily/..., Mobile60_Hyojun/..., icon/...)
+                var firstDir = reqPath.Split('/')[0];
+                if (firstDir.Equals("main", StringComparison.OrdinalIgnoreCase))
                 {
-                    candidateUris.Add(altUri);
+                    targetUri = appRootUrl + reqPath + context.Request.QueryString.Value;
+                }
+                else
+                {
+                    // main以外のフォルダはすべて AppRoot 直下に結合
+                    targetUri = appRootUrl + reqPath + context.Request.QueryString.Value;
                 }
             }
-
-            // 標準結合（例: .../main/...）
-            if (!candidateUris.Contains(targetBaseUrl + reqPath + context.Request.QueryString.Value))
+            else
             {
-                candidateUris.Add(targetBaseUrl + reqPath + context.Request.QueryString.Value);
-            }
-
-            // ルート直下結合
-            string rootUri = $"{schemeHostPort}/{reqPath}{context.Request.QueryString.Value}";
-            if (!candidateUris.Contains(rootUri))
-            {
-                candidateUris.Add(rootUri);
+                // 単一ファイル名の場合 (例: FrameMain.asp) -> targetBaseUrl (.../main/) に結合
+                targetUri = targetBaseUrl + reqPath + context.Request.QueryString.Value;
             }
 
             // POSTリクエストボディの取得
@@ -119,72 +103,52 @@ namespace DotNetBridge.Services
             }
 
             using var client = _httpClientFactory.CreateClient("NoRedirectClient");
-            HttpResponseMessage upstreamResponse = null;
+            using var upstreamRequest = new HttpRequestMessage(new HttpMethod(context.Request.Method), targetUri);
 
-            // 3. 候補URLを順番に通信試行（404なら親階層へフォールバック）
-            foreach (var candidateUri in candidateUris)
+            // --- 4. リクエストヘッダー転送 (Cookie・Session保持) ---
+            foreach (var header in context.Request.Headers)
             {
-                var upstreamRequest = new HttpRequestMessage(new HttpMethod(context.Request.Method), candidateUri);
-
-                foreach (var header in context.Request.Headers)
+                var key = header.Key;
+                if (key.Equals("Host", StringComparison.OrdinalIgnoreCase) ||
+                    key.Equals("Content-Length", StringComparison.OrdinalIgnoreCase) ||
+                    key.Equals("Accept-Encoding", StringComparison.OrdinalIgnoreCase) ||
+                    key.StartsWith(":", StringComparison.Ordinal) ||
+                    key.Equals("Content-Type", StringComparison.OrdinalIgnoreCase))
                 {
-                    var key = header.Key;
-                    if (key.Equals("Host", StringComparison.OrdinalIgnoreCase) ||
-                        key.Equals("Content-Length", StringComparison.OrdinalIgnoreCase) ||
-                        key.Equals("Accept-Encoding", StringComparison.OrdinalIgnoreCase) ||
-                        key.StartsWith(":", StringComparison.Ordinal) ||
-                        key.Equals("Content-Type", StringComparison.OrdinalIgnoreCase))
-                    {
-                        continue;
-                    }
-
-                    if (key.Equals("Referer", StringComparison.OrdinalIgnoreCase) ||
-                        key.Equals("Origin", StringComparison.OrdinalIgnoreCase))
-                    {
-                        upstreamRequest.Headers.TryAddWithoutValidation(key, targetBaseUrl);
-                        continue;
-                    }
-
-                    upstreamRequest.Headers.TryAddWithoutValidation(key, header.Value.ToArray());
+                    continue;
                 }
 
-                if (bodyBytes.Length > 0)
+                if (key.Equals("Referer", StringComparison.OrdinalIgnoreCase) ||
+                    key.Equals("Origin", StringComparison.OrdinalIgnoreCase))
                 {
-                    var streamContent = new ByteArrayContent(bodyBytes);
-                    if (context.Request.ContentType != null)
-                    {
-                        streamContent.Headers.TryAddWithoutValidation("Content-Type", context.Request.ContentType);
-                    }
-                    upstreamRequest.Content = streamContent;
+                    upstreamRequest.Headers.TryAddWithoutValidation(key, targetBaseUrl);
+                    continue;
                 }
 
-                try
-                {
-                    var res = await client.SendAsync(upstreamRequest, HttpCompletionOption.ResponseHeadersRead, context.RequestAborted);
-                    if (res.StatusCode != System.Net.HttpStatusCode.NotFound)
-                    {
-                        upstreamResponse = res;
-                        break;
-                    }
-
-                    if (candidateUri == candidateUris.Last())
-                    {
-                        upstreamResponse = res;
-                    }
-                    else
-                    {
-                        res.Dispose();
-                    }
-                }
-                catch (TaskCanceledException)
-                {
-                    return;
-                }
+                upstreamRequest.Headers.TryAddWithoutValidation(key, header.Value.ToArray());
             }
 
-            if (upstreamResponse == null) return;
+            if (bodyBytes.Length > 0)
+            {
+                var streamContent = new ByteArrayContent(bodyBytes);
+                if (context.Request.ContentType != null)
+                {
+                    streamContent.Headers.TryAddWithoutValidation("Content-Type", context.Request.ContentType);
+                }
+                upstreamRequest.Content = streamContent;
+            }
 
-            // 4. レスポンスヘッダー転送
+            HttpResponseMessage upstreamResponse;
+            try
+            {
+                upstreamResponse = await client.SendAsync(upstreamRequest, HttpCompletionOption.ResponseHeadersRead, context.RequestAborted);
+            }
+            catch (TaskCanceledException)
+            {
+                return;
+            }
+
+            // --- 5. レスポンスヘッダー転送 ---
             context.Response.StatusCode = (int)upstreamResponse.StatusCode;
             var proxyOrigin = $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}";
 
@@ -193,7 +157,6 @@ namespace DotNetBridge.Services
                 var key = header.Key;
                 if (HopByHopHeaders.Contains(key.ToLowerInvariant())) continue;
 
-                // セッション維持のための Set-Cookie 補正（Path=/ および SameSite=Lax の補正）
                 if (key.Equals("Set-Cookie", StringComparison.OrdinalIgnoreCase))
                 {
                     var modifiedCookies = header.Value.Select(cookie =>
@@ -210,7 +173,6 @@ namespace DotNetBridge.Services
                     continue;
                 }
 
-                // リダイレクトLocationのプロキシドメイン置換
                 if (key.Equals("Location", StringComparison.OrdinalIgnoreCase))
                 {
                     var loc = header.Value.FirstOrDefault() ?? "";
@@ -234,7 +196,7 @@ namespace DotNetBridge.Services
                 context.Response.Headers[key] = header.Value.ToArray();
             }
 
-            // 5. ドメイン完全置換レスポンス処理
+            // --- 6. レスポンス本文処理 ---
             var contentType = upstreamResponse.Content.Headers.ContentType?.ToString() ?? string.Empty;
             bool isText = contentType.Contains("text/html", StringComparison.OrdinalIgnoreCase) ||
                          contentType.Contains("javascript", StringComparison.OrdinalIgnoreCase) ||

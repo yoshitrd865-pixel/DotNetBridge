@@ -180,7 +180,8 @@ namespace DotNetBridge.Services
                                          .Replace("//hhc-eco1.com", "//hhc-eco11.com");
 
                 // ECOPRO用 <base> タグ差し込み（本家サーバー宛てにしてCSS/画像崩れを防止）
-                string baseTag = $"<base href=\"{targetBaseUrl}\">";
+                var proxyBaseUrl = $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}/";
+                string baseTag = $"<base href=\"{proxyBaseUrl}\">";
                 if (htmlContent.Contains("<head>", StringComparison.OrdinalIgnoreCase))
                 {
                     htmlContent = Regex.Replace(htmlContent, "(<head[^>]*>)", $"$1\n    {baseTag}", RegexOptions.IgnoreCase);

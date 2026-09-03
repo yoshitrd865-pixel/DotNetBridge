@@ -103,7 +103,7 @@ namespace DotNetBridge.Services
 
             var proxyOrigin = $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}";
 
-            // --- 4. リクエストヘッダー転送（IIS互換Cookie成形） ---
+            // --- 4. リクエストヘッダー転送（ASPSESSIONID重複浄化ロジック） ---
             foreach (var header in context.Request.Headers)
             {
                 var key = header.Key;
@@ -116,17 +116,42 @@ namespace DotNetBridge.Services
                     continue;
                 }
 
-                // Cookie ヘッダーを IIS が確実に認識できるセミコロン区切りに統一
+                // クッキーの分解と重複・不要項目のフィルタリング
                 if (key.Equals("Cookie", StringComparison.OrdinalIgnoreCase))
                 {
-                    var cookieValues = header.Value
+                    var rawCookies = header.Value
                         .SelectMany(v => v.Split(';'))
                         .Select(c => c.Trim())
                         .Where(c => !string.IsNullOrEmpty(c))
-                        .Distinct();
+                        .ToList();
 
-                    string formattedCookie = string.Join("; ", cookieValues);
-                    upstreamRequest.Headers.TryAddWithoutValidation("Cookie", formattedCookie);
+                    // ASPSESSIONIDで始まるクッキーの抽出
+                    var aspSessionCookies = rawCookies
+                        .Where(c => c.StartsWith("ASPSESSIONID", StringComparison.OrdinalIgnoreCase))
+                        .ToList();
+
+                    // プロキシ（ASP.NET Core）側の内部クッキーを除外
+                    var otherCookies = rawCookies
+                        .Where(c => !c.StartsWith("ASPSESSIONID", StringComparison.OrdinalIgnoreCase) &&
+                                    !c.StartsWith(".AspNetCore", StringComparison.OrdinalIgnoreCase) &&
+                                    !c.StartsWith("Session", StringComparison.OrdinalIgnoreCase))
+                        .ToList();
+
+                    var finalCookies = new List<string>();
+
+                    // 複数のASPSESSIONIDが存在する場合、末尾（最新）の1つだけを採用
+                    if (aspSessionCookies.Any())
+                    {
+                        finalCookies.Add(aspSessionCookies.Last());
+                    }
+
+                    finalCookies.AddRange(otherCookies);
+
+                    if (finalCookies.Any())
+                    {
+                        string formattedCookie = string.Join("; ", finalCookies);
+                        upstreamRequest.Headers.TryAddWithoutValidation("Cookie", formattedCookie);
+                    }
                     continue;
                 }
 

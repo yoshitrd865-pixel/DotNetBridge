@@ -2,10 +2,10 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.Google;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Infrastructure; // ★ 追加 (GetService 用)
-using Microsoft.EntityFrameworkCore.Storage;        // ★ 追加 (IRelationalDatabaseCreator 用)
-using Microsoft.Extensions.DependencyInjection;     // ★ 追加 (CreateScope 用)
-using System.Linq;                                 // ★ 追加 (.Any() 用)
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Storage;
+using Microsoft.Extensions.DependencyInjection;
+using System.Linq;
 using DotNetBridge.Services;
 using DotNetBridge.Data;
 
@@ -30,13 +30,11 @@ builder.Services.AddDataProtection()
     .PersistKeysToFileSystem(new DirectoryInfo(@"./keys"));
 
 builder.Services.AddControllersWithViews();
-//プロキシサービスから、エコプロ／エコマスターように分ける
-// builder.Services.AddScoped<ProxyService>();
 builder.Services.AddScoped<EcoMasterProxyService>();
 builder.Services.AddScoped<EcoProProxyService>();
 builder.Services.AddScoped<ProxyDispatcher>();
 
-// ★ セッション機能の追加（Googleログイン時の会社専用URL保持に必須）
+// ★ セッション機能の追加
 builder.Services.AddSession(options =>
 {
     options.IdleTimeout = TimeSpan.FromHours(8);
@@ -44,10 +42,12 @@ builder.Services.AddSession(options =>
     options.Cookie.IsEssential = true;
 });
 
+// ★ HttpClientがクッキー(ASPSESSIONID)を自動削除しないよう UseCookies = false を設定
 builder.Services.AddHttpClient("NoRedirectClient", client => { })
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
     {
-        AllowAutoRedirect = false
+        AllowAutoRedirect = false,
+        UseCookies = false
     });
 
 // --- 認証設定 ---
@@ -63,8 +63,22 @@ builder.Services.AddAuthentication(options =>
         options.Cookie.SameSite = SameSiteMode.Lax;
         options.Cookie.HttpOnly = true;
         options.SlidingExpiration = true;
+
+        // ★ 追記：プロキシ通信中のエラーで勝手にログイン画面へ飛ばされるのを防止
+        options.Events.OnRedirectToLogin = ctx =>
+        {
+            if (ctx.Request.Path.StartsWithSegments("/Account"))
+            {
+                ctx.Response.Redirect(ctx.RedirectUri);
+            }
+            else
+            {
+                ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            }
+            return Task.CompletedTask;
+        };
     })
-    .AddGoogle(options => // ★ Google 認証設定
+    .AddGoogle(options =>
     {
         options.ClientId = builder.Configuration["GOOGLE_CLIENT_ID"] ?? "";
         options.ClientSecret = builder.Configuration["GOOGLE_CLIENT_SECRET"] ?? "";
@@ -73,15 +87,13 @@ builder.Services.AddAuthentication(options =>
 // Render の PORT 環境変数を読み込む
 builder.WebHost.UseUrls($"http://*:{Environment.GetEnvironmentVariable("PORT") ?? "8080"}");
 
-// SQLite の接続設定 appsetting.jsonに本番のLinux環境のパスが書いてあります。
+// SQLite の接続設定
 builder.Services.AddDbContext<PaymentDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("PaymentConnection")));
 
-// (独立した fusen.db を作成) appsetting.jsonに本番のLinux環境のパスが書いてあります。
 builder.Services.AddDbContext<FusenDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("FusenConnection")));
 
-// ★ サブスク＆Googleアカウント管理用DB (SubscriptionDbContext) を追加
 builder.Services.AddDbContext<SubscriptionDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("SubscriptionConnection") 
         ?? builder.Configuration.GetConnectionString("PaymentConnection")));
@@ -93,7 +105,6 @@ var forwardedHeadersOptions = new ForwardedHeadersOptions
 {
     ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto
 };
-// Renderからのプロキシヘッダーを無条件で信頼する設定
 forwardedHeadersOptions.KnownNetworks.Clear();
 forwardedHeadersOptions.KnownProxies.Clear();
 
@@ -102,35 +113,30 @@ app.UseForwardedHeaders(forwardedHeadersOptions);
 // 起動時に DB テーブルが存在しなければ自動生成
 using (var scope = app.Services.CreateScope())
 {
-    // 既存の決済用DB初期化
     var db = scope.ServiceProvider.GetRequiredService<PaymentDbContext>();
     db.Database.EnsureCreated();
 
-    // 付箋用DB初期化
     var fusenDb = scope.ServiceProvider.GetRequiredService<FusenDbContext>();
     fusenDb.Database.EnsureCreated();
 
-    // ★ サブスク・Googleアカウント管理用DBの初期化
-        var subDb = scope.ServiceProvider.GetRequiredService<SubscriptionDbContext>();
-
-        // ★ 既存DBファイルがあっても TenantSubscriptions テーブルを確実に生成
-        subDb.Database.ExecuteSqlRaw(@"
-            CREATE TABLE IF NOT EXISTS ""TenantSubscriptions"" (
-                ""Id"" INTEGER NOT NULL CONSTRAINT ""PK_TenantSubscriptions"" PRIMARY KEY AUTOINCREMENT,
-                ""GoogleEmail"" TEXT NOT NULL,
-                ""TargetAspUrl"" TEXT NOT NULL,
-                ""StripeCustomerId"" TEXT NULL,
-                ""StripeSubscriptionId"" TEXT NULL,
-                ""IsActive"" INTEGER NOT NULL,
-                ""CreatedAt"" TEXT NOT NULL
-            );
-        ");
+    var subDb = scope.ServiceProvider.GetRequiredService<SubscriptionDbContext>();
+    subDb.Database.ExecuteSqlRaw(@"
+        CREATE TABLE IF NOT EXISTS ""TenantSubscriptions"" (
+            ""Id"" INTEGER NOT NULL CONSTRAINT ""PK_TenantSubscriptions"" PRIMARY KEY AUTOINCREMENT,
+            ""GoogleEmail"" TEXT NOT NULL,
+            ""TargetAspUrl"" TEXT NOT NULL,
+            ""StripeCustomerId"" TEXT NULL,
+            ""StripeSubscriptionId"" TEXT NULL,
+            ""IsActive"" INTEGER NOT NULL,
+            ""CreatedAt"" TEXT NOT NULL
+        );
+    ");
 }        
 
-app.UseStaticFiles(); // wwwroot配下の配信を許可
+app.UseStaticFiles();
 app.UseRouting();
 
-app.UseSession(); // ★ セッションミドルウェアを追加（UseRoutingとUseAuthenticationの間に配置）
+app.UseSession();
 
 app.UseAuthentication();
 app.UseAuthorization();
@@ -147,7 +153,6 @@ app.Use(async (context, next) =>
 {
     var path = context.Request.Path;
 
-    // /success、/cancel、および Google 認証コールバック (/signin-google) をプロキシから除外
     if (path.StartsWithSegments("/Account", StringComparison.OrdinalIgnoreCase) ||
         path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase) ||
         path.StartsWithSegments("/admin", StringComparison.OrdinalIgnoreCase) ||

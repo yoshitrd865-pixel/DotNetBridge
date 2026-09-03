@@ -82,10 +82,7 @@ namespace DotNetBridge.Services
                 candidateUris.Add($"{schemeHostPort}/{reqPath}{context.Request.QueryString.Value}");
             }
 
-            // 標準結合（例: .../main/PrintDaily/...）
-            candidateUris.Add(targetBaseUrl + reqPath + context.Request.QueryString.Value);
-
-            // 親階層結合（例: .../EcoHHCDemo/PrintDaily/...）★帳票系の本命
+            // 親階層結合（例: .../EcoHHCDemo/PrintDaily/...）★帳票・レポート処理の最優先候補
             for (int i = segments.Length - 1; i >= 0; i--)
             {
                 string subPath = string.Join('/', segments.Take(i));
@@ -95,6 +92,12 @@ namespace DotNetBridge.Services
                 {
                     candidateUris.Add(altUri);
                 }
+            }
+
+            // 標準結合（例: .../main/...）
+            if (!candidateUris.Contains(targetBaseUrl + reqPath + context.Request.QueryString.Value))
+            {
+                candidateUris.Add(targetBaseUrl + reqPath + context.Request.QueryString.Value);
             }
 
             // ルート直下結合
@@ -190,23 +193,33 @@ namespace DotNetBridge.Services
                 var key = header.Key;
                 if (HopByHopHeaders.Contains(key.ToLowerInvariant())) continue;
 
+                // セッション維持のための Set-Cookie 補正（Path=/ および SameSite=Lax の補正）
                 if (key.Equals("Set-Cookie", StringComparison.OrdinalIgnoreCase))
                 {
                     var modifiedCookies = header.Value.Select(cookie =>
                     {
                         var c = Regex.Replace(cookie, @"Domain=[^;]+;?", string.Empty, RegexOptions.IgnoreCase);
-                        return Regex.Replace(c, @"Path=[^;]+;?", "Path=/;", RegexOptions.IgnoreCase);
+                        c = Regex.Replace(c, @"Path=[^;]+;?", "Path=/;", RegexOptions.IgnoreCase);
+                        if (!c.Contains("SameSite", StringComparison.OrdinalIgnoreCase))
+                        {
+                            c += "; SameSite=Lax";
+                        }
+                        return c;
                     }).ToArray();
                     context.Response.Headers[key] = modifiedCookies;
                     continue;
                 }
 
+                // リダイレクトLocationのプロキシドメイン置換
                 if (key.Equals("Location", StringComparison.OrdinalIgnoreCase))
                 {
                     var loc = header.Value.FirstOrDefault() ?? "";
                     loc = loc.Replace($"https://{uri.Host}", proxyOrigin)
                              .Replace($"http://{uri.Host}", proxyOrigin)
-                             .Replace($"//{uri.Host}", proxyOrigin.Replace("https:", "").Replace("http:", ""));
+                             .Replace($"//{uri.Host}", proxyOrigin.Replace("https:", "").Replace("http:", ""))
+                             .Replace("https://hhc-eco1.com", proxyOrigin)
+                             .Replace("http://hhc-eco1.com", proxyOrigin)
+                             .Replace("//hhc-eco1.com", proxyOrigin.Replace("https:", "").Replace("http:", ""));
                     context.Response.Headers[key] = loc;
                     continue;
                 }

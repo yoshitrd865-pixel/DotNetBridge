@@ -154,6 +154,7 @@ app.Use(async (context, next) =>
     var path = context.Request.Path;
 
     if (path.StartsWithSegments("/Account", StringComparison.OrdinalIgnoreCase) ||
+        path.StartsWithSegments("/Subscription", StringComparison.OrdinalIgnoreCase) ||
         path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase) ||
         path.StartsWithSegments("/admin", StringComparison.OrdinalIgnoreCase) ||
         path.StartsWithSegments("/success", StringComparison.OrdinalIgnoreCase) ||

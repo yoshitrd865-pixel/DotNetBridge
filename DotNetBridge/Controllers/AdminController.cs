@@ -78,7 +78,40 @@ namespace DotNetBridge.Controllers
             var tenants = await _db.TenantSubscriptions
                 .OrderByDescending(t => t.CreatedAt)
                 .ToListAsync();
+
+            // 月額料金設定の取得（未設定時はデフォルト 5000 円）
+            var priceSetting = await _db.SystemSettings.FirstOrDefaultAsync(s => s.Key == "MonthlyPrice");
+            ViewBag.MonthlyPrice = priceSetting?.Value ?? "5000";
+
             return View(tenants);
+        }
+
+        // SaaS利用料金（月額金額）の更新 (/admin/updateprice)
+        [HttpPost("updateprice")]
+        public async Task<IActionResult> UpdatePrice(string monthlyPrice)
+        {
+            if (long.TryParse(monthlyPrice, out long price) && price >= 100)
+            {
+                var setting = await _db.SystemSettings.FirstOrDefaultAsync(s => s.Key == "MonthlyPrice");
+                if (setting == null)
+                {
+                    setting = new SystemSetting { Key = "MonthlyPrice", Value = price.ToString() };
+                    _db.SystemSettings.Add(setting);
+                }
+                else
+                {
+                    setting.Value = price.ToString();
+                }
+
+                await _db.SaveChangesAsync();
+                TempData["Success"] = "月額利用料を更新しました。";
+            }
+            else
+            {
+                TempData["Error"] = "有効な金額を入力してください（100円以上）。";
+            }
+
+            return RedirectToAction(nameof(Index));
         }
 
         // 新規登録・既存編集 (/admin/save)

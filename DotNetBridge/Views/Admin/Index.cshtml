@@ -31,6 +31,21 @@
             <div class="alert alert-danger">@TempData["Error"]</div>
         }
 
+        <!-- SaaS利用料（月額金額）設定エリア -->
+        <div class="card mb-4 border-0 shadow-sm">
+            <div class="card-body bg-white rounded p-3">
+                <h6 class="fw-bold text-secondary mb-2">SaaS利用料（月額金額）設定</h6>
+                <form action="/admin/updateprice" method="post" class="d-flex gap-2 align-items-center" style="max-width: 400px;">
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text">¥</span>
+                        <input type="number" name="monthlyPrice" class="form-control" value="@ViewBag.MonthlyPrice" placeholder="5000" required min="100">
+                        <span class="input-group-text">/ 月 (税込)</span>
+                    </div>
+                    <button type="submit" class="btn btn-sm btn-primary text-nowrap">金額保存</button>
+                </form>
+            </div>
+        </div>
+
         <div class="card shadow-sm">
             <div class="card-body p-0">
                 <table class="table table-hover align-middle mb-0">

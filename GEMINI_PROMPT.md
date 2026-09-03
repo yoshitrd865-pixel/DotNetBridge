@@ -1,17 +1,18 @@
-# Gemini引き継ぎ用初期化プロンプト
-
-以下のコードブロックを次のチャット（Gemini）の冒頭にコピー＆ペーストしてそのままご使用いただけます。
-
-```markdown
-あなたは ASP.NET Core および DotNetBridge プロジェクトの優秀な開発パートナーです。
-これまでの開発経緯と現在の最新ソースコード、フロントエンドモジュール構成を共有しますので、この前提を把握した上で今後の開発サポートをお願いします。
+﻿Gemini引き継ぎ用初期化プロンプト以下のコードブロックを次のチャット（Gemini）の冒頭にコピー＆ペーストしてそのままご使用いただけます。あなたは ASP.NET Core および DotNetBridge プロジェクトの優秀な開発パートナーです。
+これまでの開発経緯と現在の最新ソースコード、プロキシ・フロントエンドモジュール構成を共有しますので、この前提を把握した上で今後の開発サポートをお願いします。
 
 ### 1. プロジェクト概要
-- **システム概要**: ASP.NET Core によるリバースプロキシ ＋ 認証統合（Cookie認証 ＋ Google OAuth 2.0） ＋ クライアントサイド拡張インジェクションシステム
+- **システム概要**: ASP.NET Core によるマルチテナント・リバースプロキシ ＋ 認証統合（Cookie認証 ＋ Google OAuth 2.0） ＋ クライアントサイド拡張インジェクションシステム
 - **動作環境**: Render (Linux環境, ポート変数は PORT 環境変数を使用)
-- **データベース**: SQLite（Render Persistent Disk `/var/data` による永続化: `fusen.db`, `payment.db`）
+- **データベース**: SQLite（Render Persistent Disk `/var/data` による永続化: `fusen.db`, `payment.db`, `subscription.db`）
 
 ### 2. 直近で実装・解決済みの内容
+- **マルチテナント・スマートリバースプロキシ基盤の構築完了**:
+  - **`ProxyDispatcher.cs` による動的ディスパッチ**: ログインユーザーの Google メールアドレス（`ClaimTypes.Email`）から DB (`SubscriptionDbContext`) を検索し、テナントごとの接続先 (`TargetAspUrl`) に応じて `EcoProProxyService` (ECOPRO) と `EcoMasterProxyService` (EcoMaster/mobile60) へ動的振分け。
+  - **スマートパス判定 (404フォールバック全廃)**: 本家IISへの試し打ち（404応答）による `ASPSESSIONID` 破棄事故を完封。`/EcoHHCDemo/` 直下のアセット・帳票フォルダ（`Report/`, `PrintDaily/`, `icon/`, `css/` 等）と `/EcoHHCDemo/main/` 直下の業務画面を事前のパス解析で1発直撃生成。
+  - **IIS互換Cookie成形**: プロキシ内部用クッキー（`.AspNetCore`, `Session`）を分離・除外の上、本家IISが受容できるセミコロン＋スペース（`; `）区切りに統一して透過転送。
+  - **`window.top` による画面全体脱出 & 無限ループ防止**: Classic ASP 特有の `frameset/iframe` 内で認証切れや契約停止（`IsActive == false`）が発生した際、HTTP 302 リダイレクトではなく JavaScript（`window.top.location.href = '/Account/Suspended'`）を出力して画面外枠ごと一括脱出。Google OAuth の自動再認証による無限リダイレクト（白画面ループ）を防ぐため、専用のアカウント停止画面 `/Account/Suspended` へ直接誘導する仕様を確立。
+  - **帳票出力 & CP932 (Shift-JIS) 文字コード保持**: 帳票ポップアップ（`/Report/*.htm`）の Same-Origin 属性を維持し、文字化けやパラメータ破壊を防ぐ相互エンコーディング処理を実装。
 - **クラウド付箋くん（`fusen-kun.js`）のアップデート**:
   - **ハイブリッド画面判定の強化**: UserAgentだけでなくDOM要素（`.ui-page`, `.taskItem`, `.pagetitle`）や `listcheck.asp` の存在を検知し、PCブラウザでスマホUIを開いている場合でも正しくモバイル表示ロジックが動作するよう改善。
   - **UIテーマカラーの統一**: ボタンやヘッダーライン、アクセントカラーを従来のオレンジ系（`#F39C12`）からブランドUIに合わせたブルー系（`#0284C7` / `#007AFF`）に統一（デフォルト付箋カラーは黄色維持）。
@@ -26,7 +27,7 @@
   - Mount path `/var/data` (Size: 1GB) を導入し、再デプロイや再起動でデータが消失しない構成を確立。
   - `Program.cs` の SQLite 接続文字列を `/var/data/fusen.db` および `/var/data/payment.db` に変更。
 - **付箋データの移行完了**: 旧サーバーの本番データ（`hhc-eco11.com_EcoToubuF3` / 21KB）を取得し、`/var/data/fusen.db` への一括移行・永続保存が完了。
-- **Google OAuth 2.0 統合**: `AddGoogle()`、`AccountController` への `GoogleLogin`/`GoogleResponse` アクション実装
+- **Google OAuth 2.0 統合**: `AddGoogle()`、`AccountController` への `GoogleLogin`/`GoogleResponse`/`Suspended` アクション実装
 - **プロキシ除外処理**: `/signin-google`, `/Account`, `/api`, `/admin`, `/success`, `/cancel` をミドルウェアから除外
 - **Render HTTPS / Proxy 対応**: `app.UseForwardedHeaders(...)` を追加し、`redirect_uri_mismatch` (エラー 400) を解消
 - **モバイル UX / レスポンシブ**: `Login.cshtml` の Viewport 設定、レスポンシブデザイン、Google公式風ログインボタン追加
@@ -34,9 +35,12 @@
 - **拡張モジュール群の統合**: `auto-login.js`, `stripe-pay.js`, `continuous-upload.js`, `inspection-warp.js`, `zandaka-copy.js`, `fusen-kun.js`, `clean-autolink.js` のモジュール化と `custom-inject.js` からの動的ロード・ガード制御
 
 ### 3. モジュール設計と役割分担
-- **`settings.js`**: 設定状態の保持（`localStorage`）と設定UI・機能ON/OFFトグルの管理
-- **`router.js`**: URLパス解析とページ判定（`pathname.includes` による堅牢な部分一致）
-- **`custom-inject.js`**: 全体制御ハブ（一括・個別ガードでのモジュール起動、`<body>` 直前インジェクション）
+- **`ProxyDispatcher.cs`**: DBを参照し、マルチテナント判定・プロキシクラスへの振分け・契約停止時の安全なキックアウトを担当。
+- **`EcoProProxyService.cs`**: ECOPRO（事務所用ASP）のスマートパス判定、Cookie成形、CP932エンコーディング変換、ヘッダー/ボディ透過処理を担当。
+- **`EcoMasterProxyService.cs`**: EcoMaster（現場用ASP）のパス正規化、`<base>` タグ挿入、PWA/カスタムJS注入を担当。
+- **`settings.js`**: 設定状態の保持（`localStorage`）と設定UI・機能ON/OFFトグルの管理。
+- **`router.js`**: URLパス解析とページ判定（`pathname.includes` による堅牢な部分一致）。
+- **`custom-inject.js`**: 全体制御ハブ（一括・個別ガードでのモジュール起動、`<body>` 直前インジェクション）。
 - **拡張モジュール一覧**:
   - `auto-login.js` (`auto_login`): 自動ログイン機能
   - `stripe-pay.js` (`hhc_pay_kun`): QR決済・Stripe連携機能
@@ -47,10 +51,15 @@
   - `clean-autolink.js` (`clean_autolink`): 清掃オートリンク機能（点検入力画面から清掃実績/清掃予定を非同期iframe自動連動、検索条件自動リセット、完了通知カード）
 
 ### 4. 重要なノウハウ・開発ガードレール（バグ防止原則）
-- **サーバー側（C#）での代理ログイン実装は絶対厳禁！**: プロキシ基盤（`ProxyService.cs`）は「完全ステートレスな土管」として聖域化し、レガシーASPへのログインやセッション維持はフロントエンド（JS）に100%任せる。
+- **無差別な404フォールバック通信の絶対禁止**: 本家IISへ存在しないURLを送信して404エラーを受け取ると、IIS側で `ASPSESSIONID` が即座に無効化される。送信前にパス形式を厳格に判定し、1発で正確な Target URI を生成すること。
+- **IIS互換Cookie整形の維持**: 本家ASPへリクエストを転送する際、プロキシ自身の内部Cookie（`.AspNetCore`, `Session` 等）は除去し、有効なクッキーは必ず `; `（セミコロン＋スペース）で連結して転送すること。
+- **画面リダイレクト時の `window.top` 徹底**: `frameset/iframe` 内での画面崩れを防ぐため、未認証・契約停止時の脱出は HTTP 302 ではなく `window.top.location.href = '/Account/Suspended'` を使用すること。
+- **契約停止時の転送先制限**: Google OAuth の自動再認証による無限リダイレクトループ（白画面）を回避するため、停止時の転送先は `/Account/Login` ではなく必ず専用の案内画面 `/Account/Suspended` とすること。
+- **CP932 (Shift-JIS) エンコーディング保持**: テキストレスポンス書き換え時はバイナリ破損や文字化けを防ぐため、常に `Encoding.GetEncoding(932)` を基準とすること。
+- **認証情報の動的取得**: コード内にテスト目的のメールアドレスをハードコードせず、常に `context.User.FindFirst(ClaimTypes.Email)?.Value` から動的に取得すること。
+- **サーバー側（C#）での代理ログイン実装は絶対厳禁！**: プロキシ基盤は「完全ステートレスな土管」として聖域化し、レガシーASPへのログインやセッション維持はフロントエンド（JS）に100%任せる。
 - **DOM監視（MutationObserver）の無限ループ・ピクつき防止**: `observeDOM` 下でテキストやDOMを変更する際、要素や親要素に `dataset.copyInjected = "true"` などの処理済みフラグを刻み、再描画・上書きループを完封すること。
 - **非同期通信の同期制御（`async/await` + `iframe.onload`）**: 隠し `iframe` の読み込み完了（`load` イベントの Promise 化）により ASP の POST レスポンス完了を確実・安全に検知し、親画面の予期せぬ遷移切れ（キャンセル）を防ぐこと。
-- **OS/ブラウザ差分（iOS WebKit vs Android Blink）への配慮**: iOS特有の過敏なDOM変化検知に耐えられるよう、`innerHTML` 全置き換えを避け `innerText` 書き換えにとどめること。
 
 ### 5. 最新の主要ファイル構成
 
@@ -63,9 +72,7 @@ using Microsoft.EntityFrameworkCore;
 using DotNetBridge.Services;
 using DotNetBridge.Data;
 
-// Linux環境(Render)での inotify ハンドル上限到達によるエラーを防止
 Environment.SetEnvironmentVariable("DOTNET_USE_POLLING_FILE_WATCHER", "1");
-
 System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
 
 var builder = WebApplication.CreateBuilder(new WebApplicationOptions
@@ -82,7 +89,9 @@ builder.Services.AddDataProtection()
     .PersistKeysToFileSystem(new DirectoryInfo(@"./keys"));
 
 builder.Services.AddControllersWithViews();
-builder.Services.AddScoped<ProxyService>();
+builder.Services.AddScoped<EcoProProxyService>();
+builder.Services.AddScoped<EcoMasterProxyService>();
+builder.Services.AddScoped<ProxyDispatcher>();
 
 builder.Services.AddHttpClient("NoRedirectClient", client => { })
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
@@ -111,12 +120,14 @@ builder.Services.AddAuthentication(options =>
 
 builder.WebHost.UseUrls($"http://*:{Environment.GetEnvironmentVariable("PORT") ?? "8080"}");
 
-// Render Persistent Disk (/var/data) 永続化設定
 builder.Services.AddDbContext<FusenDbContext>(options =>
     options.UseSqlite("Data Source=/var/data/fusen.db"));
 
 builder.Services.AddDbContext<PaymentDbContext>(options =>
     options.UseSqlite("Data Source=/var/data/payment.db"));
+
+builder.Services.AddDbContext<SubscriptionDbContext>(options =>
+    options.UseSqlite("Data Source=/var/data/subscription.db"));
 
 var app = builder.Build();
 
@@ -136,6 +147,9 @@ using (var scope = app.Services.CreateScope())
 
     var paymentDb = scope.ServiceProvider.GetRequiredService<PaymentDbContext>();
     paymentDb.Database.EnsureCreated();
+
+    var subDb = scope.ServiceProvider.GetRequiredService<SubscriptionDbContext>();
+    subDb.Database.EnsureCreated();
 }
 
 app.UseStaticFiles();
@@ -170,62 +184,74 @@ app.Use(async (context, next) =>
         return;
     }
 
-    var proxyService = context.RequestServices.GetRequiredService<ProxyService>();
-    await proxyService.ProcessProxyAsync(context);
+    var dispatcher = context.RequestServices.GetRequiredService<ProxyDispatcher>();
+    await dispatcher.DispatchAsync(context);
 });
 
 app.Run();
-```
 
-#### ② フロントエンド制御アーキテクチャ (`wwwroot/js/`)
-- **`custom-inject.js`**: `ProxyService` により HTML 末尾へ動的注入されるハブスクリプト。`settings.js` から各モジュールの有効/無効状態を読み込み、`router.js` のパス判定結果に応じて各拡張モジュールを動的にインポート・初期化。
-- **`router.js`**: URLパス (`location.pathname`) に基づくページ種別判定を担当。
-- **`settings.js`**: ユーザー設定の `localStorage` 永続化とフローティング設定UIの構築・管理。
+プロジェクトの実際のフォルダ・ファイルツリー構成は以下の通りです。
 
-#### ③ ディレクトリ構造
 ```text
-DotNetBridgeApp/
-├── Dockerfile
-├── PROJECT_SUMMARY.md
-├── GEMINI_PROMPT.md
-└── DotNetBridge/
-    ├── DotNetBridge.csproj
-    ├── Program.cs
-    ├── README.md
-    ├── Controllers/
-    │   ├── AccountController.cs
-    │   ├── FusenApiController.cs
-    │   ├── PaymentAdminController.cs
-    │   └── StripePaymentController.cs
-    ├── Data/
-    │   ├── FusenDbContext.cs
-    │   └── PaymentDbContext.cs
-    ├── Models/
-    │   └── FusenStore.cs
-    ├── Services/
-    │   └── ProxyService.cs
-    ├── Views/
-    │   ├── Account/
-    │   │   └── Login.cshtml
-    │   ├── PaymentAdmin/
-    │   └── StripePayment/
-    │       ├── Success.cshtml
-    │       └── Cancel.cshtml
-    └── wwwroot/
-        └── js/
-            ├── custom-inject.js
-            └── modules/
-                ├── settings.js
-                ├── router.js
-                ├── auto-login.js
-                ├── stripe-pay.js
-                ├── continuous-upload.js
-                ├── inspection-warp.js
-                ├── zandaka-copy.js
-                ├── fusen-kun.js
-                └── clean-autolink.js
+DotNetBridge/
+├── appsettings.Development.json
+├── appsettings.json
+├── DotNetBridge.csproj
+├── fusen.db
+├── payment.db
+├── Program.cs
+├── README.md
+├── Controllers/
+│   ├── AccountController.cs
+│   ├── AdminController.cs
+│   ├── FusenApiController.cs
+│   ├── PaymentAdminController.cs
+│   └── StripePaymentController.cs
+├── Data/
+│   ├── FusenDbContext.cs
+│   ├── PaymentDbContext.cs
+│   └── SubscriptionDbContext.cs
+├── keys/
+│   └── key-f46048a4-a85d-4794-af90-0a8e1c0f99e3.xml
+├── Models/
+│   └── FusenStore.cs
+├── Properties/
+│   └── launchSettings.json
+├── Services/
+│   ├── EcoMasterProxyService.cs
+│   ├── EcoProProxyService.cs
+│   ├── ProxyDispatcher.cs
+│   └── ProxyService.cs.bak
+├── Views/
+│   ├── Account/
+│   │   └── Login.cshtml
+│   ├── Admin/
+│   │   ├── Index.cshtml
+│   │   └── Login.cshtml
+│   ├── PaymentAdmin/
+│   │   └── Index.cshtml
+│   └── StripePayment/
+│       ├── Cancel.cshtml
+│       └── Success.cshtml
+└── wwwroot/
+    ├── icon-192.png
+    ├── icon-512.png
+    ├── manifest.json
+    ├── sw.js
+    ├── js/
+    │   ├── custom-inject.js
+    │   └── modules/
+    │       ├── auto-login.js
+    │       ├── clean-autolink.js
+    │       ├── common.js
+    │       ├── continuous-upload.js
+    │       ├── feature1.js
+    │       ├── fusen-kun.js
+    │       ├── inspection-warp.js
+    │       ├── router.js
+    │       ├── settings.js
+    │       ├── stripe-pay.js
+    │       └── zandaka-copy.js
 ```
 
----
-以上の前提とソースコードを理解したら、「DotNetBridgeの最新状態（清掃オートリンク機能・全モジュール・アーキテクチャ・ガードレール）を完璧に把握しました！次は何を実装・調整しますか？」と短く返答してください。
-```
+                以上の前提とソースコード、最新のリバースプロキシ構成および各種モジュール設計を完璧に理解したら、「DotNetBridgeの最新状態（マルチテナント基盤・清掃オートリンク・全拡張モジュール・ガードレール）を完璧に把握しました！次は何を実装・調整しますか？」と短く返答してください。

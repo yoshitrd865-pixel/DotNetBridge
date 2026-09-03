@@ -30,7 +30,11 @@ builder.Services.AddDataProtection()
     .PersistKeysToFileSystem(new DirectoryInfo(@"./keys"));
 
 builder.Services.AddControllersWithViews();
-builder.Services.AddScoped<ProxyService>();
+//プロキシサービスから、エコプロ／エコマスターように分ける
+// builder.Services.AddScoped<ProxyService>();
+builder.Services.AddScoped<EcoMasterProxyService>();
+builder.Services.AddScoped<EcoProProxyService>();
+builder.Services.AddScoped<ProxyDispatcher>();
 
 // ★ セッション機能の追加（Googleログイン時の会社専用URL保持に必須）
 builder.Services.AddSession(options =>
@@ -161,8 +165,8 @@ app.Use(async (context, next) =>
         return;
     }
 
-    var proxyService = context.RequestServices.GetRequiredService<ProxyService>();
-    await proxyService.ProcessProxyAsync(context);
+    var dispatcher = context.RequestServices.GetRequiredService<ProxyDispatcher>();
+    await dispatcher.DispatchAsync(context);
 });
 
 app.Run();

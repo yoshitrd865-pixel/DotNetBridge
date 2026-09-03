@@ -63,36 +63,49 @@ namespace DotNetBridge.Services
                 reqPath = "login.html";
             }
 
-            // --- 3. 正確なルーティング判定 (main階層の保持) ---
-            string targetUri;
+            // --- 3. ルーティング & フォールバック候補の生成 ---
+            var candidateUris = new List<string>();
+            var ext = Path.GetExtension(reqPath)?.ToLowerInvariant() ?? "";
+            
+            // 静的アセット（CSS, JS, 画像）の判定
+            bool isStaticAsset = ext == ".css" || ext == ".js" || ext == ".png" || ext == ".jpg" || 
+                                 ext == ".jpeg" || ext == ".gif" || ext == ".svg" || ext == ".ico" || 
+                                 ext == ".woff" || ext == ".woff2" || ext == ".ttf";
+
+            string firstDir = reqPath.Contains('/') ? reqPath.Split('/')[0] : "";
+
+            // 本家 AppRoot (/EcoHHCDemo/) 直下に存在するフォルダ群
+            var rootFolders = new[] { 
+                "report", "printdaily", "mobile60_hyojun", 
+                "icon", "css", "img", "images", "js" 
+            };
 
             if (!string.IsNullOrEmpty(appRootName) && reqPath.StartsWith(appRootName, StringComparison.OrdinalIgnoreCase))
             {
-                // すでにルートアプリ名が入っている場合 (例: EcoHHCDemo/Report/...)
-                targetUri = $"{schemeHostPort}/{reqPath}{context.Request.QueryString.Value}";
+                candidateUris.Add($"{schemeHostPort}/{reqPath}{context.Request.QueryString.Value}");
+            }
+            else if (!string.IsNullOrEmpty(firstDir) && rootFolders.Contains(firstDir.ToLowerInvariant()))
+            {
+                // AppRoot 直下フォルダ (icon/, Css/, Report/ 等)
+                candidateUris.Add(appRootUrl + reqPath + context.Request.QueryString.Value);
+                candidateUris.Add(targetBaseUrl + reqPath + context.Request.QueryString.Value);
+            }
+            else if (isStaticAsset)
+            {
+                // ルート直下の CSS/JS/画像など
+                candidateUris.Add(appRootUrl + reqPath + context.Request.QueryString.Value);
+                candidateUris.Add(targetBaseUrl + reqPath + context.Request.QueryString.Value);
             }
             else
             {
-                var firstDir = reqPath.Split('/')[0];
-
-                // 本家の AppRoot (/EcoHHCDemo/) 直下に存在する特定フォルダ群
-                if (firstDir.Equals("Report", StringComparison.OrdinalIgnoreCase) ||
-                    firstDir.Equals("PrintDaily", StringComparison.OrdinalIgnoreCase) ||
-                    firstDir.Equals("Mobile60_Hyojun", StringComparison.OrdinalIgnoreCase))
+                // 通常のASP画面 (Check/..., Master/..., FrameMain.asp 等)
+                if (reqPath.StartsWith("main/", StringComparison.OrdinalIgnoreCase))
                 {
-                    targetUri = appRootUrl + reqPath + context.Request.QueryString.Value;
+                    candidateUris.Add(appRootUrl + reqPath + context.Request.QueryString.Value);
                 }
                 else
                 {
-                    // 上記以外の通常画面 (Check/..., Master/..., main/... 等) はすべて targetBaseUrl (.../main/) に結合
-                    if (reqPath.StartsWith("main/", StringComparison.OrdinalIgnoreCase))
-                    {
-                        targetUri = appRootUrl + reqPath + context.Request.QueryString.Value;
-                    }
-                    else
-                    {
-                        targetUri = targetBaseUrl + reqPath + context.Request.QueryString.Value;
-                    }
+                    candidateUris.Add(targetBaseUrl + reqPath + context.Request.QueryString.Value);
                 }
             }
 
@@ -108,74 +121,94 @@ namespace DotNetBridge.Services
             }
 
             using var client = _httpClientFactory.CreateClient("NoRedirectClient");
-            using var upstreamRequest = new HttpRequestMessage(new HttpMethod(context.Request.Method), targetUri);
+            HttpResponseMessage upstreamResponse = null;
 
-            var proxyOrigin = $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}";
-
-            // --- 4. リクエストヘッダー転送 ---
-            foreach (var header in context.Request.Headers)
+            // 候補URLを試行（静的アセットの404救出）
+            foreach (var candidateUri in candidateUris)
             {
-                var key = header.Key;
-                if (key.Equals("Host", StringComparison.OrdinalIgnoreCase) ||
-                    key.Equals("Content-Length", StringComparison.OrdinalIgnoreCase) ||
-                    key.Equals("Accept-Encoding", StringComparison.OrdinalIgnoreCase) ||
-                    key.StartsWith(":", StringComparison.Ordinal) ||
-                    key.Equals("Content-Type", StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
+                using var upstreamRequest = new HttpRequestMessage(new HttpMethod(context.Request.Method), candidateUri);
 
-                if (key.Equals("Cookie", StringComparison.OrdinalIgnoreCase))
+                foreach (var header in context.Request.Headers)
                 {
-                    var cookieValues = header.Value
-                        .SelectMany(v => v.Split(';'))
-                        .Select(c => c.Trim())
-                        .Where(c => !string.IsNullOrEmpty(c) &&
-                                    !c.StartsWith(".AspNetCore", StringComparison.OrdinalIgnoreCase) &&
-                                    !c.StartsWith("Session", StringComparison.OrdinalIgnoreCase))
-                        .Distinct();
-
-                    if (cookieValues.Any())
+                    var key = header.Key;
+                    if (key.Equals("Host", StringComparison.OrdinalIgnoreCase) ||
+                        key.Equals("Content-Length", StringComparison.OrdinalIgnoreCase) ||
+                        key.Equals("Accept-Encoding", StringComparison.OrdinalIgnoreCase) ||
+                        key.StartsWith(":", StringComparison.Ordinal) ||
+                        key.Equals("Content-Type", StringComparison.OrdinalIgnoreCase))
                     {
-                        string formattedCookie = string.Join("; ", cookieValues);
-                        upstreamRequest.Headers.TryAddWithoutValidation("Cookie", formattedCookie);
+                        continue;
                     }
-                    continue;
+
+                    if (key.Equals("Cookie", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var cookieValues = header.Value
+                            .SelectMany(v => v.Split(';'))
+                            .Select(c => c.Trim())
+                            .Where(c => !string.IsNullOrEmpty(c) &&
+                                        !c.StartsWith(".AspNetCore", StringComparison.OrdinalIgnoreCase) &&
+                                        !c.StartsWith("Session", StringComparison.OrdinalIgnoreCase))
+                            .Distinct();
+
+                        if (cookieValues.Any())
+                        {
+                            string formattedCookie = string.Join("; ", cookieValues);
+                            upstreamRequest.Headers.TryAddWithoutValidation("Cookie", formattedCookie);
+                        }
+                        continue;
+                    }
+
+                    if (key.Equals("Referer", StringComparison.OrdinalIgnoreCase) ||
+                        key.Equals("Origin", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var proxyOriginHost = $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}";
+                        var val = header.Value.ToString().Replace(proxyOriginHost, schemeHostPort);
+                        upstreamRequest.Headers.TryAddWithoutValidation(key, val);
+                        continue;
+                    }
+
+                    upstreamRequest.Headers.TryAddWithoutValidation(key, header.Value.ToArray());
                 }
 
-                if (key.Equals("Referer", StringComparison.OrdinalIgnoreCase) ||
-                    key.Equals("Origin", StringComparison.OrdinalIgnoreCase))
+                if (bodyBytes.Length > 0)
                 {
-                    var val = header.Value.ToString().Replace(proxyOrigin, schemeHostPort);
-                    upstreamRequest.Headers.TryAddWithoutValidation(key, val);
-                    continue;
+                    var streamContent = new ByteArrayContent(bodyBytes);
+                    if (context.Request.ContentType != null)
+                    {
+                        streamContent.Headers.TryAddWithoutValidation("Content-Type", context.Request.ContentType);
+                    }
+                    upstreamRequest.Content = streamContent;
                 }
 
-                upstreamRequest.Headers.TryAddWithoutValidation(key, header.Value.ToArray());
-            }
-
-            if (bodyBytes.Length > 0)
-            {
-                var streamContent = new ByteArrayContent(bodyBytes);
-                if (context.Request.ContentType != null)
+                try
                 {
-                    streamContent.Headers.TryAddWithoutValidation("Content-Type", context.Request.ContentType);
+                    var res = await client.SendAsync(upstreamRequest, HttpCompletionOption.ResponseHeadersRead, context.RequestAborted);
+                    if (res.StatusCode != System.Net.HttpStatusCode.NotFound)
+                    {
+                        upstreamResponse = res;
+                        break;
+                    }
+
+                    if (candidateUri == candidateUris.Last())
+                    {
+                        upstreamResponse = res;
+                    }
+                    else
+                    {
+                        res.Dispose();
+                    }
                 }
-                upstreamRequest.Content = streamContent;
+                catch (TaskCanceledException)
+                {
+                    return;
+                }
             }
 
-            HttpResponseMessage upstreamResponse;
-            try
-            {
-                upstreamResponse = await client.SendAsync(upstreamRequest, HttpCompletionOption.ResponseHeadersRead, context.RequestAborted);
-            }
-            catch (TaskCanceledException)
-            {
-                return;
-            }
+            if (upstreamResponse == null) return;
 
-            // --- 5. レスポンスヘッダー転送 ---
+            // --- 4. レスポンスヘッダー転送 ---
             context.Response.StatusCode = (int)upstreamResponse.StatusCode;
+            var proxyOrigin = $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}";
 
             foreach (var header in upstreamResponse.Headers)
             {
@@ -220,7 +253,7 @@ namespace DotNetBridge.Services
                 context.Response.Headers[key] = header.Value.ToArray();
             }
 
-            // --- 6. レスポンス本文処理 ---
+            // --- 5. レスポンス本文処理 ---
             var contentType = upstreamResponse.Content.Headers.ContentType?.ToString() ?? string.Empty;
             bool isText = contentType.Contains("text/html", StringComparison.OrdinalIgnoreCase) ||
                          contentType.Contains("javascript", StringComparison.OrdinalIgnoreCase) ||

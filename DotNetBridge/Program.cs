@@ -121,7 +121,7 @@ using (var scope = app.Services.CreateScope())
 
     var subDb = scope.ServiceProvider.GetRequiredService<SubscriptionDbContext>();
     
-    // 1. 基本テーブルの自動生成（SystemSettingsテーブル等を追加）
+    // 1. 基本テーブルの自動生成
     subDb.Database.EnsureCreated();
 
     // 2. 既存の TenantSubscriptions テーブル作成（未存在時）
@@ -138,7 +138,16 @@ using (var scope = app.Services.CreateScope())
         );
     ");
 
-    // 3. 既存のテーブルに PaidAt カラムが存在しない場合の救済（エラー無視）
+    // 3. SystemSettings テーブル作成（未存在時に自動生成）
+    subDb.Database.ExecuteSqlRaw(@"
+        CREATE TABLE IF NOT EXISTS ""SystemSettings"" (
+            ""Id"" INTEGER NOT NULL CONSTRAINT ""PK_SystemSettings"" PRIMARY KEY AUTOINCREMENT,
+            ""Key"" TEXT NOT NULL,
+            ""Value"" TEXT NOT NULL
+        );
+    ");
+
+    // 4. 既存の TenantSubscriptions テーブルに PaidAt カラムが存在しない場合の救済（エラー無視）
     try
     {
         subDb.Database.ExecuteSqlRaw(@"ALTER TABLE ""TenantSubscriptions"" ADD COLUMN ""PaidAt"" TEXT NOT NULL DEFAULT '0001-01-01 00:00:00';");

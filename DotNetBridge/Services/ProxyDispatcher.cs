@@ -18,8 +18,11 @@ namespace DotNetBridge.Services
         public async Task DispatchAsync(HttpContext context)
         {
             // 1. ログイン中のGoogleメールアドレスを取得
-            var userEmail = context.User.FindFirst(ClaimTypes.Email)?.Value 
-                            ?? context.User.Identity?.Name;
+            //var userEmail = context.User.FindFirst(ClaimTypes.Email)?.Value 
+            //                ?? context.User.Identity?.Name;
+            // 1. 一時テスト用：メールアドレスを直接固定（ログイン省略）
+            var userEmail = "yoshi.trd865@gmail.com";
+            
 
             if (string.IsNullOrEmpty(userEmail))
             {

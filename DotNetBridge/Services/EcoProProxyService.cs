@@ -42,7 +42,7 @@ namespace DotNetBridge.Services
 
             var targetBaseUrl = tenant.TargetAspUrl;
 
-            // URL構造解析 (例: http://hhc-eco13.com/EcoHHCDemo/main/)
+            // URL構造解析
             var uri = new Uri(targetBaseUrl);
             string schemeHostPort = $"{uri.Scheme}://{uri.Host}:{uri.Port}";
             
@@ -63,17 +63,15 @@ namespace DotNetBridge.Services
                 reqPath = "login.html";
             }
 
-            // --- 3. スマートパス判定 (1発で本家の正しいURLを自動生成) ---
+            // --- 3. スマートパス判定 ---
             string targetUri;
 
             if (!string.IsNullOrEmpty(appRootName) && reqPath.StartsWith(appRootName, StringComparison.OrdinalIgnoreCase))
             {
-                // すでにルート名が入っている場合 (例: EcoHHCDemo/Report/...)
                 targetUri = $"{schemeHostPort}/{reqPath}{context.Request.QueryString.Value}";
             }
             else if (reqPath.Contains('/'))
             {
-                // サブフォルダ指定がある場合 (例: PrintDaily/..., Mobile60_Hyojun/..., icon/...)
                 var firstDir = reqPath.Split('/')[0];
                 if (firstDir.Equals("main", StringComparison.OrdinalIgnoreCase))
                 {
@@ -81,13 +79,11 @@ namespace DotNetBridge.Services
                 }
                 else
                 {
-                    // main以外のフォルダはすべて AppRoot 直下に結合
                     targetUri = appRootUrl + reqPath + context.Request.QueryString.Value;
                 }
             }
             else
             {
-                // 単一ファイル名の場合 (例: FrameMain.asp) -> targetBaseUrl (.../main/) に結合
                 targetUri = targetBaseUrl + reqPath + context.Request.QueryString.Value;
             }
 
@@ -105,7 +101,9 @@ namespace DotNetBridge.Services
             using var client = _httpClientFactory.CreateClient("NoRedirectClient");
             using var upstreamRequest = new HttpRequestMessage(new HttpMethod(context.Request.Method), targetUri);
 
-            // --- 4. リクエストヘッダー転送 (Cookie・Session保持) ---
+            var proxyOrigin = $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}";
+
+            // --- 4. リクエストヘッダー転送（IIS互換Cookie成形） ---
             foreach (var header in context.Request.Headers)
             {
                 var key = header.Key;
@@ -118,10 +116,25 @@ namespace DotNetBridge.Services
                     continue;
                 }
 
+                // Cookie ヘッダーを IIS が確実に認識できるセミコロン区切りに統一
+                if (key.Equals("Cookie", StringComparison.OrdinalIgnoreCase))
+                {
+                    var cookieValues = header.Value
+                        .SelectMany(v => v.Split(';'))
+                        .Select(c => c.Trim())
+                        .Where(c => !string.IsNullOrEmpty(c))
+                        .Distinct();
+
+                    string formattedCookie = string.Join("; ", cookieValues);
+                    upstreamRequest.Headers.TryAddWithoutValidation("Cookie", formattedCookie);
+                    continue;
+                }
+
                 if (key.Equals("Referer", StringComparison.OrdinalIgnoreCase) ||
                     key.Equals("Origin", StringComparison.OrdinalIgnoreCase))
                 {
-                    upstreamRequest.Headers.TryAddWithoutValidation(key, targetBaseUrl);
+                    var val = header.Value.ToString().Replace(proxyOrigin, schemeHostPort);
+                    upstreamRequest.Headers.TryAddWithoutValidation(key, val);
                     continue;
                 }
 
@@ -150,7 +163,6 @@ namespace DotNetBridge.Services
 
             // --- 5. レスポンスヘッダー転送 ---
             context.Response.StatusCode = (int)upstreamResponse.StatusCode;
-            var proxyOrigin = $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}";
 
             foreach (var header in upstreamResponse.Headers)
             {
@@ -200,7 +212,9 @@ namespace DotNetBridge.Services
             var contentType = upstreamResponse.Content.Headers.ContentType?.ToString() ?? string.Empty;
             bool isText = contentType.Contains("text/html", StringComparison.OrdinalIgnoreCase) ||
                          contentType.Contains("javascript", StringComparison.OrdinalIgnoreCase) ||
-                         contentType.Contains("text/css", StringComparison.OrdinalIgnoreCase);
+                         contentType.Contains("text/css", StringComparison.OrdinalIgnoreCase) ||
+                         reqPath.EndsWith(".htm", StringComparison.OrdinalIgnoreCase) ||
+                         reqPath.EndsWith(".html", StringComparison.OrdinalIgnoreCase);
 
             if (isText)
             {

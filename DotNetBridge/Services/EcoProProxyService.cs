@@ -103,7 +103,7 @@ namespace DotNetBridge.Services
 
             var proxyOrigin = $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}";
 
-            // --- 4. リクエストヘッダー転送（ASPSESSIONID重複浄化ロジック） ---
+            // --- 4. リクエストヘッダー転送（セッションクッキーの完全保持） ---
             foreach (var header in context.Request.Headers)
             {
                 var key = header.Key;
@@ -116,41 +116,20 @@ namespace DotNetBridge.Services
                     continue;
                 }
 
-                // クッキーの分解と重複・不要項目のフィルタリング
+                // プロキシ内部用クッキーのみ除外して、全ASPSESSIONIDを無加工で本家IISへ通過させる
                 if (key.Equals("Cookie", StringComparison.OrdinalIgnoreCase))
                 {
-                    var rawCookies = header.Value
-                        .SelectMany(v => v.Split(';'))
+                    var validCookies = header.Value.ToString()
+                        .Split(';')
                         .Select(c => c.Trim())
-                        .Where(c => !string.IsNullOrEmpty(c))
-                        .ToList();
-
-                    // ASPSESSIONIDで始まるクッキーの抽出
-                    var aspSessionCookies = rawCookies
-                        .Where(c => c.StartsWith("ASPSESSIONID", StringComparison.OrdinalIgnoreCase))
-                        .ToList();
-
-                    // プロキシ（ASP.NET Core）側の内部クッキーを除外
-                    var otherCookies = rawCookies
-                        .Where(c => !c.StartsWith("ASPSESSIONID", StringComparison.OrdinalIgnoreCase) &&
+                        .Where(c => !string.IsNullOrEmpty(c) &&
                                     !c.StartsWith(".AspNetCore", StringComparison.OrdinalIgnoreCase) &&
                                     !c.StartsWith("Session", StringComparison.OrdinalIgnoreCase))
                         .ToList();
 
-                    var finalCookies = new List<string>();
-
-                    // 複数のASPSESSIONIDが存在する場合、末尾（最新）の1つだけを採用
-                    if (aspSessionCookies.Any())
+                    if (validCookies.Any())
                     {
-                        finalCookies.Add(aspSessionCookies.Last());
-                    }
-
-                    finalCookies.AddRange(otherCookies);
-
-                    if (finalCookies.Any())
-                    {
-                        string formattedCookie = string.Join("; ", finalCookies);
-                        upstreamRequest.Headers.TryAddWithoutValidation("Cookie", formattedCookie);
+                        upstreamRequest.Headers.TryAddWithoutValidation("Cookie", string.Join("; ", validCookies));
                     }
                     continue;
                 }
@@ -186,7 +165,7 @@ namespace DotNetBridge.Services
                 return;
             }
 
-            // --- 5. レスポンスヘッダー転送 ---
+            // --- 5. レスポンスヘッダー転送（Set-Cookieの独立追加） ---
             context.Response.StatusCode = (int)upstreamResponse.StatusCode;
 
             foreach (var header in upstreamResponse.Headers)
@@ -194,9 +173,10 @@ namespace DotNetBridge.Services
                 var key = header.Key;
                 if (HopByHopHeaders.Contains(key.ToLowerInvariant())) continue;
 
+                // 複数Set-Cookieの崩れを防ぐため Append で個別ヘッダー化
                 if (key.Equals("Set-Cookie", StringComparison.OrdinalIgnoreCase))
                 {
-                    var modifiedCookies = header.Value.Select(cookie =>
+                    foreach (var cookie in header.Value)
                     {
                         var c = Regex.Replace(cookie, @"Domain=[^;]+;?", string.Empty, RegexOptions.IgnoreCase);
                         c = Regex.Replace(c, @"Path=[^;]+;?", "Path=/;", RegexOptions.IgnoreCase);
@@ -204,9 +184,8 @@ namespace DotNetBridge.Services
                         {
                             c += "; SameSite=Lax";
                         }
-                        return c;
-                    }).ToArray();
-                    context.Response.Headers[key] = modifiedCookies;
+                        context.Response.Headers.Append("Set-Cookie", c);
+                    }
                     continue;
                 }
 

@@ -8,6 +8,7 @@ import { initInspectionWarp } from './modules/inspection-warp.js';
 import { initZandakaCopy } from './modules/zandaka-copy.js';
 import { initFusenKun } from './modules/fusen-kun.js';
 import { initCleanAutoLink } from './modules/clean-autolink.js';
+import { initCommentSpeaker } from './modules/comment-speaker.js';
 
 console.log("[ProxyInject] エンジン起動");
 
@@ -51,4 +52,5 @@ observeDOM(() => {
     runIfEnabled("zandaka_copy", initZandakaCopy);
     runIfEnabled("fusen_kun", initFusenKun);
     runIfEnabled("clean_autolink", initCleanAutoLink);
+    runIfEnabled("comment_speaker", initCommentSpeaker);
 });

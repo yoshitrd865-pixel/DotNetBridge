@@ -49,7 +49,8 @@ namespace DotNetBridge.Controllers
                 client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
                 // 💡 クエリパラメータにもトークンを付与してGatewayを通過させる
-                var apiUrl = $"https://api.sunabar.gmo-aozora.com/ganb/api/corporation/v1/va/accounts?x-access-token={accessToken}";
+                //var apiUrl = $"https://api.sunabar.gmo-aozora.com/ganb/api/corporation/v1/va/accounts?x-access-token={accessToken}";
+                var apiUrl = $"https://api.sunabar.gmo-aozora.com/ganb/api/personal/v1/va/accounts?x-access-token={accessToken}";
 
                 var requestBody = new
                 {

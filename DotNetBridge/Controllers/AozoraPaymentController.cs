@@ -42,11 +42,9 @@ namespace DotNetBridge.Controllers
 
                 var client = _httpClientFactory.CreateClient();
 
-                // 💡 認証パターンの網羅
+                // 💡 sunabar専用：x-access-token のみを正確にセット
                 client.DefaultRequestHeaders.Clear();
                 client.DefaultRequestHeaders.Add("x-access-token", accessToken);
-                client.DefaultRequestHeaders.Add("x-api-key", accessToken);
-                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
                 client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
                 var apiUrl = "https://api.sunabar.gmo-aozora.com/ganb/api/corporation/v1/va/accounts";
@@ -70,7 +68,7 @@ namespace DotNetBridge.Controllers
                 {
                     _logger.LogError($"あおぞらAPIエラー Status: {response.StatusCode}, Body: {responseString}");
                     return Ok(new { 
-                        error = $"あおぞらAPIエラー ({response.StatusCode}) [TokenLen:{accessToken.Length}]: {responseString}" 
+                        error = $"あおぞらAPIエラー ({response.StatusCode}): {responseString}" 
                     });
                 }
 

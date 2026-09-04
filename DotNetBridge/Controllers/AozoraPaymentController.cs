@@ -31,7 +31,6 @@ namespace DotNetBridge.Controllers
 
             try
             {
-                // 環境変数の取得（Render上の設定値）
                 var accessToken = Environment.GetEnvironmentVariable("GMO_AOZORA_ACCESS_TOKEN") 
                                   ?? _config["GmoAozora:AccessToken"];
 
@@ -42,21 +41,17 @@ namespace DotNetBridge.Controllers
                 }
 
                 var client = _httpClientFactory.CreateClient();
-                
-                // ✅ sunabar仕様のヘッダー設定へ書き換え
+
+                // 💡 sunabar仕様のヘッダー指定 (x-access-token)
                 client.DefaultRequestHeaders.Add("x-access-token", accessToken);
                 client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
-                // sunabar環境のバーチャル口座発行API URL
-                // ※sunabar指定のエンドポイントURLを確認して設定
                 var apiUrl = "https://api.sunabar.gmo-aozora.com/ganb/api/corporation/v1/va/accounts";
 
-                // リクエストボディ作成
                 var requestBody = new
                 {
-                    // 伝票番号や顧客コードを取引識別IDとしてセット
                     transferTitle = req.InvoiceNo != "未指定" ? req.InvoiceNo : "HHC",
-                    expirationDate = DateTime.UtcNow.AddDays(30).ToString("yyyy-MM-dd") // 有効期限30日
+                    expirationDate = DateTime.UtcNow.AddDays(30).ToString("yyyy-MM-dd")
                 };
 
                 var jsonContent = new StringContent(
@@ -65,7 +60,6 @@ namespace DotNetBridge.Controllers
                     "application/json"
                 );
 
-                // API呼び出し
                 var response = await client.PostAsync(apiUrl, jsonContent);
                 var responseString = await response.Content.ReadAsStringAsync();
 
@@ -78,7 +72,6 @@ namespace DotNetBridge.Controllers
                     });
                 }
 
-                // レスポンス解析（APIの返戻JSON構造に合わせて抽出）
                 using var doc = JsonDocument.Parse(responseString);
                 var root = doc.RootElement;
 
@@ -99,5 +92,24 @@ namespace DotNetBridge.Controllers
                 return StatusCode(500, new { error = ex.Message });
             }
         }
+    }
+
+    // 💡 ここを追加しました！
+    public class CreateAozoraAccountRequest
+    {
+        [JsonPropertyName("amount")]
+        public long Amount { get; set; }
+
+        [JsonPropertyName("customer_name")]
+        public string? CustomerName { get; set; }
+
+        [JsonPropertyName("customer_code")]
+        public string? CustomerCode { get; set; }
+
+        [JsonPropertyName("invoice_no")]
+        public string? InvoiceNo { get; set; }
+
+        [JsonPropertyName("item_description")]
+        public string? ItemDescription { get; set; }
     }
 }

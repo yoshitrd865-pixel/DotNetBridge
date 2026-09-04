@@ -37,12 +37,12 @@ namespace DotNetBridge.Controllers
                 if (string.IsNullOrEmpty(accessToken))
                 {
                     _logger.LogError("GMO_AOZORA_ACCESS_TOKEN が設定されていません");
-                    return StatusCode(500, new { error = "アクセストークン未設定" });
+                    return Ok(new { error = "GMO_AOZORA_ACCESS_TOKEN が設定されていません" });
                 }
 
                 var client = _httpClientFactory.CreateClient();
 
-                // 💡 sunabar仕様のヘッダー指定 (x-access-token)
+                // sunabar仕様のヘッダー指定 (x-access-token)
                 client.DefaultRequestHeaders.Add("x-access-token", accessToken);
                 client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
@@ -63,12 +63,12 @@ namespace DotNetBridge.Controllers
                 var response = await client.PostAsync(apiUrl, jsonContent);
                 var responseString = await response.Content.ReadAsStringAsync();
 
+                // 💡 エラーが発生した場合は HTTP 200 (Ok) で包み、生のレスポンスを画面に送出する
                 if (!response.IsSuccessStatusCode)
                 {
                     _logger.LogError($"あおぞらAPIエラー Status: {response.StatusCode}, Body: {responseString}");
-                    return StatusCode((int)response.StatusCode, new { 
-                        error = $"あおぞらAPI通信エラー ({response.StatusCode})", 
-                        details = responseString 
+                    return Ok(new { 
+                        error = $"あおぞらAPIエラー ({response.StatusCode}): {responseString}" 
                     });
                 }
 
@@ -89,12 +89,11 @@ namespace DotNetBridge.Controllers
             catch (Exception ex)
             {
                 _logger.LogError(ex, "あおぞら口座発行処理例外");
-                return StatusCode(500, new { error = ex.Message });
+                return Ok(new { error = $"例外発生: {ex.Message}" });
             }
         }
     }
 
-    // 💡 ここを追加しました！
     public class CreateAozoraAccountRequest
     {
         [JsonPropertyName("amount")]

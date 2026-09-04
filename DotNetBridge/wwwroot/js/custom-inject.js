@@ -1,6 +1,7 @@
 import { observeDOM } from './modules/common.js';
 import { getCurrentPage } from './modules/router.js';
-import { initStripePay } from './modules/stripe-pay.js';
+//import { initStripePay } from './modules/stripe-pay.js';　ストライプ無効
+import { initAozoraPay } from './modules/aozora-pay.js';
 import { initAutoLogin } from './modules/auto-login.js';
 import { initContinuousUpload } from './modules/continuous-upload.js';
 import { initSettingsMenu, getSettings } from './modules/settings.js';
@@ -33,7 +34,8 @@ observeDOM(() => {
     // 各機能の呼び出し（ここで一括判定！）
     switch (page) {
         case "receipt":
-            runIfEnabled("hhc_pay_kun", initStripePay);
+            //runIfEnabled("hhc_pay_kun", initStripePay); ストライプ無効
+            runIfEnabled("hhc_pay_kun", initAozoraPay);
             break;
 
         case "login":

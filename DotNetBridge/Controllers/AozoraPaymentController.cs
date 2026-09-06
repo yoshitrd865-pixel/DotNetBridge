@@ -40,21 +40,24 @@ namespace DotNetBridge.Controllers
                     return Ok(new { error = "GMO_AOZORA_ACCESS_TOKEN が設定されていません" });
                 }
 
+                // 前後の不要な空白を除去
+                accessToken = accessToken.Trim();
+
                 var client = _httpClientFactory.CreateClient();
                 client.DefaultRequestHeaders.Clear();
 
+                // sunabar認証ヘッダーの付与
                 client.DefaultRequestHeaders.Add("x-access-token", accessToken);
                 client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
-                // 🎯 仕様書通りの完全なメインURL + POST /va/issue
+                // 🎯 sunabar用 法人振込入金口座発行 URL
                 var apiUrl = "https://api.sunabar.gmo-aozora.com/ganb/api/corporation/v1/va/issue";
 
-                // 仕様書通りのリクエストボディパラメータ
                 var requestBody = new
                 {
-                    vaTypeCode = "1",            // 1:期限型, 2:継続型
-                    issueRequestCount = "1",     // 発行件数 1件
-                    raId = "6921371458"          // sunabarの法人口座ID(ログインID)
+                    vaTypeCode = "1",            // 1:期限型
+                    issueRequestCount = "1",     // 1件発行
+                    raId = "6921371458"          // 法人ログインID
                 };
 
                 var jsonContent = new StringContent(
@@ -68,16 +71,18 @@ namespace DotNetBridge.Controllers
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    _logger.LogError($"あおぞらAPIエラー Status: {response.StatusCode}, Body: {responseString}");
+                    // トークンの頭文字数文字だけログ・エラーに出力して設定確認
+                    var tokenSnippet = accessToken.Length > 8 ? accessToken.Substring(0, 8) + "..." : accessToken;
+                    _logger.LogError($"あおぞらAPIエラー Status: {response.StatusCode}, Body: {responseString}, Token: {tokenSnippet}");
+                    
                     return Ok(new { 
-                        error = $"あおぞらAPIエラー ({response.StatusCode}): {responseString}" 
+                        error = $"あおぞらAPIエラー ({response.StatusCode}): {responseString} [TokenUsed: {tokenSnippet}]" 
                     });
                 }
 
                 using var doc = JsonDocument.Parse(responseString);
                 var root = doc.RootElement;
 
-                // レスポンスの解析 (vaList配列から取得)
                 string branchCode = "";
                 string accountNumber = "";
 

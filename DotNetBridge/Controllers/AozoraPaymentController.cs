@@ -51,12 +51,18 @@ namespace DotNetBridge.Controllers
                 // 🎯 SwaggerのRequest URLと完全一致させる（sunabar. を削り、simulatorを入れる）
                 var apiUrl = "https://api.gmo-aozora.com/ganb/api/simulator/corporation/v1/va/issue";
 
-                var requestBody = new
-                {
-                    vaTypeCode = "1",            // 1:期限型
-                    issueRequestCount = "1",     // 1件発行
-                    raId = "6921371458"          // 法人ログインID
-                };
+                string uniqueSuffix = !string.IsNullOrEmpty(req.InvoiceNo) 
+                    ? req.InvoiceNo 
+                    : DateTime.Now.ToString("HHmmss");
+
+                    var requestBody = new
+                    {
+                        vaTypeCode = "1",
+                        issueRequestCount = "1",
+                        raId = "6921371458",
+                        vaHolderNamekana = uniqueSuffix,
+                        vaHolderNamePos = "1"
+                    };
 
                 var jsonContent = new StringContent(
                     JsonSerializer.Serialize(requestBody),

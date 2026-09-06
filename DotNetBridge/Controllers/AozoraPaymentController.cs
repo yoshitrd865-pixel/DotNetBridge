@@ -46,13 +46,15 @@ namespace DotNetBridge.Controllers
                 client.DefaultRequestHeaders.Add("x-access-token", accessToken);
                 client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
-                // 🎯 修正：公式仕様通りの法人メインURL（/ganb/api を除外）
-                var apiUrl = "https://api.sunabar.gmo-aozora.com/corporation/v1/va/accounts";
+                // 🎯 仕様書通りの完全なメインURL + POST /va/issue
+                var apiUrl = "https://api.sunabar.gmo-aozora.com/ganb/api/corporation/v1/va/issue";
 
+                // 仕様書通りのリクエストボディパラメータ
                 var requestBody = new
                 {
-                    transferTitle = req.InvoiceNo != "未指定" ? req.InvoiceNo : "HHC",
-                    expirationDate = DateTime.UtcNow.AddDays(30).ToString("yyyy-MM-dd")
+                    vaTypeCode = "1",            // 1:期限型, 2:継続型
+                    issueRequestCount = "1",     // 発行件数 1件
+                    raId = "6921371458"          // sunabarの法人口座ID(ログインID)
                 };
 
                 var jsonContent = new StringContent(
@@ -75,12 +77,25 @@ namespace DotNetBridge.Controllers
                 using var doc = JsonDocument.Parse(responseString);
                 var root = doc.RootElement;
 
+                // レスポンスの解析 (vaList配列から取得)
+                string branchCode = "";
+                string accountNumber = "";
+
+                if (root.TryGetProperty("vaList", out var vaList) && vaList.GetArrayLength() > 0)
+                {
+                    var firstVa = vaList[0];
+                    branchCode = firstVa.TryGetProperty("vaBranchCode", out var bc) ? bc.GetString() ?? "" : "";
+                    accountNumber = firstVa.TryGetProperty("vaAccountNumber", out var ac) ? ac.GetString() ?? "" : "";
+                }
+
+                var accountHolder = root.TryGetProperty("vaHolderNameKana", out var ah) ? ah.GetString() : "ハシモトハイツ";
+
                 var result = new
                 {
                     bankName = "GMOあおぞらネット銀行",
-                    branchName = root.TryGetProperty("branchName", out var br) ? br.GetString() : "振込専用支店",
-                    accountNumber = root.TryGetProperty("accountNumber", out var ac) ? ac.GetString() : "",
-                    accountHolder = root.TryGetProperty("accountName", out var ah) ? ah.GetString() : "ハシモトハイツ",
+                    branchName = $"支店コード({branchCode})",
+                    accountNumber = accountNumber,
+                    accountHolder = accountHolder,
                     amount = req.Amount
                 };
 

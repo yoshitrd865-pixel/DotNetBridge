@@ -45,12 +45,11 @@ namespace DotNetBridge.Controllers
                 var client = _httpClientFactory.CreateClient();
                 client.DefaultRequestHeaders.Clear();
 
-                // 🎯 あおぞら仕様: x-access-token のみを指定
                 client.DefaultRequestHeaders.Add("x-access-token", accessToken);
                 client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
-                // 🎯 sunabar 法人振込入金口座発行 エンドポイント
-                var apiUrl = "https://api.sunabar.gmo-aozora.com/ganb/api/corporation/v1/va/issue";
+                // 🎯 決定的な正解URL (sunabar環境用の /simulator 入りパス)
+                var apiUrl = "https://api.sunabar.gmo-aozora.com/ganb/api/simulator/corporation/v1/va/issue";
 
                 var requestBody = new
                 {
@@ -70,9 +69,7 @@ namespace DotNetBridge.Controllers
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    var tokenSnippet = accessToken.Length > 8 ? accessToken.Substring(0, 8) + "..." : accessToken;
-                    _logger.LogError($"あおぞらAPIエラー Status: {response.StatusCode}, Body: {responseString}, Token: {tokenSnippet}");
-                    
+                    _logger.LogError($"あおぞらAPIエラー Status: {response.StatusCode}, Body: {responseString}");
                     return Ok(new { 
                         error = $"あおぞらAPIエラー ({response.StatusCode}): {responseString}" 
                     });
@@ -96,7 +93,7 @@ namespace DotNetBridge.Controllers
                 var result = new
                 {
                     bankName = "GMOあおぞらネット銀行",
-                    branchName = $"支店コード({branchCode})",
+                    branchName = $"あじさい支店({branchCode})",
                     accountNumber = accountNumber,
                     accountHolder = accountHolder,
                     amount = req.Amount

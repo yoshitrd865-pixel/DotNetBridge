@@ -43,12 +43,11 @@ namespace DotNetBridge.Controllers
                 var client = _httpClientFactory.CreateClient();
                 client.DefaultRequestHeaders.Clear();
 
-                // sunabar仕様: x-access-token ヘッダーのみ指定
                 client.DefaultRequestHeaders.Add("x-access-token", accessToken);
                 client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
-                // 💡 法人アカウント用振込専用口座発行API
-                var apiUrl = "https://api.sunabar.gmo-aozora.com/ganb/api/corporation/v1/va/accounts";
+                // 🎯 修正：公式仕様通りの法人メインURL（/ganb/api を除外）
+                var apiUrl = "https://api.sunabar.gmo-aozora.com/corporation/v1/va/accounts";
 
                 var requestBody = new
                 {

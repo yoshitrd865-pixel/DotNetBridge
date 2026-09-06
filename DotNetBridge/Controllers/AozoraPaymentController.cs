@@ -48,8 +48,8 @@ namespace DotNetBridge.Controllers
                 client.DefaultRequestHeaders.Add("x-access-token", accessToken);
                 client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
-                // 🎯 決定的な正解URL (sunabar環境用の /simulator 入りパス)
-                var apiUrl = "https://api.sunabar.gmo-aozora.com/ganb/api/simulator/corporation/v1/va/issue";
+                // 🎯 SwaggerのRequest URLと完全一致させる（sunabar. を削り、simulatorを入れる）
+                var apiUrl = "https://api.gmo-aozora.com/ganb/api/simulator/corporation/v1/va/issue";
 
                 var requestBody = new
                 {

@@ -40,17 +40,17 @@ namespace DotNetBridge.Controllers
                     return Ok(new { error = "GMO_AOZORA_ACCESS_TOKEN が設定されていません" });
                 }
 
-                // 前後の不要な空白を除去
                 accessToken = accessToken.Trim();
 
                 var client = _httpClientFactory.CreateClient();
                 client.DefaultRequestHeaders.Clear();
 
-                // sunabar認証ヘッダーの付与
+                // 🎯 sunabar互換: 2通りの認証ヘッダーを付与
                 client.DefaultRequestHeaders.Add("x-access-token", accessToken);
+                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
                 client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
-                // 🎯 sunabar用 法人振込入金口座発行 URL
+                // 🎯 仕様書通りの完全なメインURL + POST /va/issue
                 var apiUrl = "https://api.sunabar.gmo-aozora.com/ganb/api/corporation/v1/va/issue";
 
                 var requestBody = new
@@ -71,7 +71,6 @@ namespace DotNetBridge.Controllers
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    // トークンの頭文字数文字だけログ・エラーに出力して設定確認
                     var tokenSnippet = accessToken.Length > 8 ? accessToken.Substring(0, 8) + "..." : accessToken;
                     _logger.LogError($"あおぞらAPIエラー Status: {response.StatusCode}, Body: {responseString}, Token: {tokenSnippet}");
                     

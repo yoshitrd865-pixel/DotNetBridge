@@ -1,116 +1,161 @@
-// wwwroot/js/modules/pdf-archive.js
+// wwwroot/js/modules/stripe-pay.js
+import { setupAutoArchiveOnPrint, captureCurrentPageDom } from './pdf-archive.js';
+import { getSettings } from './settings.js';
 
-// トースト通知表示関数
-function showPdfArchiveStatus(message, bgColor = 'rgba(0,0,0,0.85)') {
-    let toast = document.getElementById('pdf-archive-toast');
-    if (!toast) {
-        toast = document.createElement('div');
-        toast.id = 'pdf-archive-toast';
-        toast.style.cssText = 'position:fixed; bottom:50px; left:10px; color:#fff; padding:10px 14px; border-radius:8px; font-size:12px; z-index:999999; font-weight:bold; box-shadow:0 4px 10px rgba(0,0,0,0.3); transition: all 0.3s ease;';
-        document.body.appendChild(toast);
-    }
-    toast.style.background = bgColor;
-    toast.innerText = message;
-    return toast;
-}
+export async function initStripePay() {
+    if (document.getElementById('tfk-paygate-qr-area')) return;
+    if (!document.body.innerText.includes('今回請求額')) return;
 
-// 角印などの画像を確実にPDFに乗せるためのBase64変換関数
-function getBase64Image(img) {
-    try {
-        const canvas = document.createElement('canvas');
-        canvas.width = img.naturalWidth || img.width;
-        canvas.height = img.naturalHeight || img.height;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0);
-        return canvas.toDataURL('image/png');
-    } catch (e) {
-        return img.src;
-    }
-}
+    const originalPrint = window.print;
+    window.print = function() {};
 
-// バックグラウンドでPDFを保存するメイン関数
-export async function archivePdfInBackground(invoiceNo, customerCode) {
-    const toast = showPdfArchiveStatus('⚡ R2へ自動保存中...', '#2980b9');
+    const statusDiv = document.createElement('div');
+    statusDiv.style.cssText = 'position:fixed; bottom:10px; left:10px; background:rgba(0,0,0,0.8); color:#fff; padding:8px 12px; border-radius:8px; font-size:12px; z-index:999999; font-weight:bold; box-shadow:0 2px 5px rgba(0,0,0,0.3);';
+    statusDiv.innerText = '💳 HHC_Pay: 画面を監視中...';
+    document.body.appendChild(statusDiv);
 
     try {
-        // 1. 完成画面のDOMをクローン
-        const docClone = document.documentElement.cloneNode(true);
+        let amount = 0;
+        let customerName = "お客様";
+        let customerCode = "未指定";
+        let invoiceNo = "未指定";
+        let itemDescription = "浄化槽維持管理費";
 
-        // 2. 不要な「領収書エリア」と「トースト/モーダル」のみを物理削除（付箋ボタン等は維持）
-        const removeSelectors = [
-            '#divSealReceipt', 
-            '#divReceiptSales', 
-            '#divReportSales',
-            '#tfk-fusen-modal', 
-            '#tfk-remove-modal', 
-            '#pdf-archive-toast'
-        ];
-        removeSelectors.forEach(selector => {
-            docClone.querySelectorAll(selector).forEach(el => el.remove());
-        });
+        const allElements = document.querySelectorAll('th, td, div, span, b, p');
 
-        // 画面左下のトースト通知バッジのみ削除
-        docClone.querySelectorAll('div').forEach(el => {
-            if (el.innerText && el.innerText.includes('HHC_Pay: QR生成完了')) {
-                el.remove();
+        // 1. 金額取得
+        for (let el of allElements) {
+            if (el.textContent.trim() === '今回請求額') {
+                if (el.parentElement && el.parentElement.nextElementSibling) {
+                    const numStr = el.parentElement.nextElementSibling.textContent.replace(/[^0-9]/g, '');
+                    if (numStr) amount = parseInt(numStr, 10);
+                }
+                break;
             }
-        });
-
-        // 3. 角印（#divSealSales）を強制表示化
-        const sealSales = docClone.querySelector('#divSealSales') || docClone.querySelector('[id*="SealSales"]');
-        if (sealSales) {
-            sealSales.style.display = 'block';
-            sealSales.style.visibility = 'visible';
-            sealSales.style.opacity = '1';
         }
 
-        // 4. 画像をBase64化してリンク切れを防止
-        const originalImages = document.querySelectorAll('img');
-        const clonedImages = docClone.querySelectorAll('img');
-        clonedImages.forEach((clonedImg, index) => {
-            const origImg = originalImages[index];
-            if (origImg && origImg.complete && origImg.naturalWidth !== 0) {
-                clonedImg.src = getBase64Image(origImg);
+        // 2. 宛名取得
+        for (let el of allElements) {
+            const text = el.textContent.trim();
+            if (text.includes('様') && text.length < 30 && !text.includes('設置先')) {
+                customerName = text;
+                break;
             }
-        });
+        }
 
-        // 5. Absolute URL補正
-        const base = document.createElement('base');
-        base.href = window.location.origin + '/';
-        docClone.querySelector('head').insertBefore(base, docClone.querySelector('head').firstChild);
+        // 3. 顧客コード＆伝票番号の抽出
+        const urlParams = new URLSearchParams(window.location.search);
 
-        // 6. バックグラウンドでサーバーへ送信
-        fetch('/api/PdfArchive/upload', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                html: docClone.outerHTML,
-                invoiceNo: invoiceNo,
-                customerCode: customerCode
-            })
-        }).then(async res => {
-            if (res.ok) {
-                toast.innerText = '✅ R2への自動保存が完了しました';
-                toast.style.background = '#27ae60';
-                setTimeout(() => toast.remove(), 4000);
-            } else {
-                throw new Error(await res.text());
+        if (urlParams.get("SetUpCode") && urlParams.get("SetUpCode") !== "") {
+            customerCode = urlParams.get("SetUpCode");
+        } else {
+            allElements.forEach(el => {
+                const text = el.textContent.trim();
+                if (/お客様番号|顧客コード|請求先コード/.test(text)) {
+                    const codeMatch = text.match(/\d+/);
+                    if (codeMatch) customerCode = codeMatch[0];
+                }
+            });
+        }
+
+        if (urlParams.get("SalesSlipNumber") && urlParams.get("SalesSlipNumber") !== "") {
+            invoiceNo = urlParams.get("SalesSlipNumber");
+        } else if (urlParams.get("CheckNumber") && urlParams.get("CheckNumber") !== "") {
+            invoiceNo = urlParams.get("CheckNumber");
+        } else if (urlParams.get("CleanNumber") && urlParams.get("CleanNumber") !== "") {
+            invoiceNo = urlParams.get("CleanNumber");
+        } else {
+            allElements.forEach(el => {
+                const text = el.textContent.trim();
+                if (/伝票番号|売上番号|請求番号/.test(text)) {
+                    const invMatch = text.match(/\d+/);
+                    if (invMatch) invoiceNo = invMatch[0];
+                }
+            });
+        }
+
+        // 4. 明細項目名
+        const detailCells = document.querySelectorAll('td.detail, td[class*="detail"]');
+        for (let cell of detailCells) {
+            const text = cell.textContent.trim();
+            if (
+                text !== "" &&
+                text !== "消費税" &&
+                !text.includes('設置先') &&
+                !/^\d{4}\/\d{2}\/\d{2}$/.test(text) &&
+                !/^[0-9,]+$/.test(text)
+            ) {
+                itemDescription = text;
+                break;
             }
-        }).catch(err => {
-            console.error('[PdfArchive Error]', err);
-            toast.innerText = `⚠️ R2保存失敗: ${err.message}`;
-            toast.style.background = '#c0392b';
-            setTimeout(() => toast.remove(), 7000);
-        });
+        }
+
+        if (amount <= 0) {
+            statusDiv.innerText = '⚠️ エラー: 金額読み取り失敗';
+            statusDiv.style.background = '#c0392b';
+            return;
+        }
+
+        statusDiv.innerText = `💳 HHC_Pay: QRコード生成中...`;
+
+        const qrContainer = document.createElement('div');
+        qrContainer.id = 'tfk-paygate-qr-area';
+        qrContainer.style.cssText = 'margin-top: 30px; padding: 20px; border: 2px dashed #F39C12; text-align: center; background: #fff; border-radius: 8px; width: 95%; margin-left: auto; margin-right: auto; page-break-inside: avoid;';
+
+        const tblSales = document.getElementById('tblSales') || document.querySelector('table');
+        if (tblSales) {
+            tblSales.parentNode.insertBefore(qrContainer, tblSales.nextSibling);
+        } else {
+            document.body.appendChild(qrContainer);
+        }
+
+        const redirectUrl = `${window.location.origin}/api/StripePayment/redirect-checkout`
+            + `?amount=${amount}`
+            + `&customer_code=${encodeURIComponent(customerCode)}`
+            + `&customer_name=${encodeURIComponent(customerName)}`
+            + `&invoice_no=${encodeURIComponent(invoiceNo)}`
+            + `&item_description=${encodeURIComponent(itemDescription)}`;
+
+        const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(redirectUrl)}`;
+
+        qrContainer.innerHTML = `
+            <div style="display:flex; align-items:center; justify-content:center; gap:25px; padding:10px;">
+                <div><img id="stripe-qr-image-element" src="${qrImageUrl}" style="width:130px; height:130px;"></div>
+                <div style="text-align: left;">
+                    <h3 style="margin:0 0 6px 0; color:#E67E22; font-size:16px;">📱 スマホでお支払い（クレカ・PayPay・コンビニ）</h3>
+                    <p style="margin:0; font-size:13px; color:#333; line-height:1.5;">
+                        QRコードをスマホのカメラで読み取ると、お支払い画面が開きます。<br>
+                        <strong style="color:#c0392b; font-size:17px; display:inline-block; margin-top:4px;">ご請求金額: ${amount.toLocaleString()} 円</strong>
+                    </p>
+                </div>
+            </div>
+        `;
+
+        statusDiv.innerText = '✅ HHC_Pay: QR生成完了！';
+        statusDiv.style.background = '#27ae60';
+
+        // 1. QRコード画像が完全に描画されるのを待つ
+        const qrImgEl = document.getElementById('stripe-qr-image-element');
+        if (qrImgEl && !qrImgEl.complete) {
+            await new Promise((resolve) => {
+                qrImgEl.onload = resolve;
+                qrImgEl.onerror = resolve;
+            });
+        }
+
+        // 2. 画面が100%完成した【この瞬間】にDOMスナップショットを取得＆印刷イベント登録
+        const settings = getSettings();
+        if (settings["pdf_archive_kun"]) {
+            captureCurrentPageDom(); // 印刷用CSSが当たる前の綺麗な画面を保存
+            setupAutoArchiveOnPrint(invoiceNo, customerCode);
+        }
 
     } catch (err) {
-        console.error('[PdfArchive Prep Error]', err);
+        console.error('[StripePay Error]', err);
+    } finally {
+        statusDiv.remove();
+        // 3. 画面の準備完了後、確実に印刷ダイアログを起動
+        window.print = originalPrint;
+        window.print();
     }
-}
-
-// 印刷イベント連動（印刷実行で自動起動）
-export function setupAutoArchiveOnPrint(invoiceNo, customerCode) {
-    window.addEventListener('beforeprint', () => {
-        archivePdfInBackground(invoiceNo, customerCode);
-    });
 }

@@ -13,63 +13,87 @@ function showStatus(message, bgColor = 'rgba(0,0,0,0.85)') {
     return toast;
 }
 
+// 画像をCanvas経由でBase64データURLに変換する関数
+function getBase64Image(img) {
+    try {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth || img.width;
+        canvas.height = img.naturalHeight || img.height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        return canvas.toDataURL('image/png');
+    } catch (e) {
+        return img.src; // CORS等で変換失敗時はフォールバック
+    }
+}
+
 export async function initPdfArchive(invoiceNo, customerCode) {
-    const toast = showStatus('📄 サーバーへ送信中...', '#2980b9');
+    const toast = showStatus('📄 画面データを最適化中...', '#2980b9');
 
     try {
-        // 1. #divPage をクローンして操作（画面上の表示には影響を与えない）
+        // 1. #divPage をクローン
         const pageElement = document.getElementById('divPage') || document.body;
         const clonedPage = pageElement.cloneNode(true);
 
-        // 2. 角印（divSealSales や 印影画像）が含まれる要素を強制表示
-        const sealElements = clonedPage.querySelectorAll('#divSealSales, #divSealReceipt, .sealSales, [id*="Seal"]');
-        sealElements.forEach(el => {
-            el.style.display = 'block';
-            el.style.visibility = 'visible';
+        // 2. 不要な「領収書エリア」やモーダル、UIパーツを完全除去
+        const removeSelectors = [
+            '#divSealReceipt', 
+            '#divReceiptSales', 
+            '#divReportSales', 
+            '#divReportReceipt', 
+            '#tfk-fusen-modal', 
+            '#tfk-remove-modal', 
+            '#pdf-archive-toast'
+        ];
+        removeSelectors.forEach(selector => {
+            clonedPage.querySelectorAll(selector).forEach(el => el.remove());
         });
 
-        // 3. 相対パスの画像URL（/images/印鑑.pngなど）を、Puppeteerが解釈できるように絶対URL(https://...)へ変換
-        const images = clonedPage.querySelectorAll('img');
-        images.forEach(img => {
-            if (img.src) {
-                img.src = img.src; // JSのプロパティ参照で絶対URLに変換される
+        // 3. 角印（divSealSales）を強制表示
+        const sealSales = clonedPage.querySelector('#divSealSales');
+        if (sealSales) {
+            sealSales.style.display = 'block';
+            sealSales.style.visibility = 'visible';
+        }
+
+        // 4. 画面上の全画像（角印含む）をBase64に置換して絶対リンク切れを防止
+        const originalImages = pageElement.querySelectorAll('img');
+        const clonedImages = clonedPage.querySelectorAll('img');
+        clonedImages.forEach((clonedImg, index) => {
+            const origImg = originalImages[index];
+            if (origImg && origImg.complete && origImg.naturalWidth !== 0) {
+                clonedImg.src = getBase64Image(origImg);
+            } else if (clonedImg.src) {
+                clonedImg.src = new URL(clonedImg.getAttribute('src'), window.location.href).href;
             }
         });
 
-        // 4. headとスタイルを維持してきれいなHTMLを構築
+        // 5. 完全独立したHTMLを組み立て
         const headHtml = document.head.innerHTML;
         const cleanHtml = `
             <!DOCTYPE html>
             <html>
             <head>
-                <base href="${window.location.origin}">
+                <base href="${window.location.origin}/">
                 ${headHtml}
                 <style>
-                    /* 印刷・PDF出力時に角印を強制表示させる追加CSS */
-                    #divSealSales, .sealSales, [id*="Seal"] {
-                        display: block !important;
-                        visibility: visible !important;
-                    }
-                    /* 余計な下部のモーダル等を隠す */
-                    #tfk-fusen-modal, #tfk-remove-modal, #pdf-archive-toast {
-                        display: none !important;
-                    }
+                    body { background: #fff !important; margin: 0 !important; padding: 0 !important; }
+                    #divSealSales { display: block !important; visibility: visible !important; }
+                    #divSealReceipt, #divReceiptSales, #divReportSales { display: none !important; }
                 </style>
             </head>
-            <body style="background: #fff; margin: 0; padding: 0;">
+            <body>
                 ${clonedPage.outerHTML}
             </body>
             </html>
         `;
 
-        toast.innerText = '⚙️ 高画質PDF生成中...';
+        toast.innerText = '⚙️ サーバー側でPDF生成中...';
         toast.style.background = '#e67e22';
 
         const response = await fetch('/api/PdfArchive/upload', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 html: cleanHtml,
                 invoiceNo: invoiceNo,
@@ -78,7 +102,7 @@ export async function initPdfArchive(invoiceNo, customerCode) {
         });
 
         if (response.ok) {
-            toast.innerText = '✅ PDF保存完了 (R2)';
+            toast.innerText = '✅ 完璧なPDFを保存しました (R2)';
             toast.style.background = '#27ae60';
             setTimeout(() => toast.remove(), 4000);
         } else {

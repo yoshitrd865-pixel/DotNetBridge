@@ -28,58 +28,83 @@ function showStatus(message, bgColor = 'rgba(0,0,0,0.85)') {
 }
 
 export async function initPdfArchive(invoiceNo, customerCode) {
-    const toast = showStatus('📄 PDF作成準備中...', '#2980b9');
+    const toast = showStatus('📄 PDF化処理を開始...', '#2980b9');
 
     try {
         await loadHtml2Pdf();
-        toast.innerText = '📸 画面レイアウト調整中...';
+        toast.innerText = '📸 描画クローン領域を生成中...';
 
-        // 請求書のメインコンテナを取得（見つからない場合は body ）
-        const element = document.querySelector('.invoice-container') || document.querySelector('#invoice-print-area') || document.body;
+        // 1. 画面の元となるHTMLを取得（bodyまたはメイン要素）
+        const targetElement = document.body;
+        
+        // 2. 撮影専用のクローンDOM要素を作成（画面外に固定配置）
+        const clone = targetElement.cloneNode(true);
 
-        // 1. 撮影用の一時スタイルを適用（A4幅に固定して崩れを防ぐ）
-        const originalStyle = element.getAttribute('style') || '';
-        element.style.width = '794px'; // A4標準幅(px換算)
-        element.style.padding = '20px';
-        element.style.background = '#ffffff';
+        // 3. クローン側から不要な要素（付箋ボタン、トースト、その他ボタン類）を物理除去
+        const unwantedSelectors = [
+            '#pdf-archive-toast',
+            'button',
+            'input[type="button"]',
+            'input[type="submit"]',
+            '.no-print'
+        ];
+        
+        unwantedSelectors.forEach(selector => {
+            clone.querySelectorAll(selector).forEach(el => el.remove());
+        });
 
-        // 2. 不要なUIボタン（「付箋を貼る」など）を一時的に隠すCSSを注入
-        const styleTag = document.createElement('style');
-        styleTag.innerHTML = `
-            #pdf-archive-toast, .no-print, button, input[type="button"] { display: none !important; }
+        // 画面上のテキスト「+ このお客様に付箋を貼る」が含まれる要素を検索して削除
+        clone.querySelectorAll('*').forEach(el => {
+            if (el.children.length === 0 && el.textContent.includes('付箋を貼る')) {
+                el.parentElement ? el.parentElement.remove() : el.remove();
+            }
+        });
+
+        // 4. クローン専用のラッパーコンテナを生成（固定幅 A4 210mm 相当）
+        const container = document.createElement('div');
+        container.style.cssText = `
+            position: absolute;
+            left: -9999px;
+            top: 0;
+            width: 800px;
+            background: #ffffff;
+            color: #000000;
+            padding: 20px;
+            box-sizing: border-box;
         `;
-        document.head.appendChild(styleTag);
+        container.appendChild(clone);
+        document.body.appendChild(container);
 
-        // 3. レンダリング完了までほんの少し待機（フォント・画像崩れ防止）
-        await new Promise(resolve => setTimeout(resolve, 500));
+        // フォントや要素の評価待ち
+        await new Promise(resolve => setTimeout(resolve, 300));
 
-        toast.innerText = '📸 キャプチャ実行中...';
+        toast.innerText = '📸 高解像度キャプチャ実行中...';
 
+        // 5. PDF生成オプション設定
         const opt = {
-            margin:       [10, 10, 10, 10], // 上右下左の余白(mm)
+            margin:       [5, 5, 5, 5],
             filename:     `invoice_${customerCode}_${invoiceNo}.pdf`,
             image:        { type: 'jpeg', quality: 0.98 },
             html2canvas:  { 
-                scale: 2,           // 高画質化
-                useCORS: true, 
+                scale: 2,
+                useCORS: true,
                 logging: false,
-                scrollX: 0,
-                scrollY: 0,
-                windowWidth: 1024   // レイアウト計算用ウィンドウ幅
+                width: 800,
+                windowWidth: 800
             },
             jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
         };
 
-        // 4. PDF生成
-        const pdfBlob = await html2pdf().set(opt).from(element).output('blob');
+        // PDFのバイナリ生成
+        const pdfBlob = await html2pdf().set(opt).from(container).output('blob');
 
-        // 5. 元のスタイルと隠し設定を復元
-        element.setAttribute('style', originalStyle);
-        styleTag.remove();
+        // 使用した一時クローン領域の破棄
+        container.remove();
 
         toast.innerText = '☁️ Cloudflare R2へ保存中...';
         toast.style.background = '#e67e22';
 
+        // 6. API送信
         const formData = new FormData();
         formData.append('file', pdfBlob, `invoice_${customerCode}_${invoiceNo}.pdf`);
         formData.append('invoiceNo', invoiceNo);
@@ -91,7 +116,7 @@ export async function initPdfArchive(invoiceNo, customerCode) {
         });
 
         if (response.ok) {
-            toast.innerText = '✅ PDF綺麗に保存完了 (R2)';
+            toast.innerText = '✅ PDF保存完了 (R2)';
             toast.style.background = '#27ae60';
             setTimeout(() => toast.remove(), 4000);
         } else {

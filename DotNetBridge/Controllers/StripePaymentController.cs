@@ -51,7 +51,11 @@ namespace DotNetBridge.Controllers
 
                 var options = new SessionCreateOptions
                 {
-                    PaymentMethodTypes = new List<string> { "card" },
+                    // ⭐ ダッシュボードで有効にした決済手段（PayPay, 銀行振込, コンビニ等）を自動適用
+                    AutomaticPaymentMethods = new SessionAutomaticPaymentMethodsOptions
+                    {
+                        Enabled = true,
+                    },
                     LineItems = new List<SessionLineItemOptions>
                     {
                         new SessionLineItemOptions
@@ -207,13 +211,13 @@ namespace DotNetBridge.Controllers
 
             return NotFound(new { success = false, error = "Log not found" });
         }
+
         /// <summary>
         /// 決済完了画面
         /// </summary>
         [HttpGet("/success")]
         public IActionResult Success([FromQuery] string session_id)
         {
-            // Stripeからリダイレクト時に渡される session_id をViewに渡す
             ViewBag.SessionId = session_id;
             return View();
         }
@@ -226,8 +230,6 @@ namespace DotNetBridge.Controllers
         {
             return View();
         }
-
-
     }
 
     public class ProcessedRequest

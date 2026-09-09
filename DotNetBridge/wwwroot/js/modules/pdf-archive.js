@@ -13,7 +13,6 @@ function showStatus(message, bgColor = 'rgba(0,0,0,0.85)') {
     return toast;
 }
 
-// 画像をCanvas経由でBase64データURLに変換する関数
 function getBase64Image(img) {
     try {
         const canvas = document.createElement('canvas');
@@ -23,63 +22,84 @@ function getBase64Image(img) {
         ctx.drawImage(img, 0, 0);
         return canvas.toDataURL('image/png');
     } catch (e) {
-        return img.src; // CORS等で変換失敗時はフォールバック
+        return img.src;
     }
 }
 
+// 画面上で計算されたスタイルのうち、レンダリングに必要な主要プロパティをインライン化する
+function inlineComputedStyles(sourceEl, targetEl) {
+    const computed = window.getComputedStyle(sourceEl);
+    if (computed.display === 'none') {
+        // 角印などの例外を除き、本来非表示のものは非表示のまま
+        if (!sourceEl.id?.includes('SealSales') && !sourceEl.className?.includes('sealSales')) {
+            targetEl.style.display = 'none';
+            return;
+        }
+    }
+
+    // 主要なレイアウト用スタイルをコピー
+    const propertiesToCopy = [
+        'display', 'position', 'top', 'left', 'right', 'bottom',
+        'width', 'height', 'margin', 'padding', 'border', 'border-collapse',
+        'font-family', 'font-size', 'font-weight', 'color', 'background-color',
+        'text-align', 'vertical-align', 'box-sizing', 'visibility'
+    ];
+
+    propertiesToCopy.forEach(prop => {
+        targetEl.style[prop] = computed.getPropertyValue(prop);
+    });
+
+    // 子要素も再帰的にコピー
+    const sourceChildren = Array.from(sourceEl.children);
+    const targetChildren = Array.from(targetEl.children);
+    sourceChildren.forEach((child, i) => {
+        if (targetChildren[i]) {
+            inlineComputedStyles(child, targetChildren[i]);
+        }
+    });
+}
+
 export async function initPdfArchive(invoiceNo, customerCode) {
-    const toast = showStatus('📄 画面データを最適化中...', '#2980b9');
+    const toast = showStatus('📄 画面見た目を計算中...', '#2980b9');
 
     try {
-        // 1. #divPage をクローン
         const pageElement = document.getElementById('divPage') || document.body;
         const clonedPage = pageElement.cloneNode(true);
 
-        // 2. 不要な「領収書エリア」やモーダル、UIパーツを完全除去
-        const removeSelectors = [
-            '#divSealReceipt', 
-            '#divReceiptSales', 
-            '#divReportSales', 
-            '#divReportReceipt', 
-            '#tfk-fusen-modal', 
-            '#tfk-remove-modal', 
-            '#pdf-archive-toast'
-        ];
-        removeSelectors.forEach(selector => {
-            clonedPage.querySelectorAll(selector).forEach(el => el.remove());
-        });
+        // 1. 不要な領収書枠・モジュールを削除
+        const removeSelectors = ['#divSealReceipt', '#divReceiptSales', '#tfk-fusen-modal', '#tfk-remove-modal', '#pdf-archive-toast'];
+        removeSelectors.forEach(s => clonedPage.querySelectorAll(s).forEach(el => el.remove()));
 
-        // 3. 角印（divSealSales）を強制表示
-        const sealSales = clonedPage.querySelector('#divSealSales');
+        // 2. 画面上の計算済みスタイルを全DOMへ直焼き込み
+        inlineComputedStyles(pageElement, clonedPage);
+
+        // 3. 角印（#divSealSales）を確定表示
+        const sealSales = clonedPage.querySelector('#divSealSales') || clonedPage.querySelector('[id*="Seal"]');
         if (sealSales) {
             sealSales.style.display = 'block';
             sealSales.style.visibility = 'visible';
+            sealSales.style.opacity = '1';
         }
 
-        // 4. 画面上の全画像（角印含む）をBase64に置換して絶対リンク切れを防止
+        // 4. 画像のBase64埋め込み
         const originalImages = pageElement.querySelectorAll('img');
         const clonedImages = clonedPage.querySelectorAll('img');
         clonedImages.forEach((clonedImg, index) => {
             const origImg = originalImages[index];
             if (origImg && origImg.complete && origImg.naturalWidth !== 0) {
                 clonedImg.src = getBase64Image(origImg);
-            } else if (clonedImg.src) {
-                clonedImg.src = new URL(clonedImg.getAttribute('src'), window.location.href).href;
             }
         });
 
-        // 5. 完全独立したHTMLを組み立て
-        const headHtml = document.head.innerHTML;
+        // 5. 完全自立型のHTMLを作成（外部CSS依存をゼロにする）
         const cleanHtml = `
             <!DOCTYPE html>
             <html>
             <head>
-                <base href="${window.location.origin}/">
-                ${headHtml}
+                <meta charset="utf-8">
                 <style>
                     body { background: #fff !important; margin: 0 !important; padding: 0 !important; }
-                    #divSealSales { display: block !important; visibility: visible !important; }
-                    #divSealReceipt, #divReceiptSales, #divReportSales { display: none !important; }
+                    table { border-collapse: collapse; }
                 </style>
             </head>
             <body>
@@ -88,7 +108,7 @@ export async function initPdfArchive(invoiceNo, customerCode) {
             </html>
         `;
 
-        toast.innerText = '⚙️ サーバー側でPDF生成中...';
+        toast.innerText = '⚙️ 高精度PDF生成中...';
         toast.style.background = '#e67e22';
 
         const response = await fetch('/api/PdfArchive/upload', {

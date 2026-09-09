@@ -34,8 +34,8 @@ observeDOM(() => {
     // 各機能の呼び出し（ここで一括判定！）
     switch (page) {
         case "receipt":
-            //runIfEnabled("hhc_pay_kun", initStripePay); ストライプ無効
-            runIfEnabled("hhc_pay_kun", initAozoraPay);
+            runIfEnabled("hhc_pay_kun", initStripePay); 
+            //runIfEnabled("hhc_pay_kun", initAozoraPay);あおぞら銀行無効
             break;
 
         case "login":

@@ -51,10 +51,13 @@ namespace DotNetBridge.Controllers
 
                 var options = new SessionCreateOptions
                 {
-                    // ⭐ ダッシュボードで有効にした決済手段（PayPay, 銀行振込, コンビニ等）を自動適用
-                    AutomaticPaymentMethods = new SessionAutomaticPaymentMethodsOptions
+                    // PayPay、コンビニ、銀行振込、カードを明示的に許可
+                    PaymentMethodTypes = new List<string>
                     {
-                        Enabled = true,
+                        "card",
+                        "paypay",
+                        "konbini",
+                        "customer_balance" // 銀行振込（バーチャル口座）
                     },
                     LineItems = new List<SessionLineItemOptions>
                     {

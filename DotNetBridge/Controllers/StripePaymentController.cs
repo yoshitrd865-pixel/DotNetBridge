@@ -56,8 +56,8 @@ namespace DotNetBridge.Controllers
                     {
                         "card",
                         "paypay",
-                        "konbini",
-                        "customer_balance" // 銀行振込（バーチャル口座）
+                        //"konbini",
+                        //"customer_balance" // 銀行振込（バーチャル口座）
                     },
                     LineItems = new List<SessionLineItemOptions>
                     {

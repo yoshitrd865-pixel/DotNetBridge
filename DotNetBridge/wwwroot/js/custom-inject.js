@@ -1,7 +1,7 @@
 import { observeDOM } from './modules/common.js';
 import { getCurrentPage } from './modules/router.js';
-//import { initStripePay } from './modules/stripe-pay.js';　ストライプ無効
-import { initAozoraPay } from './modules/aozora-pay.js';
+import { initStripePay } from './modules/stripe-pay.js';
+//import { initAozoraPay } from './modules/aozora-pay.js';　あおぞら無効
 import { initAutoLogin } from './modules/auto-login.js';
 import { initContinuousUpload } from './modules/continuous-upload.js';
 import { initSettingsMenu, getSettings } from './modules/settings.js';

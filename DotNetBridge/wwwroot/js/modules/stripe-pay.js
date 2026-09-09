@@ -1,12 +1,11 @@
 // wwwroot/js/modules/stripe-pay.js
-import { setupAutoArchiveOnPrint } from './pdf-archive.js';
+import { setupAutoArchiveOnPrint, captureCurrentPageDom } from './pdf-archive.js';
 import { getSettings } from './settings.js';
 
 export async function initStripePay() {
     if (document.getElementById('tfk-paygate-qr-area')) return;
     if (!document.body.innerText.includes('今回請求額')) return;
 
-    // 元の window.print を退避し、処理中のみ無効化
     const originalPrint = window.print;
     window.print = function() {};
 
@@ -135,7 +134,6 @@ export async function initStripePay() {
         statusDiv.innerText = '✅ HHC_Pay: QR生成完了！';
         statusDiv.style.background = '#27ae60';
 
-        // QR画像の読み込みを待機
         const qrImgEl = document.getElementById('stripe-qr-image-element');
         if (qrImgEl && !qrImgEl.complete) {
             await new Promise((resolve) => {
@@ -144,9 +142,9 @@ export async function initStripePay() {
             });
         }
 
-        // 印刷イベントへPDF自動アーカイブ処理を登録
         const settings = getSettings();
         if (settings["pdf_archive_kun"]) {
+            captureCurrentPageDom(); // 印刷ダイアログ起動前に綺麗なDOMを保存
             setupAutoArchiveOnPrint(invoiceNo, customerCode);
         }
 
@@ -154,7 +152,6 @@ export async function initStripePay() {
         console.error('[StripePay Error]', err);
     } finally {
         statusDiv.remove();
-        // どんな理由であれ確実に元の print 関数を復元して即座に起動させる
         window.print = originalPrint;
         window.print();
     }

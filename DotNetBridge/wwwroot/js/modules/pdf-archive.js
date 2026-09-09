@@ -1,19 +1,5 @@
 // wwwroot/js/modules/pdf-archive.js
 
-function loadHtml2Pdf() {
-    return new Promise((resolve, reject) => {
-        if (window.html2pdf) {
-            resolve();
-            return;
-        }
-        const script = document.createElement('script');
-        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
-        script.onload = () => resolve();
-        script.onerror = () => reject(new Error('html2pdf.js の読み込みに失敗しました'));
-        document.head.appendChild(script);
-    });
-}
-
 function showStatus(message, bgColor = 'rgba(0,0,0,0.85)') {
     let toast = document.getElementById('pdf-archive-toast');
     if (!toast) {
@@ -28,52 +14,29 @@ function showStatus(message, bgColor = 'rgba(0,0,0,0.85)') {
 }
 
 export async function initPdfArchive(invoiceNo, customerCode) {
-    const toast = showStatus('📄 PDF作成中...', '#2980b9');
+    const toast = showStatus('📄 サーバーへHTML送信中...', '#2980b9');
 
     try {
-        await loadHtml2Pdf();
-        toast.innerText = '📸 請求書領域(#divPage)を印刷モードでキャプチャ中...';
+        // 現在の画面HTMLを丸ごと取得
+        const fullHtml = document.documentElement.outerHTML;
 
-        // 1. デベロッパーツールで特定した「請求書本体」の要素をピンポイント指定
-        const targetElement = document.getElementById('divPage') || document.body;
-
-        window.scrollTo(0, 0);
-        await new Promise(resolve => setTimeout(resolve, 300));
-
-        // 2. A4サイズ指定と要素キャプチャ設定（mediaType: 'print' を追加）
-        const opt = {
-            margin:       [0, 0, 0, 0], // ピンポイント撮影のため余白ゼロ
-            filename:     `invoice_${customerCode}_${invoiceNo}.pdf`,
-            image:        { type: 'jpeg', quality: 0.98 },
-            html2canvas:  { 
-                scale: 2,               // 高画質化
-                useCORS: true, 
-                logging: false,
-                scrollX: 0,
-                scrollY: 0,
-                windowWidth: 1024,      // 幅崩れ防止
-                mediaType: 'print'      // ★ 印刷用レイアウト（@media print）でレンダリング
-            },
-            jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
-        };
-
-        const pdfBlob = await html2pdf().set(opt).from(targetElement).output('blob');
-
-        toast.innerText = '☁️ Cloudflare R2へ送信中...';
+        toast.innerText = '⚙️ サーバー側で最高画質PDF生成中...';
         toast.style.background = '#e67e22';
-
-        const formData = new FormData();
-        formData.append('file', pdfBlob, `invoice_${customerCode}_${invoiceNo}.pdf`);
-        formData.append('invoiceNo', invoiceNo);
-        formData.append('customerCode', customerCode);
 
         const response = await fetch('/api/PdfArchive/upload', {
             method: 'POST',
-            body: formData
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                html: fullHtml,
+                invoiceNo: invoiceNo,
+                customerCode: customerCode
+            })
         });
 
         if (response.ok) {
-            toast.innerText = '✅ PDF保存完了 (R2)';
+            toast.innerText = '✅ PDF完璧保存完了 (R2)';
             toast.style.background = '#27ae60';
             setTimeout(() => toast.remove(), 4000);
         } else {

@@ -32,28 +32,31 @@ export async function initPdfArchive(invoiceNo, customerCode) {
 
     try {
         await loadHtml2Pdf();
-        toast.innerText = '📸 キャプチャ中...';
+        toast.innerText = '📸 請求書領域(#divPage)をキャプチャ中...';
 
-        // 描画の安定化のため少し待機
+        // 1. デベロッパーツールで特定した「請求書本体」の要素をピンポイント指定
+        const targetElement = document.getElementById('divPage') || document.body;
+
+        window.scrollTo(0, 0);
         await new Promise(resolve => setTimeout(resolve, 300));
 
-        const element = document.body;
-
+        // 2. A4サイズ指定と要素キャプチャ設定
         const opt = {
-            margin:       0,
+            margin:       [0, 0, 0, 0], // ピンポイント撮影のため余白ゼロ
             filename:     `invoice_${customerCode}_${invoiceNo}.pdf`,
             image:        { type: 'jpeg', quality: 0.98 },
             html2canvas:  { 
-                scale: 2,           // 高画質化
+                scale: 2,               // 高画質化
                 useCORS: true, 
                 logging: false,
                 scrollX: 0,
-                scrollY: 0
+                scrollY: 0,
+                windowWidth: 1024       // 幅崩れ防止
             },
             jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
         };
 
-        const pdfBlob = await html2pdf().set(opt).from(element).output('blob');
+        const pdfBlob = await html2pdf().set(opt).from(targetElement).output('blob');
 
         toast.innerText = '☁️ Cloudflare R2へ送信中...';
         toast.style.background = '#e67e22';

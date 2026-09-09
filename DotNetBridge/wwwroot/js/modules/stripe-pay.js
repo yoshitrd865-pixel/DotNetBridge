@@ -1,6 +1,6 @@
 // wwwroot/js/modules/stripe-pay.js
 
-export function initStripePay() {
+export async function initStripePay() {
     // 既にQRエリアが存在すれば実行しない
     if (document.getElementById('tfk-paygate-qr-area')) return;
 
@@ -117,23 +117,24 @@ export function initStripePay() {
 
     const apiUrl = window.location.origin + '/api/StripePayment/create-checkout';
 
-    fetch(apiUrl, {
+    try {
+        const response = await fetch(apiUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(postData)
-        })
-    .then(response => response.json())
-    .then(data => {
-        if(data.url) {
+        });
+
+        const data = await response.json();
+
+        if (data.url) {
             statusDiv.innerText = '✅ HHC_Pay: QR生成大成功！';
             statusDiv.style.background = '#27ae60';
-            setTimeout(() => statusDiv.remove(), 4000);
 
             const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(data.url)}`;
             qrContainer.style.background = '#fff';
             qrContainer.innerHTML = `
                 <div style="display:flex; align-items:center; justify-content:center; gap:25px; padding:10px;">
-                    <div><img src="${qrImageUrl}" style="width:130px; height:120px;"></div>
+                    <div><img id="stripe-qr-image-element" src="${qrImageUrl}" style="width:130px; height:120px;"></div>
                     <div style="text-align: left;">
                         <h3 style="margin:0 0 6px 0; color:#E67E22; font-size:16px;">📱 クレジットカードでお支払い</h3>
                         <p style="margin:0; font-size:13px; color:#333; line-height:1.5;">
@@ -143,13 +144,27 @@ export function initStripePay() {
                     </div>
                 </div>
             `;
+
+            // QRコード画像の読み込み（描画）完了を確実に待機
+            const qrImgEl = document.getElementById('stripe-qr-image-element');
+            if (qrImgEl && !qrImgEl.complete) {
+                await new Promise((resolve) => {
+                    qrImgEl.onload = resolve;
+                    qrImgEl.onerror = resolve; // エラー時も処理をブロックしない
+                });
+            }
+
+            statusDiv.remove();
+
+            // QRコード描画が完全に終わった後に印刷ダイアログを起動
+            window.print();
+
         } else {
             statusDiv.innerText = '⚠️ エラー: Stripe URL取得失敗';
             statusDiv.style.background = '#c0392b';
         }
-    })
-    .catch(err => {
+    } catch (err) {
         statusDiv.innerText = '⚠️ エラー: サーバー通信失敗';
         statusDiv.style.background = '#c0392b';
-    });
+    }
 }

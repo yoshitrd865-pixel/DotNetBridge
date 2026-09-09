@@ -1,6 +1,5 @@
 // wwwroot/js/modules/pdf-archive.js
 
-// html2pdf.js ライブラリを動的に読み込む補助関数
 function loadHtml2Pdf() {
     return new Promise((resolve, reject) => {
         if (window.html2pdf) {
@@ -15,7 +14,6 @@ function loadHtml2Pdf() {
     });
 }
 
-// 画面左下に状態を表示するトースト作成
 function showStatus(message, bgColor = 'rgba(0,0,0,0.85)') {
     let toast = document.getElementById('pdf-archive-toast');
     if (!toast) {
@@ -33,27 +31,55 @@ export async function initPdfArchive(invoiceNo, customerCode) {
     const toast = showStatus('📄 PDF作成準備中...', '#2980b9');
 
     try {
-        // 1. ライブラリの動的ロード
         await loadHtml2Pdf();
-        toast.innerText = '📸 画面をPDFキャプチャ中...';
+        toast.innerText = '📸 画面レイアウト調整中...';
 
-        // 2. PDF生成オプション
-        const element = document.body;
+        // 請求書のメインコンテナを取得（見つからない場合は body ）
+        const element = document.querySelector('.invoice-container') || document.querySelector('#invoice-print-area') || document.body;
+
+        // 1. 撮影用の一時スタイルを適用（A4幅に固定して崩れを防ぐ）
+        const originalStyle = element.getAttribute('style') || '';
+        element.style.width = '794px'; // A4標準幅(px換算)
+        element.style.padding = '20px';
+        element.style.background = '#ffffff';
+
+        // 2. 不要なUIボタン（「付箋を貼る」など）を一時的に隠すCSSを注入
+        const styleTag = document.createElement('style');
+        styleTag.innerHTML = `
+            #pdf-archive-toast, .no-print, button, input[type="button"] { display: none !important; }
+        `;
+        document.head.appendChild(styleTag);
+
+        // 3. レンダリング完了までほんの少し待機（フォント・画像崩れ防止）
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        toast.innerText = '📸 キャプチャ実行中...';
+
         const opt = {
-            margin:       5,
+            margin:       [10, 10, 10, 10], // 上右下左の余白(mm)
             filename:     `invoice_${customerCode}_${invoiceNo}.pdf`,
             image:        { type: 'jpeg', quality: 0.98 },
-            html2canvas:  { scale: 2, useCORS: true, logging: false },
+            html2canvas:  { 
+                scale: 2,           // 高画質化
+                useCORS: true, 
+                logging: false,
+                scrollX: 0,
+                scrollY: 0,
+                windowWidth: 1024   // レイアウト計算用ウィンドウ幅
+            },
             jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
         };
 
-        // 3. Blob（バイナリデータ）としてPDFを生成
+        // 4. PDF生成
         const pdfBlob = await html2pdf().set(opt).from(element).output('blob');
 
-        toast.innerText = '☁️ Cloudflare R2へ送信中...';
+        // 5. 元のスタイルと隠し設定を復元
+        element.setAttribute('style', originalStyle);
+        styleTag.remove();
+
+        toast.innerText = '☁️ Cloudflare R2へ保存中...';
         toast.style.background = '#e67e22';
 
-        // 4. サーバーAPIへ送信
         const formData = new FormData();
         formData.append('file', pdfBlob, `invoice_${customerCode}_${invoiceNo}.pdf`);
         formData.append('invoiceNo', invoiceNo);
@@ -65,7 +91,7 @@ export async function initPdfArchive(invoiceNo, customerCode) {
         });
 
         if (response.ok) {
-            toast.innerText = '✅ PDF保存完了 (R2)';
+            toast.innerText = '✅ PDF綺麗に保存完了 (R2)';
             toast.style.background = '#27ae60';
             setTimeout(() => toast.remove(), 4000);
         } else {

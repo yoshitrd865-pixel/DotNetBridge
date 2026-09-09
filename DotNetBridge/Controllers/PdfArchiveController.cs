@@ -2,7 +2,6 @@ using Amazon.S3;
 using Amazon.S3.Model;
 using Microsoft.AspNetCore.Mvc;
 using PuppeteerSharp;
-using PuppeteerSharp.Media;
 
 namespace DotNetBridgeApp.Controllers
 {
@@ -19,9 +18,9 @@ namespace DotNetBridgeApp.Controllers
 
         public class HtmlUploadRequest
         {
-            public string Html { get; set; }
-            public string InvoiceNo { get; set; }
-            public string CustomerCode { get; set; }
+            public string Html { get; set; } = string.Empty;
+            public string InvoiceNo { get; set; } = string.Empty;
+            public string CustomerCode { get; set; } = string.Empty;
         }
 
         [HttpPost("upload")]
@@ -34,10 +33,10 @@ namespace DotNetBridgeApp.Controllers
 
             try
             {
-                // 1. ヘッドレスChromeのブラウザを準備
-                using var browserFetcher = new BrowserFetcher();
+                // 1. ヘッドレスChromeのブラウザを準備（usingを使わない方式に修復）
+                var browserFetcher = new BrowserFetcher();
                 await browserFetcher.DownloadAsync();
-                
+
                 await using var browser = await Puppeteer.LaunchAsync(new LaunchOptions
                 {
                     Headless = true,
@@ -45,20 +44,26 @@ namespace DotNetBridgeApp.Controllers
                 });
 
                 await using var page = await browser.NewPageAsync();
-                
-                // 2. 受け取ったHTMLを展開
-                await page.SetContentAsync(req.Html, new NavigationOptions
+
+                // 2. 受け取ったHTMLを展開（最新のSetContentOptionsに更新）
+                await page.SetContentAsync(req.Html, new SetContentOptions
                 {
-                    WaitUntil = new[] { WaitUntilNavigation.Networkidle0 }
+                    WaitUntil = new[] { WaitUntilNavigation.DOMContentLoaded }
                 });
 
-                // 3. ブラウザ標準と同等の完璧なA4 PDFを生成
+                // 3. A4 PDFを生成
                 var pdfBytes = await page.PdfDataAsync(new PdfOptions
                 {
-                    Format = PaperFormat.A4,
+                    Format = PuppeteerSharp.Media.PaperFormat.A4,
                     PrintBackground = true,
                     PreferCSSPageSize = true,
-                    MarginOptions = new MarginOptions { Top = "0px", Bottom = "0px", Left = "0px", Right = "0px" }
+                    MarginOptions = new PuppeteerSharp.Media.MarginOptions
+                    {
+                        Top = "0px",
+                        Bottom = "0px",
+                        Left = "0px",
+                        Right = "0px"
+                    }
                 });
 
                 // 4. Cloudflare R2へ送信

@@ -2,91 +2,71 @@ using Amazon.S3;
 using Amazon.S3.Model;
 using Microsoft.AspNetCore.Mvc;
 
-namespace DotNetBridge.Controllers
+namespace DotNetBridgeApp.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
     public class PdfArchiveController : ControllerBase
     {
         private readonly IConfiguration _config;
-        private readonly ILogger<PdfArchiveController> _logger;
 
-        public PdfArchiveController(IConfiguration config, ILogger<PdfArchiveController> logger)
+        public PdfArchiveController(IConfiguration config)
         {
             _config = config;
-            _logger = logger;
         }
 
-        private IAmazonS3 GetR2Client()
-        {
-            var accountId = Environment.GetEnvironmentVariable("CloudflareR2__AccountId") 
-                            ?? _config["CloudflareR2:AccountId"];
-            var accessKey = Environment.GetEnvironmentVariable("CloudflareR2__AccessKeyId") 
-                            ?? _config["CloudflareR2:AccessKeyId"];
-            var secretKey = Environment.GetEnvironmentVariable("CloudflareR2__SecretAccessKey") 
-                            ?? _config["CloudflareR2:SecretAccessKey"];
-
-            // Cloudflare R2 の S3 互換エンドポイント URL
-            var serviceUrl = $"https://{accountId}.r2.cloudflarestorage.com";
-
-            var config = new AmazonS3Config
-            {
-                ServiceURL = serviceUrl,
-                ForcePathStyle = true // R2 必須設定
-            };
-
-            return new AmazonS3Client(accessKey, secretKey, config);
-        }
-
-        /// <summary>
-        /// JavaScript (プロキシ注入) から送信された PDF を Cloudflare R2 へ保存する API
-        /// </summary>
         [HttpPost("upload")]
-        public async Task<IActionResult> UploadPdf([FromForm] IFormFile file, [FromForm] string invoiceNo, [FromForm] string customerCode)
+        public async Task<IActionResult> UploadPdf(
+            [FromForm] IFormFile file,
+            [FromForm] string invoiceNo,
+            [FromForm] string customerCode)
         {
             if (file == null || file.Length == 0)
             {
-                return BadRequest(new { success = false, error = "ファイルが空です" });
+                return BadRequest(new { success = false, error = "ファイルが空です。" });
             }
 
             try
             {
-                var bucketName = Environment.GetEnvironmentVariable("CloudflareR2__BucketName") 
-                                 ?? _config["CloudflareR2:BucketName"];
+                var accountId = _config["CloudflareR2:AccountId"];
+                var accessKeyId = _config["CloudflareR2:AccessKeyId"];
+                var secretAccessKey = _config["CloudflareR2:SecretAccessKey"];
+                var bucketName = _config["CloudflareR2:BucketName"];
 
-                // R2 上でのファイル名設計: 「西暦年月/顧客コード_伝票No_タイムスタンプ.pdf」
-                var dateFolder = DateTime.Now.ToString("yyyyMM");
-                var timeStamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-                var cleanInvoiceNo = string.IsNullOrWhiteSpace(invoiceNo) ? "NO_INVOICE" : invoiceNo.Trim();
-                var cleanCustomerCode = string.IsNullOrWhiteSpace(customerCode) ? "NO_CUSTOMER" : customerCode.Trim();
+                // ─── R2接続設定 ───
+                var s3Config = new AmazonS3Config
+                {
+                    ServiceURL = $"https://{accountId}.r2.cloudflarestorage.com"
+                };
 
-                var objectKey = $"invoices/{dateFolder}/{cleanCustomerCode}_{cleanInvoiceNo}_{timeStamp}.pdf";
+                using var s3Client = new AmazonS3Client(accessKeyId, secretAccessKey, s3Config);
 
-                using var s3Client = GetR2Client();
+                // ファイル名の構築
+                var fileName = string.IsNullOrEmpty(file.FileName)
+                    ? $"invoice_{customerCode}_{invoiceNo}_{DateTime.Now:yyyyMMddHHmmss}.pdf"
+                    : file.FileName;
+
                 using var stream = file.OpenReadStream();
 
+                // ─── R2互換アップロード設定 ───
+                // R2特有のエラー(STREAMING-AWS4-HMAC-SHA256...)を回避するため
+                // チャンクエンコーディングを無効化し、ペイロード署名をオフにする
                 var putRequest = new PutObjectRequest
                 {
                     BucketName = bucketName,
-                    Key = objectKey,
+                    Key = fileName,
                     InputStream = stream,
-                    ContentType = "application/pdf"
+                    ContentType = "application/pdf",
+                    UseChunkEncoding = false,
+                    DisablePayloadSigning = true
                 };
 
                 await s3Client.PutObjectAsync(putRequest);
 
-                _logger.LogInformation($"[R2保存成功] KEY: {objectKey}");
-
-                return Ok(new
-                {
-                    success = true,
-                    key = objectKey,
-                    fileName = $"{cleanCustomerCode}_{cleanInvoiceNo}_{timeStamp}.pdf"
-                });
+                return Ok(new { success = true, fileName = fileName });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Cloudflare R2 PDF アップロードエラー");
                 return StatusCode(500, new { success = false, error = ex.Message });
             }
         }

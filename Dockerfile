@@ -28,7 +28,7 @@ RUN apt-get update && apt-get install -y \
     libxdamage1 \
     libxrandr2 \
     libgbm1 \
-    libasound2 \
+    libasound2t64 \
     fonts-ipafont-gothic \
     && rm -rf /var/lib/apt/lists/*
 

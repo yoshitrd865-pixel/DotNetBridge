@@ -1,6 +1,5 @@
 // wwwroot/js/modules/stripe-pay.js
-import { initPdfArchive } from './pdf-archive.js';
-import { getSettings } from './settings.js'; // ★ 追加：設定読み込み
+import { getSettings } from './settings.js';
 
 export async function initStripePay() {
     // 既にQRエリアが存在すれば実行しない
@@ -18,7 +17,6 @@ export async function initStripePay() {
     statusDiv.innerText = '💳 HHC_Pay: 画面を監視中...';
     document.body.appendChild(statusDiv);
 
-    // DOMから読み取って書き換えるため let のままで正解
     let amount = 0;
     let customerName = "お客様";
     let customerCode = "未指定";
@@ -149,10 +147,10 @@ export async function initStripePay() {
         });
     }
 
-    // ─── Cloudflare R2 への自動 PDF キャプチャ & 送信（設定フラグによる制御） ───
+    // ─── 印刷（beforeprint）イベントへの自動保存ロジック登録 ───
     const settings = getSettings();
     if (settings["pdf_archive_kun"]) {
-        initPdfArchive(invoiceNo, customerCode);
+        setupAutoArchiveOnPrint(invoiceNo, customerCode);
     } else {
         console.log("[ProxyInject] pdf_archive_kun は設定でOFFのためスキップ");
     }

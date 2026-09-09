@@ -1,6 +1,6 @@
 // wwwroot/js/modules/pdf-archive.js
 
-// トースト通知表示関数（重複宣言を防止した安全な定義）
+// トースト通知表示関数
 function showPdfArchiveStatus(message, bgColor = 'rgba(0,0,0,0.85)') {
     let toast = document.getElementById('pdf-archive-toast');
     if (!toast) {
@@ -36,7 +36,7 @@ export async function archivePdfInBackground(invoiceNo, customerCode) {
         // 1. 完成画面のDOMをクローン
         const docClone = document.documentElement.cloneNode(true);
 
-        // 2. 不要な「領収書エリア」と「トースト/モーダル」のみを物理削除
+        // 2. 不要な「領収書エリア」と「トースト/モーダル」のみを物理削除（付箋ボタン等は維持）
         const removeSelectors = [
             '#divSealReceipt', 
             '#divReceiptSales', 

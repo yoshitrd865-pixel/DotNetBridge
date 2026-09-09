@@ -33,25 +33,31 @@ namespace DotNetBridgeApp.Controllers
 
             try
             {
-                // 1. ヘッドレスChromeのブラウザを準備（usingを使わない方式に修復）
                 var browserFetcher = new BrowserFetcher();
                 await browserFetcher.DownloadAsync();
 
+                // ★ Linuxコンテナ(Docker/Render)環境で安定起動させるための必須フラグを追加
                 await using var browser = await Puppeteer.LaunchAsync(new LaunchOptions
                 {
                     Headless = true,
-                    Args = new[] { "--no-sandbox", "--disable-setuid-sandbox" }
+                    Args = new[]
+                    {
+                        "--no-sandbox",
+                        "--disable-setuid-sandbox",
+                        "--disable-dev-shm-usage",  // Dockerの/dev/shm容量不足を回避
+                        "--disable-gpu",
+                        "--no-zygote",
+                        "--single-process"          // シングルプロセスで権限問題を回避
+                    }
                 });
 
                 await using var page = await browser.NewPageAsync();
 
-                // 2. 受け取ったHTMLを展開（最新のSetContentOptionsに更新）
                 await page.SetContentAsync(req.Html, new SetContentOptions
                 {
                     WaitUntil = new[] { WaitUntilNavigation.DOMContentLoaded }
                 });
 
-                // 3. A4 PDFを生成
                 var pdfBytes = await page.PdfDataAsync(new PdfOptions
                 {
                     Format = PuppeteerSharp.Media.PaperFormat.A4,
@@ -66,7 +72,6 @@ namespace DotNetBridgeApp.Controllers
                     }
                 });
 
-                // 4. Cloudflare R2へ送信
                 var accountId = _config["CloudflareR2:AccountId"];
                 var accessKeyId = _config["CloudflareR2:AccessKeyId"];
                 var secretAccessKey = _config["CloudflareR2:SecretAccessKey"];

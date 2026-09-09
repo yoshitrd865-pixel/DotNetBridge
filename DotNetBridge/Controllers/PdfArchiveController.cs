@@ -52,19 +52,17 @@ namespace DotNetBridgeApp.Controllers
 
                 await using var page = await browser.NewPageAsync();
 
-                // 画像（角印など）の読み込み完了まで確実に待機するオプションを指定
+                // クライアント側から渡されたDOM（QRコード挿入済み）を展開
                 await page.SetContentAsync(req.Html, new SetContentOptions
                 {
-                    WaitUntil = new[] { WaitUntilNavigation.DOMContentLoaded, WaitUntilNavigation.Networkidle0 }
+                    WaitUntil = new[] { WaitUntilNavigation.DOMContentLoaded }
                 });
 
-                // ★ 印刷用CSS (@media print) を適用させて不要UIを非表示にする
-                await page.EmulateMediaTypeAsync(PuppeteerSharp.Media.MediaType.Print);
-
+                // A4 PDFの読み込みと出力設定
                 var pdfBytes = await page.PdfDataAsync(new PdfOptions
                 {
                     Format = PuppeteerSharp.Media.PaperFormat.A4,
-                    PrintBackground = true, // 背景画像・角印画像を確実に描画
+                    PrintBackground = true,
                     PreferCSSPageSize = true,
                     MarginOptions = new PuppeteerSharp.Media.MarginOptions
                     {
@@ -75,6 +73,7 @@ namespace DotNetBridgeApp.Controllers
                     }
                 });
 
+                // Cloudflare R2 ストレージ設定と送信
                 var accountId = _config["CloudflareR2:AccountId"];
                 var accessKeyId = _config["CloudflareR2:AccessKeyId"];
                 var secretAccessKey = _config["CloudflareR2:SecretAccessKey"];

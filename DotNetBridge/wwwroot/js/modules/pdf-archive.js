@@ -32,7 +32,7 @@ export async function initPdfArchive(invoiceNo, customerCode) {
 
     try {
         await loadHtml2Pdf();
-        toast.innerText = '📸 請求書領域(#divPage)をキャプチャ中...';
+        toast.innerText = '📸 請求書領域(#divPage)を印刷モードでキャプチャ中...';
 
         // 1. デベロッパーツールで特定した「請求書本体」の要素をピンポイント指定
         const targetElement = document.getElementById('divPage') || document.body;
@@ -40,7 +40,7 @@ export async function initPdfArchive(invoiceNo, customerCode) {
         window.scrollTo(0, 0);
         await new Promise(resolve => setTimeout(resolve, 300));
 
-        // 2. A4サイズ指定と要素キャプチャ設定
+        // 2. A4サイズ指定と要素キャプチャ設定（mediaType: 'print' を追加）
         const opt = {
             margin:       [0, 0, 0, 0], // ピンポイント撮影のため余白ゼロ
             filename:     `invoice_${customerCode}_${invoiceNo}.pdf`,
@@ -51,7 +51,8 @@ export async function initPdfArchive(invoiceNo, customerCode) {
                 logging: false,
                 scrollX: 0,
                 scrollY: 0,
-                windowWidth: 1024       // 幅崩れ防止
+                windowWidth: 1024,      // 幅崩れ防止
+                mediaType: 'print'      // ★ 印刷用レイアウト（@media print）でレンダリング
             },
             jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
         };

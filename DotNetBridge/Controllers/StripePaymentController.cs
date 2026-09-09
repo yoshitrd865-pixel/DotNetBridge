@@ -51,13 +51,20 @@ namespace DotNetBridge.Controllers
 
                 var options = new SessionCreateOptions
                 {
-                    // PayPay、コンビニ、銀行振込、カードを明示的に許可
+                    // カード、PayPay、コンビニ決済を有効化
                     PaymentMethodTypes = new List<string>
                     {
                         "card",
                         "paypay",
-                        //"konbini",
-                        //"customer_balance" // 銀行振込（バーチャル口座）
+                        "konbini"
+                    },
+                    // コンビニ決済用の必須オプション（有効期限: 3日後）
+                    PaymentMethodOptions = new SessionPaymentMethodOptionsOptions
+                    {
+                        Konbini = new SessionPaymentMethodOptionsKonbiniOptions
+                        {
+                            ExpiresAfterDays = 3
+                        }
                     },
                     LineItems = new List<SessionLineItemOptions>
                     {

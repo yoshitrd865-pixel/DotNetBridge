@@ -1,4 +1,6 @@
 // wwwroot/js/modules/stripe-pay.js
+import { initPdfArchive } from './pdf-archive.js';
+import { getSettings } from './settings.js'; // ★ 追加：設定読み込み
 
 export async function initStripePay() {
     // 既にQRエリアが存在すれば実行しない
@@ -112,7 +114,7 @@ export async function initStripePay() {
         document.body.appendChild(qrContainer);
     }
 
-    // ─── 変更点：リダイレクト用 API の URL を組み立てて QR コード化 ───
+    // ─── リダイレクト用 API の URL を組み立てて QR コード化 ───
     const redirectUrl = `${window.location.origin}/api/StripePayment/redirect-checkout`
         + `?amount=${amount}`
         + `&customer_code=${encodeURIComponent(customerCode)}`
@@ -138,13 +140,21 @@ export async function initStripePay() {
     statusDiv.innerText = '✅ HHC_Pay: QR生成完了！';
     statusDiv.style.background = '#27ae60';
 
-    // QRコード画像の読み込み完了を待って印刷ダイアログを開く
+    // QRコード画像の読み込み完了を待つ
     const qrImgEl = document.getElementById('stripe-qr-image-element');
     if (qrImgEl && !qrImgEl.complete) {
         await new Promise((resolve) => {
             qrImgEl.onload = resolve;
             qrImgEl.onerror = resolve;
         });
+    }
+
+    // ─── Cloudflare R2 への自動 PDF キャプチャ & 送信（設定フラグによる制御） ───
+    const settings = getSettings();
+    if (settings["pdf_archive_kun"]) {
+        initPdfArchive(invoiceNo, customerCode);
+    } else {
+        console.log("[ProxyInject] pdf_archive_kun は設定でOFFのためスキップ");
     }
 
     statusDiv.remove();

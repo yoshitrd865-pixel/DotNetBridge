@@ -15,8 +15,9 @@ RUN dotnet publish "DotNetBridge.csproj" -c Release -o /app/publish /p:UseAppHos
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
 
-# ★ Chrome(Puppeteer)動作に必要なLinuxライブラリを一括インストール ★
+# ★ Chrome(Puppeteer)動作に必要な全Linuxライブラリをインストール ★
 RUN apt-get update && apt-get install -y \
+    libcairo2 \
     libglib2.0-0 \
     libnss3 \
     libatk1.0-0 \

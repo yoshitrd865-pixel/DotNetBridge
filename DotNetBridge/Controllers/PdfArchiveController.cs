@@ -36,7 +36,6 @@ namespace DotNetBridgeApp.Controllers
                 var browserFetcher = new BrowserFetcher();
                 await browserFetcher.DownloadAsync();
 
-                // ★ Linuxコンテナ(Docker/Render)環境で安定起動させるための必須フラグを追加
                 await using var browser = await Puppeteer.LaunchAsync(new LaunchOptions
                 {
                     Headless = true,
@@ -44,24 +43,28 @@ namespace DotNetBridgeApp.Controllers
                     {
                         "--no-sandbox",
                         "--disable-setuid-sandbox",
-                        "--disable-dev-shm-usage",  // Dockerの/dev/shm容量不足を回避
+                        "--disable-dev-shm-usage",
                         "--disable-gpu",
                         "--no-zygote",
-                        "--single-process"          // シングルプロセスで権限問題を回避
+                        "--single-process"
                     }
                 });
 
                 await using var page = await browser.NewPageAsync();
 
+                // 画像（角印など）の読み込み完了まで確実に待機するオプションを指定
                 await page.SetContentAsync(req.Html, new SetContentOptions
                 {
-                    WaitUntil = new[] { WaitUntilNavigation.DOMContentLoaded }
+                    WaitUntil = new[] { WaitUntilNavigation.DOMContentLoaded, WaitUntilNavigation.Networkidle0 }
                 });
+
+                // ★ 印刷用CSS (@media print) を適用させて不要UIを非表示にする
+                await page.EmulateMediaTypeAsync(PuppeteerSharp.Media.MediaType.Print);
 
                 var pdfBytes = await page.PdfDataAsync(new PdfOptions
                 {
                     Format = PuppeteerSharp.Media.PaperFormat.A4,
-                    PrintBackground = true,
+                    PrintBackground = true, // 背景画像・角印画像を確実に描画
                     PreferCSSPageSize = true,
                     MarginOptions = new PuppeteerSharp.Media.MarginOptions
                     {

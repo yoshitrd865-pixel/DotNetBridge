@@ -31,6 +31,46 @@ namespace DotNetBridge.Controllers
             StripeConfiguration.ApiKey = secretKey;
         }       
 
+        /// <summary>
+        /// QRコード読み取り専用エンドポイント（何度読み込んでも最新セッションを発行してリダイレクト）
+        /// </summary>
+        [HttpGet("redirect-checkout")]
+        public async Task<IActionResult> RedirectCheckout(
+            [FromQuery] long amount, 
+            [FromQuery] string? customer_code, 
+            [FromQuery] string? customer_name, 
+            [FromQuery] string? invoice_no, 
+            [FromQuery] string? item_description)
+        {
+            var req = new CreateCheckoutRequest
+            {
+                Amount = amount,
+                CustomerCode = customer_code,
+                CustomerName = customer_name,
+                InvoiceNo = invoice_no,
+                ItemDescription = item_description
+            };
+
+            // 1. 読み出されるたびに新しい Stripe セッションを作成
+            var result = await CreateCheckout(req) as OkObjectResult;
+            if (result?.Value is null)
+            {
+                return BadRequest(new { error = "決済画面の生成に失敗しました" });
+            }
+
+            // 2. 匿名型オブジェクトから Stripe の決済 URL を取得
+            var urlProperty = result.Value.GetType().GetProperty("url");
+            var checkoutUrl = urlProperty?.GetValue(result.Value, null)?.ToString();
+
+            if (string.IsNullOrEmpty(checkoutUrl))
+            {
+                return BadRequest(new { error = "決済URLの取得に失敗しました" });
+            }
+
+            // 3. スマホのブラウザを最新の Stripe Checkout 画面へ自動転送
+            return Redirect(checkoutUrl);
+        }
+
         [HttpPost("create-checkout")]
         public async Task<IActionResult> CreateCheckout([FromBody] CreateCheckoutRequest req)
         {

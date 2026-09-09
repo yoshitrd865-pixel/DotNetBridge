@@ -16,6 +16,7 @@ export async function initStripePay() {
     statusDiv.innerText = '💳 HHC_Pay: 画面を監視中...';
     document.body.appendChild(statusDiv);
 
+    // DOMから読み取って書き換えるため let のままで正解
     let amount = 0;
     let customerName = "お客様";
     let customerCode = "未指定";
@@ -98,12 +99,11 @@ export async function initStripePay() {
         return;
     }
 
-    statusDiv.innerText = `💳 HHC_Pay: Stripeと直接通信中...`;
+    statusDiv.innerText = `💳 HHC_Pay: QRコード生成中...`;
 
     const qrContainer = document.createElement('div');
     qrContainer.id = 'tfk-paygate-qr-area';
-    qrContainer.style.cssText = 'margin-top: 30px; padding: 20px; border: 2px dashed #F39C12; text-align: center; background: #f8f9fa; border-radius: 8px; width: 95%; margin-left: auto; margin-right: auto; page-break-inside: avoid;';
-    qrContainer.innerHTML = '<span style="color:#F39C12; font-weight:bold;">💳 Stripe決済QRを全自動生成中...⏳</span>';
+    qrContainer.style.cssText = 'margin-top: 30px; padding: 20px; border: 2px dashed #F39C12; text-align: center; background: #fff; border-radius: 8px; width: 95%; margin-left: auto; margin-right: auto; page-break-inside: avoid;';
 
     const tblSales = document.getElementById('tblSales') || document.querySelector('table');
     if (tblSales) {
@@ -112,67 +112,44 @@ export async function initStripePay() {
         document.body.appendChild(qrContainer);
     }
 
-    const postData = {
-        amount: amount,
-        customer_name: customerName,
-        customer_code: customerCode,
-        invoice_no: invoiceNo,
-        item_description: itemDescription
-    };
+    // ─── 変更点：リダイレクト用 API の URL を組み立てて QR コード化 ───
+    const redirectUrl = `${window.location.origin}/api/StripePayment/redirect-checkout`
+        + `?amount=${amount}`
+        + `&customer_code=${encodeURIComponent(customerCode)}`
+        + `&customer_name=${encodeURIComponent(customerName)}`
+        + `&invoice_no=${encodeURIComponent(invoiceNo)}`
+        + `&item_description=${encodeURIComponent(itemDescription)}`;
 
-    const apiUrl = window.location.origin + '/api/StripePayment/create-checkout';
+    const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(redirectUrl)}`;
 
-    try {
-        const response = await fetch(apiUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(postData)
+    qrContainer.innerHTML = `
+        <div style="display:flex; align-items:center; justify-content:center; gap:25px; padding:10px;">
+            <div><img id="stripe-qr-image-element" src="${qrImageUrl}" style="width:130px; height:130px;"></div>
+            <div style="text-align: left;">
+                <h3 style="margin:0 0 6px 0; color:#E67E22; font-size:16px;">📱 スマホでお支払い（クレカ・PayPay・コンビニ）</h3>
+                <p style="margin:0; font-size:13px; color:#333; line-height:1.5;">
+                    QRコードをスマホのカメラで読み取ると、お支払い画面が開きます。<br>
+                    <strong style="color:#c0392b; font-size:17px; display:inline-block; margin-top:4px;">ご請求金額: ${amount.toLocaleString()} 円</strong>
+                </p>
+            </div>
+        </div>
+    `;
+
+    statusDiv.innerText = '✅ HHC_Pay: QR生成完了！';
+    statusDiv.style.background = '#27ae60';
+
+    // QRコード画像の読み込み完了を待って印刷ダイアログを開く
+    const qrImgEl = document.getElementById('stripe-qr-image-element');
+    if (qrImgEl && !qrImgEl.complete) {
+        await new Promise((resolve) => {
+            qrImgEl.onload = resolve;
+            qrImgEl.onerror = resolve;
         });
-
-        const data = await response.json();
-
-        if (data.url) {
-            statusDiv.innerText = '✅ HHC_Pay: QR生成大成功！';
-            statusDiv.style.background = '#27ae60';
-
-            const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(data.url)}`;
-            qrContainer.style.background = '#fff';
-            qrContainer.innerHTML = `
-                <div style="display:flex; align-items:center; justify-content:center; gap:25px; padding:10px;">
-                    <div><img id="stripe-qr-image-element" src="${qrImageUrl}" style="width:130px; height:120px;"></div>
-                    <div style="text-align: left;">
-                        <h3 style="margin:0 0 6px 0; color:#E67E22; font-size:16px;">📱 クレジットカードでお支払い</h3>
-                        <p style="margin:0; font-size:13px; color:#333; line-height:1.5;">
-                            QRコードをスマホのカメラで読み取ると、安全な決済画面が開きます。<br>
-                            <strong style="color:#c0392b; font-size:17px; display:inline-block; margin-top:4px;">ご請求金額: ${amount.toLocaleString()} 円</strong>
-                        </p>
-                    </div>
-                </div>
-            `;
-
-            // QRコード画像の読み込み（描画）完了を確実に待機
-            const qrImgEl = document.getElementById('stripe-qr-image-element');
-            if (qrImgEl && !qrImgEl.complete) {
-                await new Promise((resolve) => {
-                    qrImgEl.onload = resolve;
-                    qrImgEl.onerror = resolve;
-                });
-            }
-
-            statusDiv.remove();
-
-            // 元の print 関数を復元し、QRコード描画完了後に1回だけ実行
-            window.print = originalPrint;
-            window.print();
-
-        } else {
-            statusDiv.innerText = '⚠️ エラー: Stripe URL取得失敗';
-            statusDiv.style.background = '#c0392b';
-            window.print = originalPrint;
-        }
-    } catch (err) {
-        statusDiv.innerText = '⚠️ エラー: サーバー通信失敗';
-        statusDiv.style.background = '#c0392b';
-        window.print = originalPrint;
     }
+
+    statusDiv.remove();
+
+    // 元の print 関数を復元して実行
+    window.print = originalPrint;
+    window.print();
 }

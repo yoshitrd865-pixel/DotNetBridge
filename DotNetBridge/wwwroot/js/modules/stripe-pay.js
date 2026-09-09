@@ -7,6 +7,10 @@ export async function initStripePay() {
     // 「今回請求額」がDOMに現れていない場合は処理を行わない
     if (!document.body.innerText.includes('今回請求額')) return;
 
+    // 元の window.print を退避し、一時的に無効化して元画面側のフライング起動を防ぐ
+    const originalPrint = window.print;
+    window.print = function() {};
+
     const statusDiv = document.createElement('div');
     statusDiv.style.cssText = 'position:fixed; bottom:10px; left:10px; background:rgba(0,0,0,0.8); color:#fff; padding:8px 12px; border-radius:8px; font-size:12px; z-index:999999; font-weight:bold; box-shadow:0 2px 5px rgba(0,0,0,0.3);';
     statusDiv.innerText = '💳 HHC_Pay: 画面を監視中...';
@@ -90,6 +94,7 @@ export async function initStripePay() {
     if (amount <= 0) {
         statusDiv.innerText = '⚠️ エラー: 金額読み取り失敗';
         statusDiv.style.background = '#c0392b';
+        window.print = originalPrint; // 元に戻す
         return;
     }
 
@@ -150,21 +155,24 @@ export async function initStripePay() {
             if (qrImgEl && !qrImgEl.complete) {
                 await new Promise((resolve) => {
                     qrImgEl.onload = resolve;
-                    qrImgEl.onerror = resolve; // エラー時も処理をブロックしない
+                    qrImgEl.onerror = resolve;
                 });
             }
 
             statusDiv.remove();
 
-            // QRコード描画が完全に終わった後に印刷ダイアログを起動
+            // 元の print 関数を復元し、QRコード描画完了後に1回だけ実行
+            window.print = originalPrint;
             window.print();
 
         } else {
             statusDiv.innerText = '⚠️ エラー: Stripe URL取得失敗';
             statusDiv.style.background = '#c0392b';
+            window.print = originalPrint;
         }
     } catch (err) {
         statusDiv.innerText = '⚠️ エラー: サーバー通信失敗';
         statusDiv.style.background = '#c0392b';
+        window.print = originalPrint;
     }
 }

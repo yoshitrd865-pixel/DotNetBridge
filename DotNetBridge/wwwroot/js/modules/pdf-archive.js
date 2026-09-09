@@ -30,21 +30,11 @@ function showStatus(message, bgColor = 'rgba(0,0,0,0.85)') {
 export async function initPdfArchive(invoiceNo, customerCode) {
     const toast = showStatus('📄 PDF作成中...', '#2980b9');
 
-    // キャプチャ時だけ不要なUI（付箋ボタンやトースト）を消すCSSを一時追加
-    const hideStyle = document.createElement('style');
-    hideStyle.id = 'pdf-hide-style';
-    hideStyle.innerHTML = `
-        #pdf-archive-toast, .no-print, button, input[type="button"] { display: none !important; }
-        /* 付箋ボタンが入っている要素を隠す */
-        div:has(> [textContent*="付箋"]), a:contains("付箋") { display: none !important; }
-    `;
-    document.head.appendChild(hideStyle);
-
     try {
         await loadHtml2Pdf();
         toast.innerText = '📸 キャプチャ中...';
 
-        // 待機を入れて描画を安定させる
+        // 描画の安定化のため少し待機
         await new Promise(resolve => setTimeout(resolve, 300));
 
         const element = document.body;
@@ -54,7 +44,7 @@ export async function initPdfArchive(invoiceNo, customerCode) {
             filename:     `invoice_${customerCode}_${invoiceNo}.pdf`,
             image:        { type: 'jpeg', quality: 0.98 },
             html2canvas:  { 
-                scale: 2,           // 高画質
+                scale: 2,           // 高画質化
                 useCORS: true, 
                 logging: false,
                 scrollX: 0,
@@ -92,9 +82,5 @@ export async function initPdfArchive(invoiceNo, customerCode) {
         toast.innerText = `⚠️ PDF保存失敗: ${err.message}`;
         toast.style.background = '#c0392b';
         setTimeout(() => toast.remove(), 7000);
-    } finally {
-        // 一時追加した非表示CSSを削除して元に戻す
-        const addedStyle = document.getElementById('pdf-hide-style');
-        if (addedStyle) addedStyle.remove();
     }
 }

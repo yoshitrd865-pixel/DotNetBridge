@@ -28,83 +28,46 @@ function showStatus(message, bgColor = 'rgba(0,0,0,0.85)') {
 }
 
 export async function initPdfArchive(invoiceNo, customerCode) {
-    const toast = showStatus('📄 PDF化処理を開始...', '#2980b9');
+    const toast = showStatus('📄 PDF作成中...', '#2980b9');
+
+    // キャプチャ時だけ不要なUI（付箋ボタンやトースト）を消すCSSを一時追加
+    const hideStyle = document.createElement('style');
+    hideStyle.id = 'pdf-hide-style';
+    hideStyle.innerHTML = `
+        #pdf-archive-toast, .no-print, button, input[type="button"] { display: none !important; }
+        /* 付箋ボタンが入っている要素を隠す */
+        div:has(> [textContent*="付箋"]), a:contains("付箋") { display: none !important; }
+    `;
+    document.head.appendChild(hideStyle);
 
     try {
         await loadHtml2Pdf();
-        toast.innerText = '📸 描画クローン領域を生成中...';
+        toast.innerText = '📸 キャプチャ中...';
 
-        // 1. 画面の元となるHTMLを取得（bodyまたはメイン要素）
-        const targetElement = document.body;
-        
-        // 2. 撮影専用のクローンDOM要素を作成（画面外に固定配置）
-        const clone = targetElement.cloneNode(true);
-
-        // 3. クローン側から不要な要素（付箋ボタン、トースト、その他ボタン類）を物理除去
-        const unwantedSelectors = [
-            '#pdf-archive-toast',
-            'button',
-            'input[type="button"]',
-            'input[type="submit"]',
-            '.no-print'
-        ];
-        
-        unwantedSelectors.forEach(selector => {
-            clone.querySelectorAll(selector).forEach(el => el.remove());
-        });
-
-        // 画面上のテキスト「+ このお客様に付箋を貼る」が含まれる要素を検索して削除
-        clone.querySelectorAll('*').forEach(el => {
-            if (el.children.length === 0 && el.textContent.includes('付箋を貼る')) {
-                el.parentElement ? el.parentElement.remove() : el.remove();
-            }
-        });
-
-        // 4. クローン専用のラッパーコンテナを生成（固定幅 A4 210mm 相当）
-        const container = document.createElement('div');
-        container.style.cssText = `
-            position: absolute;
-            left: -9999px;
-            top: 0;
-            width: 800px;
-            background: #ffffff;
-            color: #000000;
-            padding: 20px;
-            box-sizing: border-box;
-        `;
-        container.appendChild(clone);
-        document.body.appendChild(container);
-
-        // フォントや要素の評価待ち
+        // 待機を入れて描画を安定させる
         await new Promise(resolve => setTimeout(resolve, 300));
 
-        toast.innerText = '📸 高解像度キャプチャ実行中...';
+        const element = document.body;
 
-        // 5. PDF生成オプション設定
         const opt = {
-            margin:       [5, 5, 5, 5],
+            margin:       0,
             filename:     `invoice_${customerCode}_${invoiceNo}.pdf`,
             image:        { type: 'jpeg', quality: 0.98 },
             html2canvas:  { 
-                scale: 2,
-                useCORS: true,
+                scale: 2,           // 高画質
+                useCORS: true, 
                 logging: false,
-                width: 800,
-                windowWidth: 800
+                scrollX: 0,
+                scrollY: 0
             },
             jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
         };
 
-        // PDFのバイナリ生成
-        const pdfBlob = await html2pdf().set(opt).from(container).output('blob');
+        const pdfBlob = await html2pdf().set(opt).from(element).output('blob');
 
-        // 使用した一時クローン領域の破棄
-        container.remove();
-
-        toast.innerText = '☁️ Cloudflare R2へ保存中...';
+        toast.innerText = '☁️ Cloudflare R2へ送信中...';
         toast.style.background = '#e67e22';
 
-        // 6. API送信
         const formData = new FormData();
         formData.append('file', pdfBlob, `invoice_${customerCode}_${invoiceNo}.pdf`);
         formData.append('invoiceNo', invoiceNo);
@@ -129,5 +92,9 @@ export async function initPdfArchive(invoiceNo, customerCode) {
         toast.innerText = `⚠️ PDF保存失敗: ${err.message}`;
         toast.style.background = '#c0392b';
         setTimeout(() => toast.remove(), 7000);
+    } finally {
+        // 一時追加した非表示CSSを削除して元に戻す
+        const addedStyle = document.getElementById('pdf-hide-style');
+        if (addedStyle) addedStyle.remove();
     }
 }

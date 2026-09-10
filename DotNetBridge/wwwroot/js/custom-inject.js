@@ -2,7 +2,6 @@
 import { observeDOM } from './modules/common.js';
 import { getCurrentPage } from './modules/router.js';
 import { initStripePay } from './modules/stripe-pay.js';
-//import { initAozoraPay } from './modules/aozora-pay.js'; あおぞら無効
 import { initAutoLogin } from './modules/auto-login.js';
 import { initContinuousUpload } from './modules/continuous-upload.js';
 import { initSettingsMenu, getSettings } from './modules/settings.js';
@@ -16,6 +15,7 @@ import { initInvoiceHistory } from './modules/invoice-history.js';
 console.log("[ProxyInject] エンジン起動");
 
 const page = getCurrentPage();
+const isMenuStandard = window.location.pathname.includes("menuStandard.asp"); // ★ 直接URL判定
 
 // 🛡️ 機能がONの時だけ安全に実行する一括ガード関数
 function runIfEnabled(featureId, action) {
@@ -28,19 +28,20 @@ function runIfEnabled(featureId, action) {
 }
 
 observeDOM(() => {
-    // ⚙️ メニュー画面のカスタマイズカード表示
-    if (page === "menu") {
+    // ⚙️ メニュー画面のカスタマイズカード表示（通常メニューの時のみ）
+    if (page === "menu" && !isMenuStandard) {
         initSettingsMenu();
     }
 
-    // 各機能の呼び出し
+    // 📜 業務メニュー（残高）画面の時は直接実行
+    if (isMenuStandard) {
+        runIfEnabled("invoice_history_kun", initInvoiceHistory);
+    }
+
+    // 各画面に応じた個別機能
     switch (page) {
         case "receipt":
             runIfEnabled("hhc_pay_kun", initStripePay);
-            break;
-
-        case "menuStandard": // ★ 残高・業務メニュー画面で起動
-            runIfEnabled("invoice_history_kun", initInvoiceHistory);
             break;
 
         case "login":
@@ -52,7 +53,7 @@ observeDOM(() => {
             break;
     }
 
-    // 画面問わず動作する機能
+    // 全画面共通機能
     runIfEnabled("auto_login", initAutoLogin);
     runIfEnabled("tenkenbox_worp", initInspectionWarp);
     runIfEnabled("zandaka_copy", initZandakaCopy);

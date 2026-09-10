@@ -64,7 +64,6 @@ builder.Services.AddAuthentication(options =>
         options.Cookie.HttpOnly = true;
         options.SlidingExpiration = true;
 
-        // ★ 追記：プロキシ通信中のエラーで勝手にログイン画面へ飛ばされるのを防止
         options.Events.OnRedirectToLogin = ctx =>
         {
             if (ctx.Request.Path.StartsWithSegments("/Account"))
@@ -120,11 +119,8 @@ using (var scope = app.Services.CreateScope())
     fusenDb.Database.EnsureCreated();
 
     var subDb = scope.ServiceProvider.GetRequiredService<SubscriptionDbContext>();
-    
-    // 1. 基本テーブルの自動生成
     subDb.Database.EnsureCreated();
 
-    // 2. 既存の TenantSubscriptions テーブル作成（未存在時）
     subDb.Database.ExecuteSqlRaw(@"
         CREATE TABLE IF NOT EXISTS ""TenantSubscriptions"" (
             ""Id"" INTEGER NOT NULL CONSTRAINT ""PK_TenantSubscriptions"" PRIMARY KEY AUTOINCREMENT,
@@ -138,7 +134,6 @@ using (var scope = app.Services.CreateScope())
         );
     ");
 
-    // 3. SystemSettings テーブル作成（未存在時に自動生成）
     subDb.Database.ExecuteSqlRaw(@"
         CREATE TABLE IF NOT EXISTS ""SystemSettings"" (
             ""Id"" INTEGER NOT NULL CONSTRAINT ""PK_SystemSettings"" PRIMARY KEY AUTOINCREMENT,
@@ -147,14 +142,13 @@ using (var scope = app.Services.CreateScope())
         );
     ");
 
-    // 4. 既存の TenantSubscriptions テーブルに PaidAt カラムが存在しない場合の救済（エラー無視）
     try
     {
         subDb.Database.ExecuteSqlRaw(@"ALTER TABLE ""TenantSubscriptions"" ADD COLUMN ""PaidAt"" TEXT NOT NULL DEFAULT '0001-01-01 00:00:00';");
     }
     catch
     {
-        // 既に PaidAt カラムが存在する場合は何も行わない
+        // 既に PaidAt カラムが存在する場合はスキップ
     }
 }        
 
@@ -166,14 +160,13 @@ app.UseSession();
 app.UseAuthentication();
 app.UseAuthorization();
 
-// 1. 各コントローラーの属性ルーティングと標準ルートの有効化
 app.MapControllers();
 app.MapControllerRoute(
     name: "default",
     pattern: "Account/{action=Login}/{id?}",
     defaults: new { controller = "Account" });
 
-// 2. リバースプロキシ用ミドルウェア
+// リバースプロキシ用ミドルウェア
 app.Use(async (context, next) =>
 {
     var path = context.Request.Path;
@@ -189,14 +182,8 @@ app.Use(async (context, next) =>
         await next();
         return;
     }
-    /* ※開発中のためGoogle認証をスルー
-    if (context.User.Identity?.IsAuthenticated != true)
-    {
-        context.Response.Redirect("/Account/Login");
-        return;
-    }
-    */
 
+    // ★ 開発用：Google認証チェックをスキップし、セッションへデフォルト接続先をセット
     if (string.IsNullOrEmpty(context.Session.GetString("TargetAspUrl")))
     {
         context.Session.SetString("TargetAspUrl", builder.Configuration["DEFAULT_ASP_URL"] ?? "https://hhc-eco11.com/EcoToubuF3/mobile60_ToubuF/");

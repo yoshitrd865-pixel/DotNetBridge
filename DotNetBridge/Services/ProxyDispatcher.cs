@@ -35,14 +35,18 @@ namespace DotNetBridge.Services
                 }
             }
 
-            // 2. 未ログイン（シークレットモード等）の場合はデフォルトURLを強制適用
+            // 2. 未ログイン（シークレットモード等）の場合はデフォルトURLとダミーEmailをセット
             if (string.IsNullOrEmpty(targetBaseUrl))
             {
                 targetBaseUrl = context.Session.GetString("TargetAspUrl") 
                                 ?? "https://hhc-eco11.com/EcoToubuF3/mobile60_ToubuF/";
+
+                // ★ セッションへURLと開発用メールアドレスをセット（これで内部リダイレクトを防ぎます）
+                context.Session.SetString("TargetAspUrl", targetBaseUrl);
+                context.Session.SetString("UserEmail", "eco@tfkankyo.com");
             }
 
-            // ★ JSによる /Account/Suspended への強制転送を撤去し、そのままプロキシ中継を実行
+            // 3. プロキシ中継の実行
             bool isEcoMaster = targetBaseUrl.Contains("mobile60", StringComparison.OrdinalIgnoreCase);
 
             if (isEcoMaster)

@@ -183,10 +183,11 @@ app.Use(async (context, next) =>
         return;
     }
 
-    // ★ 開発用：Google認証チェックをスキップし、セッションへデフォルト接続先をセット
+    // ★ 開発用：TargetAspUrl と同時に UserEmail もセッションへ保持
     if (string.IsNullOrEmpty(context.Session.GetString("TargetAspUrl")))
     {
         context.Session.SetString("TargetAspUrl", builder.Configuration["DEFAULT_ASP_URL"] ?? "https://hhc-eco11.com/EcoToubuF3/mobile60_ToubuF/");
+        context.Session.SetString("UserEmail", "eco@tfkankyo.com");
     }
 
     var dispatcher = context.RequestServices.GetRequiredService<ProxyDispatcher>();

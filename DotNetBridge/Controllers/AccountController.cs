@@ -19,7 +19,6 @@ namespace DotNetBridge.Controllers
             _db = db;
         }
 
-        // ログイン画面表示
         [HttpGet]
         public IActionResult Login()
         {
@@ -30,7 +29,6 @@ namespace DotNetBridge.Controllers
             return View();
         }
 
-        // 1. 「Googleでログイン」ボタンが押された時の処理
         [HttpGet]
         public IActionResult GoogleLogin()
         {
@@ -44,7 +42,6 @@ namespace DotNetBridge.Controllers
             return Challenge(properties, GoogleDefaults.AuthenticationScheme);
         }
 
-        // 2. Google側の認証完了後に戻ってくる場所（DB照合・URL割り当て）
         [HttpGet]
         public async Task<IActionResult> GoogleResponse()
         {
@@ -93,11 +90,11 @@ namespace DotNetBridge.Controllers
             return RedirectToAction("Login");
         }
 
-        // 3. アカウント停止案内画面（★開発中はトップへ強制リダイレクト）
+        // 3. アカウント停止案内画面（★リダイレクトを停止してループを防止）
         [HttpGet("Account/Suspended")]
         public IActionResult Suspended()
         {
-            return Redirect("/");
+            return Content("【開発用】アカウント停止判定を検知しました。ProxyDispatcherの設定を確認してください。", "text/plain", System.Text.Encoding.UTF8);
         }
     }
 }

@@ -151,7 +151,7 @@ using (var scope = app.Services.CreateScope())
         // 既に PaidAt カラムが存在する場合はスキップ
     }
 
-    // ★ 開発用アカウントを SQLite DB へ自動注入（プロキシ内部のDB照合を通過させます）
+    // 開発用アカウントを SQLite DB へ自動注入
     try
     {
         subDb.Database.ExecuteSqlRaw(@"
@@ -177,29 +177,21 @@ app.MapControllerRoute(
     pattern: "Account/{action=Login}/{id?}",
     defaults: new { controller = "Account" });
 
-// リバースプロキシ用ミドルウェア
+// リバースプロキシ用ミドルウェア（完全開発モード）
 app.Use(async (context, next) =>
 {
     var path = context.Request.Path;
 
-    if (path.StartsWithSegments("/Account", StringComparison.OrdinalIgnoreCase) ||
-        path.StartsWithSegments("/Subscription", StringComparison.OrdinalIgnoreCase) ||
-        path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase) ||
-        path.StartsWithSegments("/admin", StringComparison.OrdinalIgnoreCase) ||
-        path.StartsWithSegments("/success", StringComparison.OrdinalIgnoreCase) ||
-        path.StartsWithSegments("/cancel", StringComparison.OrdinalIgnoreCase) ||
-        path.StartsWithSegments("/signin-google", StringComparison.OrdinalIgnoreCase))
+    // API通信のみ通常コントローラーへ、それ以外（/Account等を含む全リクエスト）はプロキシへ直行
+    if (path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase))
     {
         await next();
         return;
     }
 
-    // ★ 開発用：TargetAspUrl と同時に UserEmail もセッションへ保持
-    if (string.IsNullOrEmpty(context.Session.GetString("TargetAspUrl")))
-    {
-        context.Session.SetString("TargetAspUrl", builder.Configuration["DEFAULT_ASP_URL"] ?? "https://hhc-eco11.com/EcoToubuF3/mobile60_ToubuF/");
-        context.Session.SetString("UserEmail", "eco@tfkankyo.com");
-    }
+    // セッション情報の常時強制注入
+    context.Session.SetString("TargetAspUrl", builder.Configuration["DEFAULT_ASP_URL"] ?? "https://hhc-eco11.com/EcoToubuF3/mobile60_ToubuF/");
+    context.Session.SetString("UserEmail", "eco@tfkankyo.com");
 
     var dispatcher = context.RequestServices.GetRequiredService<ProxyDispatcher>();
     await dispatcher.DispatchAsync(context);

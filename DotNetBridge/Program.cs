@@ -189,12 +189,13 @@ app.Use(async (context, next) =>
         await next();
         return;
     }
-    
+    /* ※開発中のためGoogle認証をスルー
     if (context.User.Identity?.IsAuthenticated != true)
     {
         context.Response.Redirect("/Account/Login");
         return;
     }
+    */
 
     var dispatcher = context.RequestServices.GetRequiredService<ProxyDispatcher>();
     await dispatcher.DispatchAsync(context);

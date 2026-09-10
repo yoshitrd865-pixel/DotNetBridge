@@ -150,6 +150,17 @@ using (var scope = app.Services.CreateScope())
     {
         // 既に PaidAt カラムが存在する場合はスキップ
     }
+
+    // ★ 開発用アカウントを SQLite DB へ自動注入（プロキシ内部のDB照合を通過させます）
+    try
+    {
+        subDb.Database.ExecuteSqlRaw(@"
+            INSERT INTO ""TenantSubscriptions"" (""GoogleEmail"", ""TargetAspUrl"", ""IsActive"", ""CreatedAt"")
+            SELECT 'eco@tfkankyo.com', 'https://hhc-eco11.com/EcoToubuF3/mobile60_ToubuF/', 1, '2026-01-01 00:00:00'
+            WHERE NOT EXISTS (SELECT 1 FROM ""TenantSubscriptions"" WHERE ""GoogleEmail"" = 'eco@tfkankyo.com');
+        ");
+    }
+    catch { }
 }        
 
 app.UseStaticFiles();

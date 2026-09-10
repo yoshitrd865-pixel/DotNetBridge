@@ -104,7 +104,6 @@ export function extractInvoiceItems(targetDoc = document) {
             itemDate = previousDate;
         }
 
-        // 「設置先」や見出し行の再除外
         if (!detailName || detailName.includes('設置先') || ['日付', '明細項目', '数量', '単価', '金額'].includes(detailName)) continue;
         if (!amount || !hasAmount(amount)) continue;
 
@@ -131,7 +130,7 @@ export async function saveInvoiceHistory() {
     // 1. ローカルIndexedDBに保存
     await addRecord(record);
 
-    // 2. Render側サーバーAPIへ非同期送信 (DB保存用)
+    // 2. Render側サーバーAPIへ非同期送信
     fetch('/api/InvoiceHistory/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -197,4 +196,25 @@ export async function showHistoryDialog() {
 
     document.getElementById('close-history-btn').onclick = () => overlay.remove();
     overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+}
+
+/* =========================================================
+ * 4. custom-inject.js 呼び出し用メイン関数
+ * ========================================================= */
+export function initInvoiceHistory() {
+    if (window.invoiceHistoryInjected) return;
+    window.invoiceHistoryInjected = true;
+
+    window.addEventListener('beforeprint', () => {
+        saveInvoiceHistory();
+    });
+
+    if (!document.getElementById('btn-show-invoice-history')) {
+        const btn = document.createElement('button');
+        btn.id = 'btn-show-invoice-history';
+        btn.innerText = '📜 発行履歴を見る';
+        btn.style.cssText = 'position:fixed; bottom:10px; right:10px; z-index:99999; background:#176dac; color:#fff; border:none; padding:8px 14px; border-radius:6px; font-weight:bold; cursor:pointer; box-shadow:0 2px 6px rgba(0,0,0,0.3);';
+        btn.onclick = showHistoryDialog;
+        document.body.appendChild(btn);
+    }
 }

@@ -57,7 +57,6 @@ export async function saveInvoiceHistoryFromMenu() {
         const customerCode = urlParams.get("SetUpCode") || "未指定";
         const bodyText = document.body.innerText;
 
-        // 1. 日付 & 伝票番号の抽出
         const slipMatch = bodyText.match(/(\d{4}\/\d{2}\/\d{2})\s*\[伝票番号:(\d+)\]/);
         if (!slipMatch) {
             console.log('[請求書履歴くん] 伝票情報が見つからないためスキップ');
@@ -67,14 +66,12 @@ export async function saveInvoiceHistoryFromMenu() {
         const invoiceDate = slipMatch[1];
         const invoiceNo = slipMatch[2];
 
-        // 2. 重複チェック（同一の顧客コード＋伝票番号が保存済みなら二重保存しない）
         const existingRecords = await getAllRecords();
         if (existingRecords.some(r => r.invoiceNo === invoiceNo && r.customerCode === customerCode)) {
             console.log(`[請求書履歴くん] 伝票No: ${invoiceNo} は既に保存済みです。`);
             return;
         }
 
-        // 3. 残高テーブルからの明細・小計・消費税・合計の抽出
         const items = [];
         const tables = document.querySelectorAll('table');
 
@@ -104,7 +101,6 @@ export async function saveInvoiceHistoryFromMenu() {
             items: items
         };
 
-        // ローカルDB ＆ バックエンドAPIへの保存
         await addRecord(record);
         fetch('/api/InvoiceHistory/save', {
             method: 'POST',
@@ -183,22 +179,44 @@ export async function showHistoryDialog() {
 }
 
 /* =========================================================
- * 4. 初期化関数
+ * 4. 青ヘッダーバーへのボタン埋め込み
  * ========================================================= */
+function injectHeaderButton() {
+    if (document.getElementById('btn-show-invoice-history')) return;
+
+    // 「業務メニュー」が書かれている上部の青いヘッダー領域を探す
+    const elements = Array.from(document.querySelectorAll('div, td, header, a, span'));
+    const headerBar = elements.find(el => el.textContent && el.textContent.trim() === '業務メニュー' && el.children.length === 0)?.parentElement;
+
+    const btn = document.createElement('button');
+    btn.id = 'btn-show-invoice-history';
+    btn.innerText = '📜 請求書履歴';
+    btn.style.cssText = 'background: rgba(255, 255, 255, 0.2); color: #fff; border: 1px solid rgba(255, 255, 255, 0.6); padding: 4px 10px; border-radius: 4px; font-size: 13px; font-weight: bold; cursor: pointer; margin-left: 10px; vertical-align: middle; transition: background 0.2s;';
+    
+    btn.onmouseover = () => btn.style.background = 'rgba(255, 255, 255, 0.35)';
+    btn.onmouseout = () => btn.style.background = 'rgba(255, 255, 255, 0.2)';
+    btn.onclick = showHistoryDialog;
+
+    if (headerBar) {
+        headerBar.style.display = 'flex';
+        headerBar.style.alignItems = 'center';
+        headerBar.style.justifyContent = 'space-between';
+        headerBar.appendChild(btn);
+    } else {
+        // フォールバック: ヘッダーが特定できない場合は左上に固定配置
+        btn.style.position = 'fixed';
+        btn.style.top = '10px';
+        btn.style.left = '50px';
+        btn.style.zIndex = '99999';
+        btn.style.background = '#176dac';
+        document.body.appendChild(btn);
+    }
+}
+
 export function initInvoiceHistory() {
     if (window.invoiceHistoryInjected) return;
     window.invoiceHistoryInjected = true;
 
-    // 画面が開いたら自動解析して保存
     saveInvoiceHistoryFromMenu();
-
-    // 右下に「📜 発行履歴」ボタンを表示
-    if (!document.getElementById('btn-show-invoice-history')) {
-        const btn = document.createElement('button');
-        btn.id = 'btn-show-invoice-history';
-        btn.innerText = '📜 発行履歴を見る';
-        btn.style.cssText = 'position:fixed; bottom:10px; right:10px; z-index:99999; background:#176dac; color:#fff; border:none; padding:8px 14px; border-radius:6px; font-weight:bold; cursor:pointer; box-shadow:0 2px 6px rgba(0,0,0,0.3);';
-        btn.onclick = showHistoryDialog;
-        document.body.appendChild(btn);
-    }
+    injectHeaderButton();
 }

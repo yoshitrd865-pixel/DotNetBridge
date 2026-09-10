@@ -17,8 +17,11 @@ namespace DotNetBridge.Services
 
         public async Task DispatchAsync(HttpContext context)
         {
-            // ★ 開発用：認証やDB条件判定をすべてスキップして固定URLへ接続
             string targetBaseUrl = "https://hhc-eco11.com/EcoToubuF3/mobile60_ToubuF/";
+
+            // ★ 内部プロキシサービス用のセッション値を事前に注入
+            context.Session.SetString("TargetAspUrl", targetBaseUrl);
+            context.Session.SetString("UserEmail", "eco@tfkankyo.com");
 
             bool isEcoMaster = targetBaseUrl.Contains("mobile60", StringComparison.OrdinalIgnoreCase);
 

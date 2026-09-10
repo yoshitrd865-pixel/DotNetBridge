@@ -77,12 +77,14 @@ namespace DotNetBridge.Controllers
                 return View("Login");
             }
 
+            /*開発中のため無し
             // ② サブスク未払い・停止中の弾き
             if (!tenant.IsActive)
             {
                 ViewBag.Error = "サブスクリプション契約が無効または支払いが未完了です。";
                 return View("Login");
             }
+            */
 
             // ③ 認証＆契約OK：会社専用のASP URLとメールアドレスをセッションに保持
             HttpContext.Session.SetString("TargetAspUrl", tenant.TargetAspUrl);

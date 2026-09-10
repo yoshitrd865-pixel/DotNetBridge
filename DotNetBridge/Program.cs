@@ -197,6 +197,11 @@ app.Use(async (context, next) =>
     }
     */
 
+    if (string.IsNullOrEmpty(context.Session.GetString("TargetAspUrl")))
+    {
+        context.Session.SetString("TargetAspUrl", builder.Configuration["DEFAULT_ASP_URL"] ?? "https://hhc-eco11.com/EcoToubuF3/mobile60_ToubuF/");
+    }
+
     var dispatcher = context.RequestServices.GetRequiredService<ProxyDispatcher>();
     await dispatcher.DispatchAsync(context);
 });

@@ -5,7 +5,7 @@ const DB_VERSION = 7;
 const STORE_NAME = 'InvoiceHistory';
 
 /* =========================================================
- * 1. IndexedDB 制御（ローカルキャッシュ）
+ * 1. IndexedDB 制御
  * ========================================================= */
 function openDatabase() {
     return new Promise((resolve, reject) => {
@@ -49,98 +49,82 @@ export async function getAllRecords() {
 }
 
 /* =========================================================
- * 2. 高精度な帳票明細パース（神ロジック移植）
+ * 2. menuStandard.asp 専用の自動解析＆保存
  * ========================================================= */
-function normalizeText(value) {
-    return String(value == null ? '' : value)
-        .replace(/\u00a0/g, ' ')
-        .replace(/[\t\r\n]+/g, ' ')
-        .replace(/\s{2,}/g, ' ')
-        .trim();
-}
+export async function saveInvoiceHistoryFromMenu() {
+    try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const customerCode = urlParams.get("SetUpCode") || "未指定";
+        const bodyText = document.body.innerText;
 
-function hasAmount(value) {
-    return /^[¥￥]?\s*-?[\d,]+(?:\.\d+)?\s*円?$/.test(normalizeText(value));
-}
-
-export function extractInvoiceItems(targetDoc = document) {
-    const table = targetDoc.getElementById('tblSales');
-    if (!table) return [];
-
-    const rows = Array.from(table.querySelectorAll('tr'));
-    let headerInfo = null;
-
-    // ヘッダー行の動的検出
-    for (let i = 0; i < rows.length; i++) {
-        const cells = Array.from(rows[i].children).filter(c => ['td', 'th'].includes(c.tagName.toLowerCase()));
-        const texts = cells.map(c => normalizeText(c.innerText || c.textContent));
-        if (texts.includes('日付') && texts.some(t => ['明細項目', '商品名称', '商品名', '品名'].includes(t)) && texts.includes('金額')) {
-            headerInfo = {
-                rowIndex: i,
-                dateIdx: texts.indexOf('日付'),
-                detailIdx: texts.findIndex(t => ['明細項目', '商品名称', '商品名', '品名'].includes(t)),
-                amountIdx: texts.indexOf('金額')
-            };
-            break;
-        }
-    }
-
-    if (!headerInfo) return [];
-
-    const items = [];
-    let previousDate = '';
-
-    for (let i = headerInfo.rowIndex + 1; i < rows.length; i++) {
-        const cells = Array.from(rows[i].children).filter(c => ['td', 'th'].includes(c.tagName.toLowerCase()));
-        if (cells.length <= Math.max(headerInfo.dateIdx, headerInfo.detailIdx, headerInfo.amountIdx)) continue;
-
-        let itemDate = normalizeText(cells[headerInfo.dateIdx].innerText);
-        const detailName = normalizeText(cells[headerInfo.detailIdx].innerText);
-        const amount = normalizeText(cells[headerInfo.amountIdx].innerText);
-
-        if (itemDate && /^\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}$/.test(itemDate)) {
-            previousDate = itemDate;
-        } else if (!itemDate) {
-            itemDate = previousDate;
+        // 1. 日付 & 伝票番号の抽出
+        const slipMatch = bodyText.match(/(\d{4}\/\d{2}\/\d{2})\s*\[伝票番号:(\d+)\]/);
+        if (!slipMatch) {
+            console.log('[請求書履歴くん] 伝票情報が見つからないためスキップ');
+            return;
         }
 
-        if (!detailName || detailName.includes('設置先') || ['日付', '明細項目', '数量', '単価', '金額'].includes(detailName)) continue;
-        if (!amount || !hasAmount(amount)) continue;
+        const invoiceDate = slipMatch[1];
+        const invoiceNo = slipMatch[2];
 
-        items.push({ date: itemDate, detailName: detailName, amount: amount });
+        // 2. 重複チェック（同一の顧客コード＋伝票番号が保存済みなら二重保存しない）
+        const existingRecords = await getAllRecords();
+        if (existingRecords.some(r => r.invoiceNo === invoiceNo && r.customerCode === customerCode)) {
+            console.log(`[請求書履歴くん] 伝票No: ${invoiceNo} は既に保存済みです。`);
+            return;
+        }
+
+        // 3. 残高テーブルからの明細・小計・消費税・合計の抽出
+        const items = [];
+        const tables = document.querySelectorAll('table');
+
+        tables.forEach(table => {
+            const rows = table.querySelectorAll('tr');
+            rows.forEach(row => {
+                const text = row.innerText.trim();
+                if (!text || text.includes('伝票番号')) return;
+
+                const cells = row.querySelectorAll('td');
+                if (cells.length >= 2) {
+                    const detailName = cells[0].innerText.trim();
+                    const amount = cells[1].innerText.trim();
+                    if (detailName && amount) {
+                        items.push({ date: invoiceDate, detailName: detailName, amount: amount });
+                    }
+                }
+            });
+        });
+
+        if (items.length === 0) return;
+
+        const record = {
+            savedAt: new Date().toISOString(),
+            invoiceNo: invoiceNo,
+            customerCode: customerCode,
+            items: items
+        };
+
+        // ローカルDB ＆ バックエンドAPIへの保存
+        await addRecord(record);
+        fetch('/api/InvoiceHistory/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(record)
+        }).catch(() => {});
+
+        console.log('[請求書履歴くん] 自動保存完了:', record);
+
+    } catch (e) {
+        console.error('[請求書履歴くん] 解析エラー:', e);
     }
-
-    return items;
 }
 
 /* =========================================================
- * 3. 履歴保存 & 発行履歴UIモーダル
+ * 3. 履歴表示モーダル
  * ========================================================= */
-export async function saveInvoiceHistory() {
-    const items = extractInvoiceItems();
-    const urlParams = new URLSearchParams(window.location.search);
-    
-    const record = {
-        savedAt: new Date().toISOString(),
-        invoiceNo: urlParams.get("SalesSlipNumber") || urlParams.get("CheckNumber") || "未指定",
-        customerCode: urlParams.get("SetUpCode") || "未指定",
-        items: items
-    };
-
-    // 1. ローカルIndexedDBに保存
-    await addRecord(record);
-
-    // 2. Render側サーバーAPIへ非同期送信
-    fetch('/api/InvoiceHistory/save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(record)
-    }).catch(err => console.log('[History API Skip or Error]', err));
-}
-
 export async function showHistoryDialog() {
     const records = await getAllRecords();
-    
+
     const overlay = document.createElement('div');
     overlay.style.cssText = 'position:fixed; inset:0; z-index:2147483646; background:rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; padding:20px;';
 
@@ -199,16 +183,16 @@ export async function showHistoryDialog() {
 }
 
 /* =========================================================
- * 4. custom-inject.js 呼び出し用メイン関数
+ * 4. 初期化関数
  * ========================================================= */
 export function initInvoiceHistory() {
     if (window.invoiceHistoryInjected) return;
     window.invoiceHistoryInjected = true;
 
-    window.addEventListener('beforeprint', () => {
-        saveInvoiceHistory();
-    });
+    // 画面が開いたら自動解析して保存
+    saveInvoiceHistoryFromMenu();
 
+    // 右下に「📜 発行履歴」ボタンを表示
     if (!document.getElementById('btn-show-invoice-history')) {
         const btn = document.createElement('button');
         btn.id = 'btn-show-invoice-history';

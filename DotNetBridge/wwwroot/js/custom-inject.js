@@ -11,7 +11,7 @@ import { initZandakaCopy } from './modules/zandaka-copy.js';
 import { initFusenKun } from './modules/fusen-kun.js';
 import { initCleanAutoLink } from './modules/clean-autolink.js';
 import { initCommentSpeaker } from './modules/comment-speaker.js';
-import { initInvoiceHistory } from './modules/invoice-history.js'; // ★ 追加
+import { initInvoiceHistory } from './modules/invoice-history.js';
 
 console.log("[ProxyInject] エンジン起動");
 
@@ -28,17 +28,19 @@ function runIfEnabled(featureId, action) {
 }
 
 observeDOM(() => {
-    // ⚙️ メニュー画面のカスタマイズカード表示（これは常に起動）
+    // ⚙️ メニュー画面のカスタマイズカード表示
     if (page === "menu") {
         initSettingsMenu();
     }
 
-    // 各機能の呼び出し（ここで一括判定！）
+    // 各機能の呼び出し
     switch (page) {
         case "receipt":
-            runIfEnabled("hhc_pay_kun", initStripePay); 
-            //runIfEnabled("hhc_pay_kun", initAozoraPay);あおぞら銀行無効
-            runIfEnabled("invoice_history_kun", initInvoiceHistory); // ★ 請求書画面で起動
+            runIfEnabled("hhc_pay_kun", initStripePay);
+            break;
+
+        case "menuStandard": // ★ 残高・業務メニュー画面で起動
+            runIfEnabled("invoice_history_kun", initInvoiceHistory);
             break;
 
         case "login":
@@ -50,9 +52,8 @@ observeDOM(() => {
             break;
     }
 
-    // 画面問わず動作する自動ログイン
+    // 画面問わず動作する機能
     runIfEnabled("auto_login", initAutoLogin);
-    // 📸 点検BOXワープ ＆ 戻るボタン修復
     runIfEnabled("tenkenbox_worp", initInspectionWarp);
     runIfEnabled("zandaka_copy", initZandakaCopy);
     runIfEnabled("fusen_kun", initFusenKun);

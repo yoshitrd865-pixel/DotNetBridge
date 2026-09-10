@@ -1,7 +1,8 @@
+// wwwroot/js/custom-inject.js
 import { observeDOM } from './modules/common.js';
 import { getCurrentPage } from './modules/router.js';
 import { initStripePay } from './modules/stripe-pay.js';
-//import { initAozoraPay } from './modules/aozora-pay.js';　あおぞら無効
+//import { initAozoraPay } from './modules/aozora-pay.js'; あおぞら無効
 import { initAutoLogin } from './modules/auto-login.js';
 import { initContinuousUpload } from './modules/continuous-upload.js';
 import { initSettingsMenu, getSettings } from './modules/settings.js';
@@ -10,6 +11,7 @@ import { initZandakaCopy } from './modules/zandaka-copy.js';
 import { initFusenKun } from './modules/fusen-kun.js';
 import { initCleanAutoLink } from './modules/clean-autolink.js';
 import { initCommentSpeaker } from './modules/comment-speaker.js';
+import { initInvoiceHistory } from './modules/invoice-history.js'; // ★ 追加
 
 console.log("[ProxyInject] エンジン起動");
 
@@ -36,6 +38,7 @@ observeDOM(() => {
         case "receipt":
             runIfEnabled("hhc_pay_kun", initStripePay); 
             //runIfEnabled("hhc_pay_kun", initAozoraPay);あおぞら銀行無効
+            runIfEnabled("invoice_history_kun", initInvoiceHistory); // ★ 請求書画面で起動
             break;
 
         case "login":
@@ -49,7 +52,7 @@ observeDOM(() => {
 
     // 画面問わず動作する自動ログイン
     runIfEnabled("auto_login", initAutoLogin);
-    // 📸 点検BOXワープ ＆ 戻るボタン修復（★ここに追加！）
+    // 📸 点検BOXワープ ＆ 戻るボタン修復
     runIfEnabled("tenkenbox_worp", initInspectionWarp);
     runIfEnabled("zandaka_copy", initZandakaCopy);
     runIfEnabled("fusen_kun", initFusenKun);

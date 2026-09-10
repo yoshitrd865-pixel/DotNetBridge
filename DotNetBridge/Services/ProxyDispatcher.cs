@@ -22,7 +22,7 @@ namespace DotNetBridge.Services
 
             string? targetBaseUrl = null;
 
-            // 1. Googleログイン済みの場合はDBから契約情報を検索
+            // 1. Googleログイン済みの場合はDBからURLを取得
             if (!string.IsNullOrEmpty(userEmail))
             {
                 var db = context.RequestServices.GetRequiredService<SubscriptionDbContext>();
@@ -35,21 +35,14 @@ namespace DotNetBridge.Services
                 }
             }
 
-            // 2. 未ログイン（シークレットモード等）やDB未登録時は Session のデフォルトURLを使用
+            // 2. 未ログイン（シークレットモード等）の場合はデフォルトURLを強制適用
             if (string.IsNullOrEmpty(targetBaseUrl))
             {
-                targetBaseUrl = context.Session.GetString("TargetAspUrl");
+                targetBaseUrl = context.Session.GetString("TargetAspUrl") 
+                                ?? "https://hhc-eco11.com/EcoToubuF3/mobile60_ToubuF/";
             }
 
-            // 3. それでも転送先URLが取得できない場合のみ停止画面へ脱出
-            if (string.IsNullOrEmpty(targetBaseUrl))
-            {
-                context.Response.ContentType = "text/html; charset=utf-8";
-                await context.Response.WriteAsync("<html><body><script>window.top.location.href = '/Account/Suspended';</script></body></html>");
-                return;
-            }
-
-            // 4. URL判定によるプロキシサービスへの転送（mobile60 の有無で分離）
+            // ★ JSによる /Account/Suspended への強制転送を撤去し、そのままプロキシ中継を実行
             bool isEcoMaster = targetBaseUrl.Contains("mobile60", StringComparison.OrdinalIgnoreCase);
 
             if (isEcoMaster)

@@ -11,8 +11,8 @@ export const FEATURES = [
     { id: "fusen_kun", name: "📝 クラウド付箋くん", default: true, implemented: true },
     { id: "mitenken_map", name: "🗺️ 未点検マップ化くん", default: false, implemented: false },
     { id: "hhc_pay_kun", name: "💳 HHC_Pay (QR決済)", default: true, implemented: true },
-    { id: "pdf_archive_kun", name: "📄 請求書自動アーカイブくん", default: true, implemented: true }, // ★ 新規追加！
-    { id: "seikyu_rireki_kun", name: "💳 請求書履歴くん", default: false, implemented: false },
+    { id: "pdf_archive_kun", name: "📄 請求書自動アーカイブくん", default: true, implemented: true },
+    { id: "invoice_history_kun", name: "📜 請求書履歴くん", default: true, implemented: true }, // ★ ID統一 & 有効化！
     { id: "continuous_upload", name: "📸 連続アップロードくん", default: true, implemented: true },
     { id: "clean_autolink", name: "🧹 清掃オートリンクくん", default: true, implemented: true },
     { id: "comment_speaker", name: "🔊 コメント読み上げくん", default: true, implemented: true }

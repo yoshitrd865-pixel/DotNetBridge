@@ -1,11 +1,11 @@
 /**
- * 物理カード再現・クラウド付箋くん (DotNetBridge 内製化モジュール v52.2)
+ * 物理カード再現・クラウド付箋くん (DotNetBridge 内製化モジュール v52.3)
  */
 
 export function initFusenKun() {
     if (window.fusenKunStarted) return;
 
-    // ① ホワイトリスト判定（menuStandard.asp を含む6画面限定で飛び火を完封）
+    // ① ホワイトリスト判定（6画面限定）
     const path = window.location.pathname.toLowerCase();
     const ALLOWED_PAGES = [
         'menucheck.asp',    // 点検メニュー
@@ -18,26 +18,25 @@ export function initFusenKun() {
 
     const isAllowed = ALLOWED_PAGES.some(page => path.includes(page));
     if (!isAllowed) {
-        return; // 不要な画面での起動を100%遮断
+        return;
     }
 
     window.fusenKunStarted = true;
 
-    // 安全なドメインキーの判定
+    // ★ 修正: 画面ファイル名(.asp)を除外し、全画面で共通の付箋DB領域を参照させる
     let host = window.location.hostname.replace(/^www\./, '');
-    let pathParts = window.location.pathname.split('/').filter(p => p.length > 0);
-    let companyPath = pathParts.length > 0 ? pathParts[0] : 'default';
+    let pathParts = window.location.pathname.split('/').filter(p => p.length > 0 && !p.toLowerCase().endsWith('.asp') && !p.toLowerCase().endsWith('.htm'));
+    let companyPath = pathParts.length > 0 ? pathParts[0] : 'common';
 
     let cleanDomain = (host + '_' + companyPath).replace(/[^a-zA-Z0-9_\-]/g, '');
     
-    // ★ 内製化した C# バックエンド API エンドポイント
+    // 内製 C# バックエンド API エンドポイント
     const API_URL = '/api/fusen?domain=' + (cleanDomain || 'default_domain');
 
     let fusenDataCache = { active: {}, history: [] };
     let isFetching = false;
     let currentTab = 'active';
 
-    // 💡 スマホ・PCハイブリッド画面（DOM要素）を考慮した判定
     const isMobileMode = (typeof window.AndroidGPS !== 'undefined') 
         || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) 
         || window.location.pathname.toLowerCase().includes('mobile')
@@ -1028,7 +1027,6 @@ export function initFusenKun() {
         return chip;
     }
 
-    // ★① 一覧画面のボタンに拾ったID（[1175]など）を表示
     function createAddInlineBadge(targetId) {
         const badge = document.createElement('span');
         badge.innerText = `＋付箋 [${targetId}]`;
@@ -1140,7 +1138,6 @@ export function initFusenKun() {
         });
     }
 
-    // ★② メイン画面（メニュー）でのID抽出優先度強化とボタンテキストへのID付与
     function renderFusenOnMainMobile() {
         if (!isMobileDetailScreen()) {
             const oldContainer = document.getElementById('tfk-main-fusen-container');
@@ -1152,14 +1149,12 @@ export function initFusenKun() {
         let checkNumberForMap = null;
         const activePage = document.querySelector('.ui-page-active') || document.body;
 
-        // 1. DOM内の「浄化槽番号」を最優先で取得（顧客共通IDを絶対キーにする）
         const fullText = activePage.innerText || '';
         const matchJokaso = fullText.match(/浄化槽番号[\s\r\n:]*([0-9]{1,8})/);
         if (matchJokaso) {
             mainTargetId = matchJokaso[1];
         }
 
-        // 2. iframe 内から SetUpCode / JokasoNumber を検索
         if (!mainTargetId) {
             const iframe = document.getElementById('frmBasic') || document.querySelector('iframe');
             if (iframe) {
@@ -1169,7 +1164,6 @@ export function initFusenKun() {
             }
         }
 
-        // 3. URLパラメータから検索（SetUpCode を優先し、伝票固有の CleanNumber は後回し）
         if (!mainTargetId) {
             try {
                 const params = new URLSearchParams(window.location.search);
@@ -1293,7 +1287,6 @@ export function initFusenKun() {
         return fusen;
     }
 
-    // ★③ PC画面のボタンテキストにもIDを表示
     function createAddBtnPc(targetId, isList) {
         const addBtn = document.createElement('div');
         const padding = isList ? '4px 10px' : '6px 12px';
@@ -1441,7 +1434,7 @@ export function initFusenKun() {
 
     setInterval(fetchFusenData, 30000);
 
-    // ★ 旧サーバー(tfkankyo.com)からの本番キー指定型データ移行ユーティリティ
+    // 旧サーバー(tfkankyo.com)からの本番キー指定型データ移行ユーティリティ
     window.migrateFusenData = async () => {
         const oldApi = 'https://tfkankyo.com/fusenkun/fusen_api.php?domain=hhc-eco11.com_EcoToubuF3';
         console.log(`[移行] 旧API (${oldApi}) から本番データを取得中...`);

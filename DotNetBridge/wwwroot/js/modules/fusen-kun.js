@@ -1,18 +1,19 @@
 /**
- * 物理カード再現・クラウド付箋くん (DotNetBridge 内製化モジュール v52.1)
+ * 物理カード再現・クラウド付箋くん (DotNetBridge 内製化モジュール v52.2)
  */
 
 export function initFusenKun() {
     if (window.fusenKunStarted) return;
 
-    // ① ホワイトリスト判定（指定5画面以外は即座に終了して飛び火防止）
+    // ① ホワイトリスト判定（menuStandard.asp を含む6画面限定で飛び火を完封）
     const path = window.location.pathname.toLowerCase();
     const ALLOWED_PAGES = [
         'menucheck.asp',    // 点検メニュー
         'listcheck.asp',    // 点検一覧
         'listclean.asp',    // 清掃一覧
         'menuclean.asp',    // 清掃メニュー
-        'liststandard.asp'  // 標準リスト
+        'liststandard.asp', // 標準リスト
+        'menustandard.asp'  // 業務メニュー
     ];
 
     const isAllowed = ALLOWED_PAGES.some(page => path.includes(page));
@@ -1027,9 +1028,10 @@ export function initFusenKun() {
         return chip;
     }
 
+    // ★① 一覧画面のボタンに拾ったID（[1175]など）を表示
     function createAddInlineBadge(targetId) {
         const badge = document.createElement('span');
-        badge.innerText = '＋付箋';
+        badge.innerText = `＋付箋 [${targetId}]`;
         badge.style.cssText = 'margin-left:6px; font-size:11px; color:#007AFF; background:#E5F1FF; border:1px solid #007AFF; border-radius:12px; padding:2px 8px; cursor:pointer; font-weight:bold; display:inline-block; vertical-align:middle; height:22px; line-height:16px; box-sizing:border-box; position:relative !important; z-index:20 !important;';
 
         const handleTap = (e) => {
@@ -1076,7 +1078,6 @@ export function initFusenKun() {
         if (items.length === 0) return;
 
         items.forEach(container => {
-            // ② 1行/1カードにつき1回だけの重複注入ガード
             const parentRow = container.closest('li, tr, .taskItem') || container;
             if (parentRow.dataset.fusenInjected === "true") return;
 
@@ -1102,7 +1103,6 @@ export function initFusenKun() {
 
             if (!targetId) return;
 
-            // ③ 数字のみの要素（例: 「4」「7」などのインデックス表示枠）への直接誤爆をスキップ
             const directText = container.innerText ? container.innerText.trim() : '';
             if (/^\d+$/.test(directText)) return;
 
@@ -1140,6 +1140,7 @@ export function initFusenKun() {
         });
     }
 
+    // ★② メイン画面（メニュー）でのID抽出優先度強化とボタンテキストへのID付与
     function renderFusenOnMainMobile() {
         if (!isMobileDetailScreen()) {
             const oldContainer = document.getElementById('tfk-main-fusen-container');
@@ -1151,18 +1152,36 @@ export function initFusenKun() {
         let checkNumberForMap = null;
         const activePage = document.querySelector('.ui-page-active') || document.body;
 
-        const iframe = document.getElementById('frmBasic') || document.querySelector('iframe');
-        if (iframe) {
-            const src = iframe.getAttribute('src') || '';
-            const setupMatch = src.match(/[?&]SetUpCode=([0-9]{1,8})/i);
-            if (setupMatch) mainTargetId = setupMatch[1];
+        // 1. DOM内の「浄化槽番号」を最優先で取得（顧客共通IDを絶対キーにする）
+        const fullText = activePage.innerText || '';
+        const matchJokaso = fullText.match(/浄化槽番号[\s\r\n:]*([0-9]{1,8})/);
+        if (matchJokaso) {
+            mainTargetId = matchJokaso[1];
         }
 
+        // 2. iframe 内から SetUpCode / JokasoNumber を検索
+        if (!mainTargetId) {
+            const iframe = document.getElementById('frmBasic') || document.querySelector('iframe');
+            if (iframe) {
+                const src = iframe.getAttribute('src') || '';
+                const setupMatch = src.match(/[?&](?:SetUpCode|JokasoNumber|ContractNumber)=([0-9]{1,8})/i);
+                if (setupMatch) mainTargetId = setupMatch[1];
+            }
+        }
+
+        // 3. URLパラメータから検索（SetUpCode を優先し、伝票固有の CleanNumber は後回し）
         if (!mainTargetId) {
             try {
                 const params = new URLSearchParams(window.location.search);
-                mainTargetId = params.get('SetUpCode') || params.get('ContractNumber') || params.get('id');
+                mainTargetId = params.get('SetUpCode') || 
+                               params.get('JokasoNumber') || 
+                               params.get('ContractNumber') || 
+                               params.get('id');
                 checkNumberForMap = params.get('CheckNumber');
+
+                if (!mainTargetId) {
+                    mainTargetId = params.get('CleanNumber');
+                }
             } catch(e) {}
         }
 
@@ -1234,7 +1253,7 @@ export function initFusenKun() {
             }
 
             const addBtn = document.createElement('div');
-            addBtn.innerText = '＋ このお客様に付箋を貼る';
+            addBtn.innerText = `＋ このお客様に付箋を貼る [${mainTargetId}]`;
             addBtn.style.cssText = 'padding:10px 20px !important; font-size:14px !important; color:#007AFF !important; border:1px dashed #007AFF !important; border-radius:8px !important; cursor:pointer !important; display:inline-block !important; background:#fff !important; font-weight:bold !important; text-align:center !important; margin:0 auto !important; box-shadow:0 1px 3px rgba(0,0,0,0.06) !important;';
             addBtn.onclick = (e) => {
                 e.preventDefault(); e.stopPropagation();
@@ -1274,12 +1293,13 @@ export function initFusenKun() {
         return fusen;
     }
 
+    // ★③ PC画面のボタンテキストにもIDを表示
     function createAddBtnPc(targetId, isList) {
         const addBtn = document.createElement('div');
         const padding = isList ? '4px 10px' : '6px 12px';
         const fontSize = isList ? '11px' : '13px';
 
-        addBtn.innerText = isList ? '＋追加' : '＋ 付箋を貼る';
+        addBtn.innerText = isList ? `＋追加 [${targetId}]` : `＋ 付箋を貼る [${targetId}]`;
         addBtn.style.cssText = `padding:${padding} !important; font-size:${fontSize} !important; color:#007AFF !important; border:2px dashed #007AFF !important; border-radius:6px !important; cursor:pointer !important; display:flex !important; align-items:center !important; justify-content:center !important; background:rgba(255,255,255,0.8) !important; font-weight:bold !important; flex: 0 0 auto !important;`;
 
         addBtn.onclick = (e) => {

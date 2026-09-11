@@ -60,7 +60,7 @@ DotNetBridge/
 │   └── SubscriptionController.cs    # サブスクリプション管理
 ├── Data/
 │   ├── FusenDbContext.cs            # 付箋用 DbContext
-│   ├── PaymentDbContext.cs          # 決済ログ用 DbContext
+│   ├── PaymentDbContext.cs            # 決済ログ用 DbContext
 │   └── SubscriptionDbContext.cs     # 契約管理用 DbContext
 ├── Models/
 │   └── FusenStore.cs                # データモデル定義
@@ -78,8 +78,10 @@ DotNetBridge/
         ├── continuous-upload.js     # 連続写真アップロード
         ├── fusen-kun.js             # クラウド付箋くん (v52.3)
         ├── inspection-warp.js       # 点検ワープ・戻るボタン補修
+        ├── pdf-archive.js           # PDF自動保管・キャプチャ
         ├── router.js                # URLパス解析
         ├── settings.js              # 設定UI・トグル
+        ├── stripe-pay.js            # HHC_Pay (Stripe決済・QRコード生成)
         ├── aozora-pay.js            # あおぞら決済
         └── zandaka-copy.js          # 残高コピー
 
@@ -121,7 +123,7 @@ DotNetBridge/
 
 **開発環境における認証バイパス構成**
 
-* **目的**: シークレットウィンドウ等の Google 未ログイン状態でも、開発環境（Render）から対象 ASP（`mobile60_ToubuF`）へ直通接続し、フロントエンド機能（「請求書履歴くん」等）の試走・開発を行える状態にする。
+* **目的**: シークレットウィンドウ等の Google 未ログイン状態でも、開発環境（Render）から対象 ASP（`mobile60_ToubuF`）へ直通接続し、試走・開発を行える状態にする。
 
 ---
 
@@ -139,14 +141,18 @@ DotNetBridge/
   * **顧客共通ID（浄化槽番号）の優先抽出**: 清掃メニュー等で伝票固有の `CleanNumber` ではなく、DOM内の「浄化槽番号」や `SetUpCode` を最優先取得するロジックに統一。
   * **ドメインキーの統一（全画面共通化）**: `cleanDomain`（DB参照キー）の算出処理から `.asp` 画面名を除外処理し、同一テナント内の全画面で同一の付箋データ領域（`fusen.db`）を参照・大判カード同期表示する構造を確立。
   * **キー視認性の向上**: ボタンテキストに判定中のID（例: `[1175]`）を直接表示し、画面間でのキー一致を一目で確認可能に改修。
+* **HHC_Pay 純正領収書干渉・チラつき防止（`stripe-pay.js`）**:
+  * **潜伏領収書の強制無効化**: PDFキャプチャ（`captureCurrentPageDom()`）や自動印刷（`window.print()`）実行時に、本家ASPの隠れ領収書枠（「領 収 書」「￥ 0.-」）が `@media print` やスタイル再計算によって表面に浮き出・重複表示される不具合を改修。
+  * **@media all, print スタイル注入とDOM即時消去**: 通常描画時および `@media print` 実行時の両方に対応する遮断スタイル（`display: none !important;`）を動的注入し、DOM直接検索による非表示ガードとの併用で一瞬の露出を完全ブロック。
 
 ---
 
 **現在の進捗状況と次の対応項目**
 
 * **達成済み**:
-  * シークレットウィンドウからのアクセスで、ASP 業務画面（`menuStandard.asp`）および「TFK便利機能カスタマイズ」ウィジェットの正常表示を確認。
-  * クラウド付箋くんの「飛び火完封」および「一覧〜業務/清掃メニュー間の大判付箋カード1:1リアルタイム同期」の復旧完了を確認。
+  * シークレットウィンドウからのアクセスで、ASP 業務画面（`menuStandard.asp`）およびカスタム拡張ウィジェットの正常表示を確認。
+  * クラウド付箋くんの「飛び火完封」および「一覧〜業務/清掃メニュー間の大判付箋カード1:1リアルタイム同期」の完元を確認。
+  * HHC_Pay（`stripe-pay.js`）生成時の純正領収書露出・チラつき現象の完全防護を確認。
 * **次の対応項目**:
-  * 請求書履歴モーダル起動時に「保存された履歴はありません（0件）」と表示される問題の検証。
-  * **検証ポイント**: 登録データと履歴取得 API 間におけるキー不一致（顧客コード `SetUpCode`、所有者 `UserEmail` の絞り込み条件、参照 DB コンテキストの相違）。
+  * 決済完了・キャンセル画面（`/success`, `/cancel`）のUIリッチ化。
+  * 管理者ログイン情報（`admin` / `password123`）のハッシュ化およびDB管理移行。

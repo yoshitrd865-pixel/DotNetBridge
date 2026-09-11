@@ -14,8 +14,27 @@ export async function initStripePay() {
     // 2. 画面判定ガード: 画面内に「今回請求額」というテキストが存在しない帳票・画面では起動しない
     if (!document.body.innerText.includes('今回請求額')) return;
 
-    // ★【追加パッチ】純正領収書（「領 収 書」「￥ 0.-」領域）の強制非表示処理
-    // 本家ASPの隠れ領収書枠がQRコード挿入時のレイアウト変化で表面化・重なり発生するのを100%未然防護
+    // ★【追加パッチ①】印刷時・キャプチャ時（PDFアーカイブ処理時）の強制全表示オーバーライドCSS注入
+    // captureCurrentPageDom() や window.print() 実行時に本家ASPの印刷用CSS（@media print）が領収書枠を全開にする挙動を無効化
+    if (!document.getElementById('tfk-hide-receipt-style')) {
+        const style = document.createElement('style');
+        style.id = 'tfk-hide-receipt-style';
+        style.innerHTML = `
+            @media all, print {
+                /* 本家ASPの隠れ領収書要素（ID/Class名パターン）を強制遮断 */
+                [id*="Receipt"], [class*="receipt"], .tblReceipt, [id*="領収"], [class*="領収"] {
+                    display: none !important;
+                    visibility: hidden !important;
+                    height: 0 !important;
+                    overflow: hidden !important;
+                }
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
+    // ★【追加パッチ②】DOM直接検出による純正領収書（「領 収 書」「￥ 0.-」領域）のピンポイント完全消去
+    // クラス名が定義されていないテーブル構造に対しても「領収書」「￥0.-」テキスト要素を直接潰してレイアウト崩れを防ぐ
     document.querySelectorAll('table, div, tr, td').forEach(el => {
         const txt = (el.innerText || el.textContent || '').replace(/\s+/g, '');
         // 「領収書」や「￥0.-」を含み、かつ「今回請求額」（請求書本体）を含まない裏要素を対象に指定

@@ -1,3 +1,4 @@
+// Program.cs
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.Google;
 using Microsoft.AspNetCore.DataProtection;
@@ -9,9 +10,10 @@ using System.Linq;
 using DotNetBridge.Services;
 using DotNetBridge.Data;
 
-// Linux環境(Render)での inotify ハンドル上限到達によるエラーを防止
+// Linux環境(Render)での inotify ハンドル上限到達によるエラーを防止する環境変数設定
 Environment.SetEnvironmentVariable("DOTNET_USE_POLLING_FILE_WATCHER", "1");
 
+// CP932 (Shift-JIS) 相互エンコーディング用のプロバイダー登録
 System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
 
 var builder = WebApplication.CreateBuilder(new WebApplicationOptions
@@ -19,7 +21,7 @@ var builder = WebApplication.CreateBuilder(new WebApplicationOptions
     Args = args
 });
 
-// reloadOnChange: false にしてファイル監視(inotify)を停止
+// appsettings.json の構成設定（inotifyファイル監視オフで安全化）
 builder.Configuration.Sources.Clear();
 builder.Configuration.AddJsonFile("appsettings.json", optional: true, reloadOnChange: false);
 builder.Configuration.AddJsonFile($"appsettings.{builder.Environment.EnvironmentName}.json", optional: true, reloadOnChange: false);
@@ -29,12 +31,13 @@ builder.Configuration.AddEnvironmentVariables();
 builder.Services.AddDataProtection()
     .PersistKeysToFileSystem(new DirectoryInfo(@"./keys"));
 
+// コントローラー・ビューおよびプロキシ依存サービスの登録
 builder.Services.AddControllersWithViews();
 builder.Services.AddScoped<EcoMasterProxyService>();
 builder.Services.AddScoped<EcoProProxyService>();
 builder.Services.AddScoped<ProxyDispatcher>();
 
-// ★ セッション機能の追加
+// ★ セッション機能の追加（有効期限8時間）
 builder.Services.AddSession(options =>
 {
     options.IdleTimeout = TimeSpan.FromHours(8);
@@ -50,7 +53,7 @@ builder.Services.AddHttpClient("NoRedirectClient", client => { })
         UseCookies = false
     });
 
-// --- 認証設定 ---
+// --- 認証設定（Cookie認証 ＋ Google OAuth） ---
 builder.Services.AddAuthentication(options =>
     {
         options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
@@ -83,10 +86,10 @@ builder.Services.AddAuthentication(options =>
         options.ClientSecret = builder.Configuration["GOOGLE_CLIENT_SECRET"] ?? "";
     });
 
-// Render の PORT 環境変数を読み込む
+// Render の PORT 環境変数を読み込む（無ければ8080）
 builder.WebHost.UseUrls($"http://*:{Environment.GetEnvironmentVariable("PORT") ?? "8080"}");
 
-// SQLite の接続設定
+// SQLite DB（DbContext）の接続設定
 builder.Services.AddDbContext<PaymentDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("PaymentConnection")));
 
@@ -109,7 +112,7 @@ forwardedHeadersOptions.KnownProxies.Clear();
 
 app.UseForwardedHeaders(forwardedHeadersOptions);
 
-// 起動時に DB テーブルおよびカラムの補正を自動実行
+// 起動時に DB テーブルおよびカラムの自動生成・開発アカウント注入を実行
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<PaymentDbContext>();
@@ -177,24 +180,20 @@ app.MapControllerRoute(
     pattern: "Account/{action=Login}/{id?}",
     defaults: new { controller = "Account" });
 
-// リバースプロキシ用ミドルウェア（完全開発モード）
+// --------------------------------------------------
+// ★【リバースプロキシ用ミドルウェア】
+// --------------------------------------------------
 app.Use(async (context, next) =>
 {
-    var path = context.Request.Path;
-
-    // API通信のみ通常コントローラーへ、それ以外（/Account等を含む全リクエスト）はプロキシへ直行
-    if (path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase))
+    var dispatcher = context.RequestServices.GetRequiredService<ProxyDispatcher>();
+    
+    // ProxyDispatcher 側でプロキシを実行（true）したか判定
+    // /admin/payments や /api などのローカル処理対象（false）の場合は next() を呼んで C# コントローラーへリクエストをバトンタッチ
+    bool handled = await dispatcher.DispatchAsync(context);
+    if (!handled)
     {
         await next();
-        return;
     }
-
-    // セッション情報の常時強制注入
-    context.Session.SetString("TargetAspUrl", builder.Configuration["DEFAULT_ASP_URL"] ?? "https://hhc-eco11.com/EcoToubuF3/mobile60_ToubuF/");
-    context.Session.SetString("UserEmail", "eco@tfkankyo.com");
-
-    var dispatcher = context.RequestServices.GetRequiredService<ProxyDispatcher>();
-    await dispatcher.DispatchAsync(context);
 });
 
 app.Run();

@@ -116,3 +116,31 @@ DotNetBridge/
 ・/success および /cancel ページのUIリッチ化
 ・Stripe API / ネットワークエラー時のユーザーログ出力強化
 ・管理者ログイン情報（admin / password123）のハッシュ化・DB管理移行
+
+# PROJECT OVERVIEW (追加・更新セクション)
+
+**開発環境における認証バイパス構成**
+
+* **目的**: シークレットウィンドウ等の Google 未ログイン状態でも、開発環境（Render）から対象 ASP（`mobile60_ToubuF`）へ直通接続し、フロントエンド機能（「請求書履歴くん」等）の試走・開発を行える状態にする。
+
+---
+
+**トラブルシューティング & 修正履歴**
+
+* **無限リダイレクトループの解消**:
+  * `ProxyDispatcher` の未認証判定と `AccountController`（`Suspended`）の相互転送によるピンポン現象を、`AccountController.cs` の `Redirect("/")` を廃止・静的レスポンス化することで切断。
+* **プロキシ内部エンジン（`EcoMasterProxyService`）の権限突破**:
+  * セッション値の不保持および `context.User`（クレーム）の不在により、プロキシ内部でアカウント停止判定となっていた問題を解決。
+  * `Program.cs` の起動処理にて SQLite DB（`TenantSubscriptions`）へ開発用アカウント（`eco@tfkankyo.com`）を自動挿入。
+  * `ProxyDispatcher.cs` にて、未ログインアクセス時に `ClaimsIdentity`（`ClaimTypes.Email` = `eco@tfkankyo.com`）を動的に擬装生成し、内部サービスの権限チェックを通過させる構造を確立。
+
+---
+
+**現在の進捗状況と次の対応項目**
+
+* **達成済み**:
+  * シークレットウィンドウからのアクセスで、ASP 業務画面（`menuStandard.asp`）および「TFK便利機能カスタマイズ」ウィジェットの正常表示を確認。
+  * ヘッダー右上の「🧾 請求書履歴」ボタン自動挿入およびモーダル表示動作の確認。
+* **次の対応項目**:
+  * 請求書履歴モーダル起動時に「保存された履歴はありません（0件）」と表示される問題の検証。
+  * **検証ポイント**: 登録データと履歴取得 API 間におけるキー不一致（顧客コード `SetUpCode`、所有者 `UserEmail` の絞り込み条件、参照 DB コンテキストの相違）。

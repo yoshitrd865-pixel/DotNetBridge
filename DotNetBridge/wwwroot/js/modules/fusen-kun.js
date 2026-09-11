@@ -1,9 +1,25 @@
 /**
- * 物理カード再現・クラウド付箋くん (DotNetBridge 内製化モジュール v52.0)
+ * 物理カード再現・クラウド付箋くん (DotNetBridge 内製化モジュール v52.1)
  */
 
 export function initFusenKun() {
     if (window.fusenKunStarted) return;
+
+    // ① ホワイトリスト判定（指定5画面以外は即座に終了して飛び火防止）
+    const path = window.location.pathname.toLowerCase();
+    const ALLOWED_PAGES = [
+        'menucheck.asp',    // 点検メニュー
+        'listcheck.asp',    // 点検一覧
+        'listclean.asp',    // 清掃一覧
+        'menuclean.asp',    // 清掃メニュー
+        'liststandard.asp'  // 標準リスト
+    ];
+
+    const isAllowed = ALLOWED_PAGES.some(page => path.includes(page));
+    if (!isAllowed) {
+        return; // 不要な画面での起動を100%遮断
+    }
+
     window.fusenKunStarted = true;
 
     // 安全なドメインキーの判定
@@ -196,7 +212,6 @@ export function initFusenKun() {
             fusenDataCache = { active: {}, history: [] };
         } finally {
             isFetching = false;
-            // エラーがあっても描画処理は必ず実行
             if (isMobileMode) {
                 renderFusenOnListMobile();
                 renderFusenOnMainMobile();
@@ -516,7 +531,6 @@ export function initFusenKun() {
         const colorRow = document.createElement('div');
         colorRow.style.cssText = 'display:flex; justify-content:space-around; margin-bottom:18px;';
 
-        // 📌 デフォルト先頭は黄色のまま保持
         const colors = [
             { id: 'yellow', code: '#fef08a', border: '#fde047' },
             { id: 'green', code: '#bbf7d0', border: '#86efac' },
@@ -550,7 +564,6 @@ export function initFusenKun() {
             modal.style.display = 'none';
         };
 
-        // 💡 ボタン背景色をブルー系(#0284C7)に変更
         const saveBtn = document.createElement('button');
         saveBtn.innerText = '付箋を貼る';
         saveBtn.style.cssText = 'flex:1.5; padding:12px; border:none; background:#0284C7; color:#fff; border-radius:8px; font-size:14px; font-weight:bold; cursor:pointer; box-shadow:0 3px 8px rgba(0,0,0,0.15);';
@@ -642,7 +655,6 @@ export function initFusenKun() {
         const box = document.createElement('div');
         box.style.cssText = 'background:#fff; width:95%; max-width:480px; max-height:88vh; padding:20px; border-radius:16px; box-shadow:0 10px 30px rgba(0,0,0,0.35); display:flex; flex-direction:column; box-sizing:border-box;';
 
-        // 💡 モーダルヘッダー下線をブルー系(#0284C7)に変更
         const header = document.createElement('div');
         header.style.cssText = 'display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; border-bottom:2px solid #0284C7; padding-bottom:8px;';
 
@@ -747,7 +759,6 @@ export function initFusenKun() {
             bulkLabel.innerText = `👥 画面上の表示件数: ${visibleCusts.length} 件`;
 
             if (currentTab === 'active') {
-                // 💡 アクティブタブ文字色をブルー系(#0284C7)に変更
                 activeTabBtn.style.cssText = 'flex:1; padding:8px; font-size:13px; font-weight:bold; border:none; border-radius:8px; cursor:pointer; background:#FFF; color:#0284C7; box-shadow:0 1px 4px rgba(0,0,0,0.12);';
                 historyTabBtn.style.cssText = 'flex:1; padding:8px; font-size:13px; font-weight:bold; border:none; border-radius:8px; cursor:pointer; background:transparent; color:#64748B;';
 
@@ -946,7 +957,6 @@ export function initFusenKun() {
                 if (!inlineBtn) {
                     inlineBtn = document.createElement('div');
                     inlineBtn.id = 'tfk-my-fusen-inline-btn';
-                    // 💡 ボタン背景色をブルー系(#0284C7)に変更
                     inlineBtn.style.cssText = 'margin:15px auto 5px auto; background:#0284C7; color:#fff; padding:8px 18px; border-radius:20px; font-size:13px; font-weight:bold; box-shadow:0 3px 8px rgba(0,0,0,0.2); cursor:pointer; display:inline-flex; align-items:center; gap:6px; border:2px solid #fff; text-align:center;';
                     inlineBtn.onclick = (e) => {
                         e.preventDefault(); e.stopPropagation();
@@ -983,7 +993,6 @@ export function initFusenKun() {
         if (!btn) {
             btn = document.createElement('div');
             btn.id = 'tfk-my-fusen-float-btn';
-            // 💡 スマホ用フローティングボタンの背景色をブルー系(#0284C7)に変更
             btn.style.cssText = 'position:fixed; bottom:30px; right:20px; background:#0284C7; color:#fff; padding:10px 18px; border-radius:24px; font-size:13px; font-weight:bold; box-shadow:0 4px 12px rgba(0,0,0,0.3); z-index:999999; cursor:pointer; display:flex; align-items:center; gap:6px; border:2px solid #fff;';
             btn.onclick = (e) => {
                 e.preventDefault(); e.stopPropagation();
@@ -1067,6 +1076,10 @@ export function initFusenKun() {
         if (items.length === 0) return;
 
         items.forEach(container => {
+            // ② 1行/1カードにつき1回だけの重複注入ガード
+            const parentRow = container.closest('li, tr, .taskItem') || container;
+            if (parentRow.dataset.fusenInjected === "true") return;
+
             let targetId = null;
 
             const jksNumEl = container.querySelector('.jksNum, .code, .number, .jksNo');
@@ -1089,6 +1102,10 @@ export function initFusenKun() {
 
             if (!targetId) return;
 
+            // ③ 数字のみの要素（例: 「4」「7」などのインデックス表示枠）への直接誤爆をスキップ
+            const directText = container.innerText ? container.innerText.trim() : '';
+            if (/^\d+$/.test(directText)) return;
+
             const nameEl = container.querySelector('.Name, .jksName, .name, .customerName') || container;
             if (!nameEl) return;
 
@@ -1104,6 +1121,8 @@ export function initFusenKun() {
 
                 nameEl.appendChild(inlineWrapper);
             }
+
+            parentRow.dataset.fusenInjected = "true";
 
             const notes = fusenDataCache.active[targetId] || [];
             const currentNotesStr = JSON.stringify(notes) + "_" + targetId;
@@ -1273,6 +1292,8 @@ export function initFusenKun() {
     function renderFusenOnEcoproList() {
         const rows = document.querySelectorAll('tr');
         rows.forEach(tr => {
+            if (tr.dataset.fusenInjected === "true") return;
+
             const tds = tr.querySelectorAll('td');
             if (tds.length === 0) return;
 
@@ -1301,6 +1322,8 @@ export function initFusenKun() {
 
                 nameDiv.appendChild(inlineWrapper);
             }
+
+            tr.dataset.fusenInjected = "true";
 
             const notes = fusenDataCache.active[targetId] || [];
             const currentNotesStr = JSON.stringify(notes) + "_" + targetId;

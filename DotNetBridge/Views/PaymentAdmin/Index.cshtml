@@ -1,94 +1,166 @@
 @model IEnumerable<DotNetBridge.Data.PaymentLog>
 
 @{
+    Layout = null; // レイアウト依存を解除してスタンドアロンでCSSを確実適用
     ViewData["Title"] = "売上請求・Stripe決済・PDFアーカイブ管理";
 }
 
-<div class="container-fluid mt-4 px-4">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-        <h2>💳 請求・決済・PDFアーカイブ統合管理</h2>
-        <a href="/admin/payments" class="btn btn-outline-primary btn-sm">最新情報に更新</a>
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"]</title>
+    <!-- Bootstrap 5 CSS & Icons CDN -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <style>
+        body { background-color: #f8f9fa; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+        .table-responsive { border-radius: 8px; overflow: hidden; }
+        .badge-status { font-size: 0.85rem; padding: 0.4em 0.75em; border-radius: 50rem; }
+        .pdf-btn { transition: all 0.2s ease-in-out; }
+        .pdf-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+    </style>
+</head>
+<body>
+
+<div class="container-fluid py-4 px-4">
+    <!-- ヘッダーエリア -->
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-2 border-bottom">
+        <div>
+            <h3 class="fw-bold text-dark mb-1">
+                <i class="bi bi-credit-card-2-front-fill text-primary me-2"></i>Stripe 決済・PDFアーカイブ入金消込管理
+            </h3>
+            <p class="text-muted small mb-0">現場請求書の発行履歴、Stripe決済状況、および ECOPRO 自動消込ステータスを一元管理します。</p>
+        </div>
+        <div>
+            <a href="/admin/payments" class="btn btn-primary shadow-sm">
+                <i class="bi bi-arrow-clockwise me-1"></i> 最新情報に更新
+            </a>
+        </div>
     </div>
 
-    <div class="card shadow-sm">
+    <!-- メインカード -->
+    <div class="card border-0 shadow-sm">
+        <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+            <span class="fw-bold text-secondary">
+                <i class="bi bi-list-ul me-1"></i> 案件一覧 (@(Model?.Count() ?? 0) 件)
+            </span>
+        </div>
         <div class="card-body p-0">
-            <table class="table table-hover table-striped align-middle mb-0">
-                <thead class="table-dark">
-                    <tr>
-                        <th style="width: 60px;">ID</th>
-                        <th>日時（発行 / 決済）</th>
-                        <th>伝票番号</th>
-                        <th>顧客コード</th>
-                        <th>お施主様名</th>
-                        <th class="text-end">請求金額</th>
-                        <th>発行担当</th>
-                        <th class="text-center">ステータス</th>
-                        <th class="text-center">請求書PDF</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @if (Model != null && Model.Any())
-                    {
-                        @foreach (var log in Model)
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light border-bottom">
+                        <tr class="text-secondary small text-uppercase">
+                            <th style="width: 50px;" class="text-center">ID</th>
+                            <th>日時 (発行 / 決済)</th>
+                            <th>伝票番号</th>
+                            <th>顧客コード</th>
+                            <th>お施主様名</th>
+                            <th class="text-end">請求金額</th>
+                            <th>発行担当</th>
+                            <th class="text-center">消込ステータス</th>
+                            <th class="text-center">請求書原本 (R2)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (Model != null && Model.Any())
+                        {
+                            @foreach (var log in Model)
+                            {
+                                var issuedStr = (log.IssuedAt.HasValue && log.IssuedAt.Value.Year > 2000) 
+                                    ? log.IssuedAt.Value.ToString("yyyy/MM/dd HH:mm") 
+                                    : "-";
+                                var paidStr = (log.PaidAt.HasValue && log.PaidAt.Value.Year > 2000) 
+                                    ? log.PaidAt.Value.ToString("yyyy/MM/dd HH:mm") 
+                                    : "-";
+
+                                <tr>
+                                    <td class="text-center fw-bold text-muted">@log.Id</td>
+                                    <td>
+                                        <div class="small">
+                                            <span class="text-muted"><i class="bi bi-printer me-1"></i>発行:</span> @issuedStr
+                                        </div>
+                                        <div class="small fw-semibold text-dark">
+                                            <span class="text-muted"><i class="bi bi-check-circle me-1"></i>決済:</span> @paidStr
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle fs-6 font-monospace">
+                                            <i class="bi bi-file-earmark-text me-1"></i>@(string.IsNullOrEmpty(log.InvoiceNo) ? "未指定" : log.InvoiceNo)
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle fs-6 font-monospace">
+                                            @(string.IsNullOrEmpty(log.CustomerCode) ? "未指定" : log.CustomerCode)
+                                        </span>
+                                    </td>
+                                    <td class="fw-bold text-dark">
+                                        @(string.IsNullOrEmpty(log.CustomerName) ? "お施主様" : log.CustomerName)
+                                    </td>
+                                    <td class="text-end fw-bold text-success fs-5">
+                                        ¥@log.Amount.ToString("#,0")
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-light text-dark border">
+                                            <i class="bi bi-person-circle me-1 text-secondary"></i>@(string.IsNullOrEmpty(log.IssuedBy) ? "未指定" : log.IssuedBy)
+                                        </span>
+                                    </td>
+                                    <td class="text-center">
+                                        @if (log.Status == "unpaid")
+                                        {
+                                            <span class="badge bg-secondary badge-status">
+                                                <i class="bi bi-hourglass-split me-1"></i>未決済 (請求済)
+                                            </span>
+                                        }
+                                        else if (log.Status == "completed" || log.Status == "PAID")
+                                        {
+                                            <span class="badge bg-warning text-dark badge-status">
+                                                <i class="bi bi-stripe me-1"></i>Stripe決済済 (消込待機)
+                                            </span>
+                                        }
+                                        else if (log.Status == "processed")
+                                        {
+                                            <span class="badge bg-success badge-status">
+                                                <i class="bi bi-check-all me-1"></i>ECOPRO消込完了
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-dark badge-status">@(log.Status ?? "不明")</span>
+                                        }
+                                    </td>
+                                    <td class="text-center">
+                                        @if (!string.IsNullOrEmpty(log.PdfFileName))
+                                        {
+                                            <a href="/api/PdfArchive/view/@log.PdfFileName" target="_blank" class="btn btn-sm btn-outline-danger pdf-btn">
+                                                <i class="bi bi-file-pdf-fill me-1"></i>PDF表示
+                                            </a>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted small"><i class="bi bi-dash-circle me-1"></i>未保存</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        }
+                        else
                         {
                             <tr>
-                                <td>@log.Id</td>
-                                <td>
-                                    <small class="text-muted d-block">発行: @(log.IssuedAt?.ToString("yyyy/MM/dd HH:mm") ?? "-")</small>
-                                    <small class="fw-bold">決済: @(log.PaidAt?.ToString("yyyy/MM/dd HH:mm") ?? "-")</small>
-                                </td>
-                                <td><span class="badge bg-primary fs-6">@(log.InvoiceNo ?? "未指定")</span></td>
-                                <td><span class="badge bg-secondary fs-6">@(log.CustomerCode ?? "未指定")</span></td>
-                                <td class="fw-bold">@(string.IsNullOrEmpty(log.CustomerName) ? "お施主様" : log.CustomerName)</td>
-                                <td class="text-end fw-bold text-success">¥@log.Amount.ToString("#,0")</td>
-                                <td>
-                                    <span class="badge bg-light text-dark border">
-                                        👤 @(string.IsNullOrEmpty(log.IssuedBy) ? "未指定" : log.IssuedBy)
-                                    </span>
-                                </td>
-                                <td class="text-center">
-                                    @if (log.Status == "unpaid")
-                                    {
-                                        <span class="badge bg-secondary">● 未決済</span>
-                                    }
-                                    else if (log.Status == "completed" || log.Status == "PAID")
-                                    {
-                                        <span class="badge bg-warning text-dark">● Stripe決済済 (消込待機)</span>
-                                    }
-                                    else if (log.Status == "processed")
-                                    {
-                                        <span class="badge bg-success">✅ エコプロ消込完了</span>
-                                    }
-                                    else
-                                    {
-                                        <span class="badge bg-dark">@(log.Status ?? "不明")</span>
-                                    }
-                                </td>
-                                <td class="text-center">
-                                    @if (!string.IsNullOrEmpty(log.PdfFileName))
-                                    {
-                                        <a href="/api/PdfArchive/view/@log.PdfFileName" target="_blank" class="btn btn-sm btn-outline-danger">
-                                            📄 PDF表示
-                                        </a>
-                                    }
-                                    else
-                                    {
-                                        <span class="text-muted small">未保存</span>
-                                    }
+                                <td colspan="9" class="text-center py-5 text-muted">
+                                    <i class="bi bi-inbox fs-1 d-block mb-2 text-secondary"></i>
+                                    登録済みの決済・請求データが存在しません。
                                 </td>
                             </tr>
                         }
-                    }
-                    else
-                    {
-                        <tr>
-                            <td colspan="9" class="text-center py-4 text-muted">
-                                登録済みのデータがありません。
-                            </td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
 </div>
+
+<script href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

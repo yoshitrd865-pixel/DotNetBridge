@@ -221,16 +221,20 @@ namespace DotNetBridgeApp.Controllers
         {
             try
             {
-                _dbContext.PaymentLogs.RemoveRange(_dbContext.PaymentLogs);
-                await _dbContext.SaveChangesAsync();
-                return Ok(new { success = true });
+            // 1. 全レコードの削除
+            _dbContext.PaymentLogs.RemoveRange(_dbContext.PaymentLogs);
+            await _dbContext.SaveChangesAsync();
+
+            // 2. SQLiteの AUTOINCREMENT カウンターを 0 にリセット
+            await _dbContext.Database.ExecuteSqlRawAsync("DELETE FROM sqlite_sequence WHERE name='PaymentLogs';");
+
+            return Ok(new { success = true, message = "すべてのデータとIDカウンターをリセットしました。" });
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new { success = false, error = ex.Message });
+            return StatusCode(500, new { success = false, error = ex.Message });
             }
         }
-
         /// <summary>
         /// 請求書HTMLのDOM構造から、設置先・日付・金額・消費税を除外して純粋な明細品目テキストを抽出
         /// </summary>

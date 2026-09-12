@@ -7,9 +7,8 @@ using DotNetBridge.Data;
 
 namespace DotNetBridgeApp.Controllers
 {
-    [ApiController]
-    [Route("api/[controller]")]
-    public class StripePaymentController : ControllerBase
+    // ★ View() を返すため Controller を継承
+    public class StripePaymentController : Controller
     {
         private readonly IConfiguration _config;
         private readonly PaymentDbContext _dbContext;
@@ -31,7 +30,8 @@ namespace DotNetBridgeApp.Controllers
         /// <summary>
         /// QRコードスキャン時にStripe Checkoutセッションを生成して決済画面へリダイレクト
         /// </summary>
-        [HttpGet("redirect-checkout")]
+        [HttpGet("api/StripePayment/redirect-checkout")]
+        [HttpGet("/EcoToubuF3/mobile60_ToubuF/api/StripePayment/redirect-checkout")]
         public async Task<IActionResult> RedirectCheckout(
             [FromQuery] long amount,
             [FromQuery] string customer_code,
@@ -41,20 +41,10 @@ namespace DotNetBridgeApp.Controllers
         {
             try
             {
-                // ★ 本家ASP(IIS)のドメインになっている場合は、Render側のドメインへ自動変換
-                var domain = _config["AppBaseUrl"] ?? Environment.GetEnvironmentVariable("APP_BASE_URL");
-                if (string.IsNullOrEmpty(domain))
-                {
-                    var host = Request.Host.Value;
-                    if (host.Contains("hhc-eco11.com"))
-                    {
-                        domain = "https://tfk-env.onrender.com";
-                    }
-                    else
-                    {
-                        domain = $"{Request.Scheme}://{host}";
-                    }
-                }
+                // ★ 本家IISでの404回避のため、戻り先ドメインをRenderへ固定
+                var domain = _config["AppBaseUrl"] 
+                    ?? Environment.GetEnvironmentVariable("APP_BASE_URL") 
+                    ?? "https://tfk-env.onrender.com";
 
                 var descriptionText = string.IsNullOrEmpty(item_description) ? "浄化槽維持管理費" : item_description;
 
@@ -102,7 +92,7 @@ namespace DotNetBridgeApp.Controllers
         }
 
         /// <summary>
-        /// Stripe決済完了後のスマホ用リダイレクト画面（複数パスで受領可能に設定）
+        /// Stripe決済完了後の画面表示（Views/StripePayment/Success.cshtml をレンダリング）
         /// </summary>
         [HttpGet("/StripePayment/Success")]
         [HttpGet("/EcoToubuF3/mobile60_ToubuF/StripePayment/Success")]
@@ -125,69 +115,26 @@ namespace DotNetBridgeApp.Controllers
                 _logger.LogError(ex, "[Stripe Success Page Processing Error]");
             }
 
-            var html = @"<!DOCTYPE html>
-            <html lang='ja'>
-            <head>
-                <meta charset='utf-8'>
-                <meta name='viewport' content='width=device-width, initial-scale=1.0'>
-                <title>決済完了</title>
-                <link href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css' rel='stylesheet'>
-                <link rel='stylesheet' href='https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css'>
-            </head>
-            <body class='bg-light d-flex align-items-center justify-content-center min-vh-100 py-4'>
-                <div class='card shadow-lg border-0 text-center p-4 m-3' style='max-width: 420px; border-radius: 16px;'>
-                    <div class='card-body'>
-                        <div class='text-success mb-3'>
-                            <i class='bi bi-check-circle-fill' style='font-size: 4.5rem;'></i>
-                        </div>
-                        <h3 class='fw-bold text-dark mb-2'>お支払い完了</h3>
-                        <p class='text-muted mb-4'>クレジットカードでの決済が正常に完了いたしました。<br>ご協力ありがとうございました。</p>
-                        <button onclick='window.close()' class='btn btn-success btn-lg w-100 shadow-sm rounded-pill'>画面を閉じる</button>
-                    </div>
-                </div>
-            </body>
-            </html>";
-
-            return Content(html, "text/html; charset=utf-8");
+            // ★ Views/StripePayment/Success.cshtml を表示
+            return View("~/Views/StripePayment/Success.cshtml");
         }
 
         /// <summary>
-        /// Stripe決済中断時のスマホ用画面
+        /// Stripe決済キャンセル画面（Views/StripePayment/Cancel.cshtml を表示）
         /// </summary>
         [HttpGet("/StripePayment/Cancel")]
         [HttpGet("/EcoToubuF3/mobile60_ToubuF/StripePayment/Cancel")]
         public IActionResult Cancel()
         {
-            var html = @"<!DOCTYPE html>
-            <html lang='ja'>
-            <head>
-                <meta charset='utf-8'>
-                <meta name='viewport' content='width=device-width, initial-scale=1.0'>
-                <title>決済キャンセル</title>
-                <link href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css' rel='stylesheet'>
-                <link rel='stylesheet' href='https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css'>
-            </head>
-            <body class='bg-light d-flex align-items-center justify-content-center min-vh-100 py-4'>
-                <div class='card shadow-lg border-0 text-center p-4 m-3' style='max-width: 420px; border-radius: 16px;'>
-                    <div class='card-body'>
-                        <div class='text-warning mb-3'>
-                            <i class='bi bi-exclamation-triangle-fill' style='font-size: 4.5rem;'></i>
-                        </div>
-                        <h3 class='fw-bold text-dark mb-2'>決済が中断されました</h3>
-                        <p class='text-muted mb-4'>お支払い手続きが完了していません。</p>
-                        <button onclick='window.close()' class='btn btn-secondary btn-lg w-100 shadow-sm rounded-pill'>画面を閉じる</button>
-                    </div>
-                </div>
-            </body>
-            </html>";
-
-            return Content(html, "text/html; charset=utf-8");
+            // ★ Views/StripePayment/Cancel.cshtml を表示
+            return View("~/Views/StripePayment/Cancel.cshtml");
         }
 
         /// <summary>
         /// Stripe Webhook
         /// </summary>
-        [HttpPost("webhook")]
+        [HttpPost("api/StripePayment/webhook")]
+        [HttpPost("/EcoToubuF3/mobile60_ToubuF/api/StripePayment/webhook")]
         public async Task<IActionResult> Webhook()
         {
             var json = await new StreamReader(HttpContext.Request.Body).ReadToEndAsync();

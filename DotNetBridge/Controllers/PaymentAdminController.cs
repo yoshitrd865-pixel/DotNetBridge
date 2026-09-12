@@ -1,9 +1,11 @@
+// Controllers/PaymentAdminController.cs
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using DotNetBridge.Data;
 
-namespace DotNetBridge.Controllers
+namespace DotNetBridgeApp.Controllers
 {
+    [Route("admin/payments")]
     public class PaymentAdminController : Controller
     {
         private readonly PaymentDbContext _dbContext;
@@ -13,15 +15,15 @@ namespace DotNetBridge.Controllers
             _dbContext = dbContext;
         }
 
-        // 管理画面: 入金消込データ一覧
-        [HttpGet("/admin/payments")]
+        [HttpGet]
         public async Task<IActionResult> Index()
         {
+            // 最新発行順（ID降順）で一覧を取得
             var logs = await _dbContext.PaymentLogs
-                .OrderByDescending(p => p.PaidAt)
+                .OrderByDescending(p => p.Id)
                 .ToListAsync();
 
-            return View(logs);
+            return View("~/Views/PaymentAdmin/Index.cshtml", logs);
         }
     }
 }

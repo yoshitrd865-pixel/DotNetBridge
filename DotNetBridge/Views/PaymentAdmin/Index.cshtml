@@ -34,11 +34,11 @@
                             <tr>
                                 <td>@log.Id</td>
                                 <td>
-                                    <small class="text-muted d-block">発行: @(log.IssuedAt != default ? log.IssuedAt.ToString("yyyy/MM/dd HH:mm") : "-")</small>
-                                    <small class="fw-bold">決済: @(log.PaidAt != default ? log.PaidAt.ToString("yyyy/MM/dd HH:mm") : "-")</small>
+                                    <small class="text-muted d-block">発行: @(log.IssuedAt?.ToString("yyyy/MM/dd HH:mm") ?? "-")</small>
+                                    <small class="fw-bold">決済: @(log.PaidAt?.ToString("yyyy/MM/dd HH:mm") ?? "-")</small>
                                 </td>
-                                <td><span class="badge bg-primary fs-6">@log.InvoiceNo</span></td>
-                                <td><span class="badge bg-secondary fs-6">@log.CustomerCode</span></td>
+                                <td><span class="badge bg-primary fs-6">@(log.InvoiceNo ?? "未指定")</span></td>
+                                <td><span class="badge bg-secondary fs-6">@(log.CustomerCode ?? "未指定")</span></td>
                                 <td class="fw-bold">@(string.IsNullOrEmpty(log.CustomerName) ? "お施主様" : log.CustomerName)</td>
                                 <td class="text-end fw-bold text-success">¥@log.Amount.ToString("#,0")</td>
                                 <td>
@@ -61,7 +61,7 @@
                                     }
                                     else
                                     {
-                                        <span class="badge bg-dark">@log.Status</span>
+                                        <span class="badge bg-dark">@(log.Status ?? "不明")</span>
                                     }
                                 </td>
                                 <td class="text-center">

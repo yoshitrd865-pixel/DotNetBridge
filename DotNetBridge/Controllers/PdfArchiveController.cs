@@ -1,4 +1,6 @@
 // Controllers/PdfArchiveController.cs
+using System.Text.RegularExpressions;
+using System.Net;
 using Amazon.S3;
 using Amazon.S3.Model;
 using Microsoft.AspNetCore.Mvc;
@@ -32,7 +34,7 @@ namespace DotNetBridgeApp.Controllers
             public string InvoiceNo { get; set; } = string.Empty;
             public string CustomerCode { get; set; } = string.Empty;
             public string? CustomerName { get; set; }
-            public string? ItemDescription { get; set; } // ★ 明細項目
+            public string? ItemDescription { get; set; } // 明細項目
             public long Amount { get; set; }
             public string? IssuedBy { get; set; }
         }
@@ -129,6 +131,16 @@ namespace DotNetBridgeApp.Controllers
                     ? req.IssuedBy 
                     : (HttpContext.Session.GetString("UserEmail") ?? "未指定");
 
+                // ★ 明細項目の自動補正ロジック（リクエストが空の場合はHTMLから解析して抽出）
+                var itemDesc = !string.IsNullOrWhiteSpace(req.ItemDescription)
+                    ? req.ItemDescription
+                    : ExtractItemDescriptionFromHtml(req.Html);
+
+                if (string.IsNullOrWhiteSpace(itemDesc))
+                {
+                    itemDesc = "維持管理・清掃作業料";
+                }
+
                 PaymentLog? log = null;
                 if (!string.IsNullOrEmpty(req.InvoiceNo) && req.InvoiceNo != "未指定")
                 {
@@ -143,7 +155,7 @@ namespace DotNetBridgeApp.Controllers
                     log.IssuedAt = nowJst;
                     if (req.Amount > 0) log.Amount = req.Amount;
                     if (!string.IsNullOrEmpty(req.CustomerName)) log.CustomerName = req.CustomerName;
-                    if (!string.IsNullOrEmpty(req.ItemDescription)) log.ItemDescription = req.ItemDescription;
+                    log.ItemDescription = itemDesc;
                 }
                 else
                 {
@@ -152,7 +164,7 @@ namespace DotNetBridgeApp.Controllers
                         InvoiceNo = string.IsNullOrEmpty(req.InvoiceNo) ? "未指定" : req.InvoiceNo,
                         CustomerCode = string.IsNullOrEmpty(req.CustomerCode) ? "未指定" : req.CustomerCode,
                         CustomerName = string.IsNullOrEmpty(req.CustomerName) ? "お施主様" : req.CustomerName,
-                        ItemDescription = string.IsNullOrEmpty(req.ItemDescription) ? "維持管理・清掃作業料" : req.ItemDescription,
+                        ItemDescription = itemDesc,
                         Amount = req.Amount,
                         StripeSessionId = "",
                         Status = "unpaid",
@@ -217,6 +229,43 @@ namespace DotNetBridgeApp.Controllers
             {
                 return StatusCode(500, new { success = false, error = ex.Message });
             }
+        }
+
+        /// <summary>
+        /// 請求書HTMLのDOM構造から、設置先・日付・金額・消費税を除外して純粋な明細品目テキストを抽出
+        /// </summary>
+        private static string ExtractItemDescriptionFromHtml(string html)
+        {
+            if (string.IsNullOrEmpty(html)) return string.Empty;
+
+            var items = new List<string>();
+            var matches = Regex.Matches(
+                html, 
+                @"<td\s+[^>]*class=""[^""]*detail[^""]*""[^>]*>(.*?)</td>", 
+                RegexOptions.Singleline | RegexOptions.IgnoreCase
+            );
+
+            foreach (Match match in matches)
+            {
+                var rawText = match.Groups[1].Value;
+                var cleanText = Regex.Replace(rawText, @"<[^>]+>", string.Empty);
+                cleanText = WebUtility.HtmlDecode(cleanText);
+                cleanText = cleanText.Replace("\u00a0", " ").Trim();
+                cleanText = Regex.Replace(cleanText, @"\s+", " ");
+
+                if (string.IsNullOrWhiteSpace(cleanText)) continue;
+                if (cleanText.Contains("設置先：") || cleanText.Contains("設置先:")) continue;
+                if (cleanText == "消費税" || cleanText == "地方消費税" || cleanText == "小計" || cleanText == "合計" || cleanText == "内税合計" || cleanText == "外税合計" || cleanText == "明細項目") continue;
+                if (Regex.IsMatch(cleanText, @"^\d{4}/\d{2}/\d{2}$")) continue;
+                if (Regex.IsMatch(cleanText, @"^[\d,]+$")) continue;
+
+                if (!items.Contains(cleanText))
+                {
+                    items.Add(cleanText);
+                }
+            }
+
+            return items.Count > 0 ? string.Join(" / ", items) : string.Empty;
         }
     }
 }

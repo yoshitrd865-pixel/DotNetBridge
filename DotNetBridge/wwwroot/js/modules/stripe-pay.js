@@ -14,7 +14,7 @@ export async function initStripePay() {
     // 2. 画面判定ガード: 画面内に「今回請求額」というテキストが存在しない帳票・画面では起動しない
     if (!document.body.innerText.includes('今回請求額')) return;
 
-    // ★【追加パッチ①】印刷時・キャプチャ時（PDFアーカイブ処理時）の強制全表示オーバーライドCSS注入
+    // ★ 印刷時・キャプチャ時（PDFアーカイブ処理時）の強制全表示オーバーライドCSS注入
     // captureCurrentPageDom() や window.print() 実行時に本家ASPの印刷用CSS（@media print）が領収書枠を全開にする挙動を無効化
     if (!document.getElementById('tfk-hide-receipt-style')) {
         const style = document.createElement('style');
@@ -33,11 +33,9 @@ export async function initStripePay() {
         document.head.appendChild(style);
     }
 
-    // ★【追加パッチ②】DOM直接検出による純正領収書（「領 収 書」「￥ 0.-」領域）のピンポイント完全消去
-    // クラス名が定義されていないテーブル構造に対しても「領収書」「￥0.-」テキスト要素を直接潰してレイアウト崩れを防ぐ
+    // ★ DOM直接検出による純正領収書（「領 収 書」「￥ 0.-」領域）のピンポイント完全消去
     document.querySelectorAll('table, div, tr, td').forEach(el => {
         const txt = (el.innerText || el.textContent || '').replace(/\s+/g, '');
-        // 「領収書」や「￥0.-」を含み、かつ「今回請求額」（請求書本体）を含まない裏要素を対象に指定
         if ((txt.includes('領収書') || txt.includes('￥0.-') || txt.includes('￥0')) && !txt.includes('今回請求額')) {
             const targetBox = el.closest('table, div') || el;
             targetBox.style.setProperty('display', 'none', 'important');
@@ -49,7 +47,7 @@ export async function initStripePay() {
     const originalPrint = window.print;
     window.print = function() {}; // 一時的に空関数で上書きして印刷を無効化
 
-    // 4. ステータストーストUIの生成: 画面左下に現在の処理状況（黒い固定カード）を表示
+    // 4. ステータストーストUIの生成: 画面左下に現在の処理状況を表示
     const statusDiv = document.createElement('div');
     statusDiv.style.cssText = 'position:fixed; bottom:10px; left:10px; background:rgba(0,0,0,0.8); color:#fff; padding:8px 12px; border-radius:8px; font-size:12px; z-index:999999; font-weight:bold; box-shadow:0 2px 5px rgba(0,0,0,0.3);';
     statusDiv.innerText = '💳 HHC_Pay: 画面を監視中...';
@@ -71,7 +69,6 @@ export async function initStripePay() {
         // --------------------------------------------------
         for (let el of allElements) {
             if (el.textContent.trim() === '今回請求額') {
-                // 「今回請求額」セルの右隣または親要素の次の要素から数値だけを抜き出す
                 if (el.parentElement && el.parentElement.nextElementSibling) {
                     const numStr = el.parentElement.nextElementSibling.textContent.replace(/[^0-9]/g, '');
                     if (numStr) amount = parseInt(numStr, 10);
@@ -85,7 +82,6 @@ export async function initStripePay() {
         // --------------------------------------------------
         for (let el of allElements) {
             const text = el.textContent.trim();
-            // 「様」を含み、30文字未満かつ「設置先」という文字を含まない要素を宛名として採択
             if (text.includes('様') && text.length < 30 && !text.includes('設置先')) {
                 customerName = text;
                 break;
@@ -97,7 +93,6 @@ export async function initStripePay() {
         // --------------------------------------------------
         const urlParams = new URLSearchParams(window.location.search);
 
-        // ① 顧客コード: URLパラメータ SetUpCode を優先、無ければ画面テキストから検索
         if (urlParams.get("SetUpCode") && urlParams.get("SetUpCode") !== "") {
             customerCode = urlParams.get("SetUpCode");
         } else {
@@ -110,7 +105,6 @@ export async function initStripePay() {
             });
         }
 
-        // ② 伝票番号: URLパラメータ (SalesSlipNumber / CheckNumber / CleanNumber) を順に優先検索
         if (urlParams.get("SalesSlipNumber") && urlParams.get("SalesSlipNumber") !== "") {
             invoiceNo = urlParams.get("SalesSlipNumber");
         } else if (urlParams.get("CheckNumber") && urlParams.get("CheckNumber") !== "") {
@@ -118,7 +112,6 @@ export async function initStripePay() {
         } else if (urlParams.get("CleanNumber") && urlParams.get("CleanNumber") !== "") {
             invoiceNo = urlParams.get("CleanNumber");
         } else {
-            // URLパラメータに存在しない場合は画面テキスト（伝票番号/売上番号等）から抽出
             allElements.forEach(el => {
                 const text = el.textContent.trim();
                 if (/伝票番号|売上番号|請求番号/.test(text)) {
@@ -134,7 +127,6 @@ export async function initStripePay() {
         const detailCells = document.querySelectorAll('td.detail, td[class*="detail"]');
         for (let cell of detailCells) {
             const text = cell.textContent.trim();
-            // 日付・金額・消費税・設置先以外の主要な名目を明細項目名として取得
             if (
                 text !== "" &&
                 text !== "消費税" &&
@@ -147,9 +139,7 @@ export async function initStripePay() {
             }
         }
 
-        // --------------------------------------------------
         // 金額チェックとエラー処理
-        // --------------------------------------------------
         if (amount <= 0) {
             statusDiv.innerText = '⚠️ エラー: 金額読み取り失敗';
             statusDiv.style.background = '#c0392b';
@@ -161,12 +151,10 @@ export async function initStripePay() {
         // --------------------------------------------------
         statusDiv.innerText = `💳 HHC_Pay: QRコード生成中...`;
 
-        // 枠となるコンテナDIVを作成
         const qrContainer = document.createElement('div');
         qrContainer.id = 'tfk-paygate-qr-area';
         qrContainer.style.cssText = 'margin-top: 30px; padding: 20px; border: 2px dashed #F39C12; text-align: center; background: #fff; border-radius: 8px; width: 95%; margin-left: auto; margin-right: auto; page-break-inside: avoid;';
 
-        // 画面内の売上テーブル（tblSales）の直後にQRエリアを配置（無ければbody末尾）
         const tblSales = document.getElementById('tblSales') || document.querySelector('table');
         if (tblSales) {
             tblSales.parentNode.insertBefore(qrContainer, tblSales.nextSibling);
@@ -174,7 +162,6 @@ export async function initStripePay() {
             document.body.appendChild(qrContainer);
         }
 
-        // C# バックエンドの Stripe 決済セッション生成API宛のURLを組み立て
         const redirectUrl = `${window.location.origin}/api/StripePayment/redirect-checkout`
             + `?amount=${amount}`
             + `&customer_code=${encodeURIComponent(customerCode)}`
@@ -182,10 +169,8 @@ export async function initStripePay() {
             + `&invoice_no=${encodeURIComponent(invoiceNo)}`
             + `&item_description=${encodeURIComponent(itemDescription)}`;
 
-        // 外部QRコード生成APIを利用して画像URL化
         const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(redirectUrl)}`;
 
-        // QRコードカードの内部HTMLを流し込み
         qrContainer.innerHTML = `
             <div style="display:flex; align-items:center; justify-content:center; gap:25px; padding:10px;">
                 <div><img id="stripe-qr-image-element" src="${qrImageUrl}" style="width:130px; height:130px;"></div>
@@ -199,14 +184,12 @@ export async function initStripePay() {
             </div>
         `;
 
-        // 成功ステータスに更新（緑色トースト）
         statusDiv.innerText = '✅ HHC_Pay: QR生成完了！';
         statusDiv.style.background = '#27ae60';
 
         // --------------------------------------------------
         // 画像ロード待機 & PDF保管連携
         // --------------------------------------------------
-        // 印刷ダイアログが開く前にQR画像が完全に読み込まれるのを同期待機
         const qrImgEl = document.getElementById('stripe-qr-image-element');
         if (qrImgEl && !qrImgEl.complete) {
             await new Promise((resolve) => {
@@ -215,18 +198,27 @@ export async function initStripePay() {
             });
         }
 
-        // PDF自動保管機能（pdf_archive_kun）がONの場合はキャプチャと印刷連動をセットアップ
+        // ★ PDF自動保管機能（pdf_archive_kun）がONの場合の連携拡張
         const settings = getSettings();
         if (settings["pdf_archive_kun"]) {
-            captureCurrentPageDom(); // 印刷ダイアログ起動前に綺麗なDOMを保存
-            setupAutoArchiveOnPrint(invoiceNo, customerCode);
+            captureCurrentPageDom(); // 印刷ダイアログ起動前にクレンジング済みDOMを保存
+
+            // ログイン中の担当者名をブラウザストレージから取得
+            const operatorName = localStorage.getItem('hhc_operator_name') || "未指定";
+
+            // 発行者・金額・顧客名も含めてPDFアーカイブ保存予約を発行
+            setupAutoArchiveOnPrint({
+                invoiceNo: invoiceNo,
+                customerCode: customerCode,
+                customerName: customerName,
+                amount: amount,
+                issuedBy: operatorName
+            });
         }
 
     } catch (err) {
-        // 例外・エラーログの出力
         console.error('[StripePay Error]', err);
     } finally {
-        // 後処理: トースト削除、一時無効化していた window.print を復元して印刷ダイアログを自動起動
         statusDiv.remove();
         window.print = originalPrint;
         window.print();

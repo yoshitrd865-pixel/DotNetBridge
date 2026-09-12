@@ -17,7 +17,9 @@ console.log("[ProxyInject] エンジン起動");
 const page = getCurrentPage();
 const isMenuStandard = window.location.pathname.includes("menuStandard.asp"); // ★ 直接URL判定
 
-// 🛡️ 機能がONの時だけ安全に実行する一括ガード関数
+/**
+ * 🛡️ 機能がONの時だけ安全に実行する一括ガード関数
+ */
 function runIfEnabled(featureId, action) {
     const settings = getSettings();
     if (settings[featureId]) {
@@ -27,7 +29,24 @@ function runIfEnabled(featureId, action) {
     }
 }
 
+/**
+ * 👤 画面ヘッダー (td.pagetitle) からログイン担当者名を抽出し localStorage に常時記録する関数
+ */
+function captureOperatorName() {
+    const pageTitleEl = document.querySelector('td.pagetitle');
+    if (pageTitleEl) {
+        const name = pageTitleEl.textContent.trim();
+        // "メニュー" などのタイトル名除外を行い、個人名（例: 柏木芳光）のみ保持
+        if (name && name !== "メニュー") {
+            localStorage.setItem('hhc_operator_name', name);
+        }
+    }
+}
+
 observeDOM(() => {
+    // 👤 全画面共通: 担当者名の自動キャッチ＆ブラウザストレージ同期
+    captureOperatorName();
+
     // ⚙️ メニュー画面のカスタマイズカード表示（通常メニューの時のみ）
     if (page === "menu" && !isMenuStandard) {
         initSettingsMenu();

@@ -40,14 +40,12 @@ let capturedHtmlString = null;
  */
 export function captureCurrentPageDom() {
     try {
-        // 現在のDOMツリー全体のディープクローンを作成
         const docClone = document.documentElement.cloneNode(true);
 
         // 1. 不要なscriptタグを除去してPuppeteerでの再実行エラーを防止
         docClone.querySelectorAll('script').forEach(s => s.remove());
 
         // 2. モーダル・トーストなど純粋な拡張UI要素のみをピンポイント除去
-        // （画面上の業務データテーブル群には一切触れない）
         const removeSelectors = [
             '#tfk-fusen-modal', 
             '#tfk-remove-modal', 
@@ -89,7 +87,6 @@ export function captureCurrentPageDom() {
         base.href = window.location.origin + '/';
         docClone.querySelector('head').insertBefore(base, docClone.querySelector('head').firstChild);
 
-        // クレンジング済みHTMLを文字列としてキャプチャ保持
         capturedHtmlString = docClone.outerHTML;
     } catch (e) {
         console.error('[PdfArchive Capture Error]', e);
@@ -98,11 +95,25 @@ export function captureCurrentPageDom() {
 
 /**
  * バックグラウンドでC# API (/api/PdfArchive/upload) へキャプチャHTMLを送信しR2保存を実行する関数
+ * @param {Object|string} params - 送信データオブジェクト（旧互換用文字列対応）
  */
-export async function archivePdfInBackground(invoiceNo, customerCode) {
+export async function archivePdfInBackground(params = {}) {
+    // 古い形式（引数が文字列）で呼び出された場合の互換性調整
+    if (typeof params === 'string') {
+        params = {
+            invoiceNo: arguments[0],
+            customerCode: arguments[1]
+        };
+    }
+
     if (!capturedHtmlString) {
         captureCurrentPageDom();
     }
+
+    // ★ 発行者名の動的設定（指定引数 ＞ ブラウザ記憶 ＞ デフォルト「未指定」）
+    const operatorName = params.issuedBy 
+        || localStorage.getItem('hhc_operator_name') 
+        || "未指定";
 
     const toast = showPdfArchiveStatus('⚡ R2へ自動保存中...', '#2980b9');
 
@@ -111,8 +122,11 @@ export async function archivePdfInBackground(invoiceNo, customerCode) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             html: capturedHtmlString,
-            invoiceNo: invoiceNo,
-            customerCode: customerCode
+            invoiceNo: params.invoiceNo || '',
+            customerCode: params.customerCode || '',
+            customerName: params.customerName || '',
+            amount: params.amount || 0,
+            issuedBy: operatorName
         })
     }).then(async res => {
         if (res.ok) {
@@ -133,8 +147,8 @@ export async function archivePdfInBackground(invoiceNo, customerCode) {
 /**
  * 印刷イベント (beforeprint) にフックして自動保存を起動するセットアップ関数
  */
-export function setupAutoArchiveOnPrint(invoiceNo, customerCode) {
+export function setupAutoArchiveOnPrint(params) {
     window.addEventListener('beforeprint', () => {
-        archivePdfInBackground(invoiceNo, customerCode);
+        archivePdfInBackground(params);
     });
 }

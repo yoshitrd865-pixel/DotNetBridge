@@ -47,6 +47,12 @@ namespace DotNetBridgeApp.Controllers
                     ?? "https://tfk-env.onrender.com";
 
                 var descriptionText = string.IsNullOrEmpty(item_description) ? "浄化槽維持管理費" : item_description;
+                var customerNameText = string.IsNullOrEmpty(customer_name) ? "お施主様" : customer_name;
+                var customerCodeText = string.IsNullOrEmpty(customer_code) ? "-" : customer_code;
+                var invoiceNoText = string.IsNullOrEmpty(invoice_no) ? "-" : invoice_no;
+
+                // ★ Stripeの決済画面に表示する詳細情報テキストを作成
+                var detailText = $"お施主様: {customerNameText} 様 / 顧客ID: {customerCodeText} / 伝票No: {invoiceNoText}";
 
                 var options = new SessionCreateOptions
                 {
@@ -63,6 +69,7 @@ namespace DotNetBridgeApp.Controllers
                                 ProductData = new SessionLineItemPriceDataProductDataOptions
                                 {
                                     Name = descriptionText,
+                                    Description = detailText // ★ ここに顧客名・ID・伝票Noをセット
                                 },
                             },
                             Quantity = 1,
@@ -116,7 +123,6 @@ namespace DotNetBridgeApp.Controllers
                 _logger.LogError(ex, "[Stripe Success Page Processing Error]");
             }
 
-            // ★ Views/StripePayment/Success.cshtml を表示
             return View("~/Views/StripePayment/Success.cshtml");
         }
 
@@ -127,7 +133,6 @@ namespace DotNetBridgeApp.Controllers
         [HttpGet("/EcoToubuF3/mobile60_ToubuF/StripePayment/Cancel")]
         public IActionResult Cancel()
         {
-            // ★ Views/StripePayment/Cancel.cshtml を表示
             return View("~/Views/StripePayment/Cancel.cshtml");
         }
 

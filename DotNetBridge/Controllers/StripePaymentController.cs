@@ -47,12 +47,17 @@ namespace DotNetBridgeApp.Controllers
                     ?? "https://tfk-env.onrender.com";
 
                 var descriptionText = string.IsNullOrEmpty(item_description) ? "浄化槽維持管理費" : item_description;
-                var customerNameText = string.IsNullOrEmpty(customer_name) ? "お施主様" : customer_name;
+
+                // ★ 「様」の重複防止処理
+                var rawName = (customer_name ?? "").Trim();
+                var nameClean = rawName.EndsWith("様") ? rawName.Substring(0, rawName.Length - 1).Trim() : rawName;
+                var customerNameText = string.IsNullOrEmpty(nameClean) ? "お施主" : nameClean;
+
                 var customerCodeText = string.IsNullOrEmpty(customer_code) ? "-" : customer_code;
                 var invoiceNoText = string.IsNullOrEmpty(invoice_no) ? "-" : invoice_no;
 
-                // ★ Stripeの決済画面に表示する詳細情報テキストを作成
-                var detailText = $"お施主様: {customerNameText} 様 / 顧客ID: {customerCodeText} / 伝票No: {invoiceNoText}";
+                // ★ \n を入れて改行表示にする
+                var detailText = $"伝票No: {invoiceNoText}\n顧客ID: {customerCodeText}\nお施主様: {customerNameText} 様\n";
 
                 var options = new SessionCreateOptions
                 {
@@ -69,7 +74,7 @@ namespace DotNetBridgeApp.Controllers
                                 ProductData = new SessionLineItemPriceDataProductDataOptions
                                 {
                                     Name = descriptionText,
-                                    Description = detailText // ★ ここに顧客名・ID・伝票Noをセット
+                                    Description = detailText // ★ 改行コード入りテキスト
                                 },
                             },
                             Quantity = 1,

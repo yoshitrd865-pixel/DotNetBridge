@@ -28,6 +28,9 @@ namespace DotNetBridgeApp.Controllers
                 ?? Environment.GetEnvironmentVariable("STRIPE_SECRET_KEY");
         }
 
+        /// <summary>
+        /// QRコードスキャン時にStripe Checkoutセッションを生成して決済画面へリダイレクト
+        /// </summary>
         [HttpGet("redirect-checkout")]
         public async Task<IActionResult> RedirectCheckout(
             [FromQuery] long amount,
@@ -38,7 +41,21 @@ namespace DotNetBridgeApp.Controllers
         {
             try
             {
-                var domain = $"{Request.Scheme}://{Request.Host}";
+                // ★ 本家ASP(IIS)のドメインになっている場合は、Render側のドメインへ自動変換
+                var domain = _config["AppBaseUrl"] ?? Environment.GetEnvironmentVariable("APP_BASE_URL");
+                if (string.IsNullOrEmpty(domain))
+                {
+                    var host = Request.Host.Value;
+                    if (host.Contains("hhc-eco11.com"))
+                    {
+                        domain = "https://tfk-env.onrender.com";
+                    }
+                    else
+                    {
+                        domain = $"{Request.Scheme}://{host}";
+                    }
+                }
+
                 var descriptionText = string.IsNullOrEmpty(item_description) ? "浄化槽維持管理費" : item_description;
 
                 var options = new SessionCreateOptions
@@ -79,11 +96,16 @@ namespace DotNetBridgeApp.Controllers
             }
             catch (Exception ex)
             {
+                _logger.LogError(ex, "[Stripe Checkout Create Error]");
                 return BadRequest($"決済セッション生成失敗: {ex.Message}");
             }
         }
 
+        /// <summary>
+        /// Stripe決済完了後のスマホ用リダイレクト画面（複数パスで受領可能に設定）
+        /// </summary>
         [HttpGet("/StripePayment/Success")]
+        [HttpGet("/EcoToubuF3/mobile60_ToubuF/StripePayment/Success")]
         public async Task<IActionResult> Success([FromQuery] string session_id)
         {
             try
@@ -98,7 +120,10 @@ namespace DotNetBridgeApp.Controllers
                     }
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[Stripe Success Page Processing Error]");
+            }
 
             var html = @"<!DOCTYPE html>
             <html lang='ja'>
@@ -126,7 +151,11 @@ namespace DotNetBridgeApp.Controllers
             return Content(html, "text/html; charset=utf-8");
         }
 
+        /// <summary>
+        /// Stripe決済中断時のスマホ用画面
+        /// </summary>
         [HttpGet("/StripePayment/Cancel")]
+        [HttpGet("/EcoToubuF3/mobile60_ToubuF/StripePayment/Cancel")]
         public IActionResult Cancel()
         {
             var html = @"<!DOCTYPE html>
@@ -155,6 +184,9 @@ namespace DotNetBridgeApp.Controllers
             return Content(html, "text/html; charset=utf-8");
         }
 
+        /// <summary>
+        /// Stripe Webhook
+        /// </summary>
         [HttpPost("webhook")]
         public async Task<IActionResult> Webhook()
         {
@@ -181,8 +213,9 @@ namespace DotNetBridgeApp.Controllers
 
                 return Ok();
             }
-            catch
+            catch (Exception ex)
             {
+                _logger.LogError(ex, "[Stripe Webhook Error]");
                 return BadRequest();
             }
         }

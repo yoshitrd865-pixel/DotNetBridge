@@ -50,7 +50,8 @@ namespace DotNetBridgeApp.Controllers
 
                 var options = new SessionCreateOptions
                 {
-                    PaymentMethodTypes = new List<string> { "card" },
+                    // ★ クレカ・PayPay・コンビニ決済を全て有効化
+                    PaymentMethodTypes = new List<string> { "card", "paypay", "konbini" },
                     LineItems = new List<SessionLineItemOptions>
                     {
                         new SessionLineItemOptions

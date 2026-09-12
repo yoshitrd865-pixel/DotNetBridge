@@ -1,15 +1,24 @@
 // wwwroot/js/modules/pdf-archive.js
 
+// ★ 印刷プレビュー写り込み防止スタイルを自動注入（手作業でのCSS編集不要）
+(function injectPrintStyle() {
+    if (!document.getElementById('pdf-archive-print-style')) {
+        const style = document.createElement('style');
+        style.id = 'pdf-archive-print-style';
+        style.textContent = '@media print { .no-print, #pdf-archive-toast { display: none !important; } }';
+        document.head.appendChild(style);
+    }
+})();
+
 /**
  * 画面左下に処理状況メッセージ（トーストUI）を表示する関数
- * ※本番画面のフォーム入力やイベントを一切阻害しない設定
  */
 function showPdfArchiveStatus(message, bgColor = 'rgba(0,0,0,0.85)') {
     let toast = document.getElementById('pdf-archive-toast');
     if (!toast) {
         toast = document.createElement('div');
         toast.id = 'pdf-archive-toast';
-        toast.className = 'no-print';
+        toast.className = 'no-print'; // 印刷除外用クラス
         toast.style.cssText = 'position:fixed; bottom:50px; left:10px; color:#fff; padding:10px 14px; border-radius:8px; font-size:12px; z-index:999999; font-weight:bold; box-shadow:0 4px 10px rgba(0,0,0,0.3); transition: all 0.3s ease; pointer-events:none;';
         document.body.appendChild(toast);
     }
@@ -58,7 +67,6 @@ export function extractItemDescription() {
     return items.length > 0 ? items.join(' / ') : '';
 }
 
-// 完成した画面HTMLを一時保持するモジュール変数
 let capturedHtmlString = null;
 
 /**
@@ -66,10 +74,9 @@ let capturedHtmlString = null;
  */
 export function captureCurrentPageDom() {
     try {
-        // 1. 本番画面のクローンを作成
         const docClone = document.documentElement.cloneNode(true);
 
-        // ★ 重要: 本番DOMの全フォーム値 (ClaimCode, SetUpCode, hidden値等) をクローン側へ完全同期
+        // 本番DOMの全フォーム値をクローン側へ同期（ClaimCodeの消失防止）
         const origInputs = document.querySelectorAll('input, select, textarea');
         const clonedInputs = docClone.querySelectorAll('input, select, textarea');
         origInputs.forEach((orig, idx) => {
@@ -89,33 +96,32 @@ export function captureCurrentPageDom() {
             }
         });
 
-        // 2. 不要なscriptタグを除去してPuppeteerでの再実行エラーを防止
+        // 不要なscriptタグを除去
         docClone.querySelectorAll('script').forEach(s => s.remove());
 
-        // 3. モーダル・トーストなど「Visual UI専用」要素のみをクローン側からピンポイント除去
-        // ※ フォーム要素(input, form)を含むコンテナは絶対に削除しない
+        // クローン側からUI表示専用要素を除去
         const removeSelectors = [
             '#tfk-fusen-modal', 
             '#tfk-remove-modal', 
             '#tfk-my-fusen-modal',
             '#pdf-archive-toast',
+            '.no-print',
             '#tfk-my-fusen-float-btn'
         ];
         removeSelectors.forEach(selector => {
             docClone.querySelectorAll(selector).forEach(el => el.remove());
         });
 
-        // 4. HHC_Payの動的ステータストースト要素の除去
+        // HHC_Payトースト除去
         docClone.querySelectorAll('div').forEach(el => {
             if (el.innerText && (el.innerText.includes('HHC_Pay: QR生成完了') || el.innerText.includes('HHC_Pay: 画面を監視中'))) {
-                // inputを含まない純粋なメッセージdivのみ削除
                 if (!el.querySelector('input')) {
                     el.remove();
                 }
             }
         });
 
-        // 5. 請求書側の角印（社印）の強制表示設定
+        // 角印表示設定
         const sealSales = docClone.querySelector('#divSealSales') || docClone.querySelector('[id*="SealSales"]');
         if (sealSales) {
             sealSales.style.display = 'block';
@@ -123,7 +129,7 @@ export function captureCurrentPageDom() {
             sealSales.style.opacity = '1';
         }
 
-        // 6. 画像のBase64埋め込み化（QRコードやロゴ画像の読み込み漏れを防止）
+        // 画像のBase64化
         const originalImages = document.querySelectorAll('img');
         const clonedImages = docClone.querySelectorAll('img');
         clonedImages.forEach((clonedImg, index) => {
@@ -133,7 +139,7 @@ export function captureCurrentPageDom() {
             }
         });
 
-        // 7. 相対パス画像の崩れ防止用 Absolute URL 補正
+        // Absolute URL補正
         const base = document.createElement('base');
         base.href = window.location.origin + '/';
         docClone.querySelector('head').insertBefore(base, docClone.querySelector('head').firstChild);
@@ -145,7 +151,7 @@ export function captureCurrentPageDom() {
 }
 
 /**
- * バックグラウンドでC# API (/api/PdfArchive/upload) へキャプチャHTMLを送信しR2保存を実行する関数
+ * バックグラウンドでC# API (/api/PdfArchive/upload) へキャプチャHTMLを送信
  */
 export async function archivePdfInBackground(params = {}) {
     if (typeof params === 'string') {
@@ -196,7 +202,7 @@ export async function archivePdfInBackground(params = {}) {
 }
 
 /**
- * 印刷イベント (beforeprint) にフックして自動保存を起動するセットアップ関数
+ * 印刷イベント (beforeprint) にフックして自動保存を起動
  */
 export function setupAutoArchiveOnPrint(params) {
     window.addEventListener('beforeprint', () => {

@@ -128,7 +128,7 @@ namespace DotNetBridgeApp.Controllers
                 return StatusCode(500, $"R2アップロード失敗: {ex.Message}");
             }
 
-            // 4. DB 登録（SQLite NOT NULL 制約回避補正）
+            // 4. DB 登録
             try
             {
                 var issuerEmail = !string.IsNullOrEmpty(req.IssuedBy) 
@@ -162,7 +162,7 @@ namespace DotNetBridgeApp.Controllers
                         Status = "unpaid",
                         IssuedBy = issuerEmail,
                         IssuedAt = now,
-                        PaidAt = new DateTime(1970, 1, 1), // ★ SQLite NOT NULL制約回避（画面上では 2000年以前なので "-" 表示）
+                        PaidAt = new DateTime(1970, 1, 1),
                         PdfFileName = fileName
                     };
                     _dbContext.PaymentLogs.Add(log);
@@ -207,6 +207,22 @@ namespace DotNetBridgeApp.Controllers
             {
                 _logger.LogError(ex, $"[PDF View Error] {fileName}");
                 return NotFound("指定されたPDFファイルが見つかりません。");
+            }
+        }
+
+        // ★ 追加: テスト用決済・発行ログの一括削除処理
+        [HttpPost("clear-all")]
+        public async Task<IActionResult> ClearAllLogs()
+        {
+            try
+            {
+                _dbContext.PaymentLogs.RemoveRange(_dbContext.PaymentLogs);
+                await _dbContext.SaveChangesAsync();
+                return Ok(new { success = true, message = "すべてのテストデータを削除しました。" });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { success = false, error = ex.Message });
             }
         }
     }

@@ -1,7 +1,7 @@
 @model IEnumerable<DotNetBridge.Data.PaymentLog>
 
 @{
-    Layout = null; // スタンドアロン表示
+    Layout = null;
     ViewData["Title"] = "売上請求・Stripe決済・PDFアーカイブ管理";
 }
 
@@ -11,7 +11,6 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>@ViewData["Title"]</title>
-    <!-- Bootstrap 5 CSS & Icons CDN -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
@@ -20,13 +19,13 @@
         .badge-status { font-size: 0.85rem; padding: 0.4em 0.75em; border-radius: 50rem; }
         .pdf-btn { transition: all 0.2s ease-in-out; }
         .pdf-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
-        .session-id { font-size: 0.75rem; word-break: break-all; max-width: 180px; }
+        .session-id { font-size: 0.75rem; word-break: break-all; max-width: 150px; }
+        .item-desc { max-width: 180px; font-size: 0.85rem; }
     </style>
 </head>
 <body>
 
 <div class="container-fluid py-4 px-4">
-    <!-- ヘッダーエリア -->
     <div class="d-flex justify-content-between align-items-center mb-4 pb-2 border-bottom">
         <div>
             <h3 class="fw-bold text-dark mb-1">
@@ -44,7 +43,6 @@
         </div>
     </div>
 
-    <!-- メインカード -->
     <div class="card border-0 shadow-sm">
         <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
             <span class="fw-bold text-secondary">
@@ -61,6 +59,7 @@
                             <th>伝票番号</th>
                             <th>顧客コード</th>
                             <th>お施主様名</th>
+                            <th>請求内容 / 明細項目</th>
                             <th class="text-end">請求金額</th>
                             <th>発行担当</th>
                             <th class="text-center">消込ステータス</th>
@@ -102,6 +101,12 @@
                                     </td>
                                     <td class="fw-bold text-dark">
                                         @(string.IsNullOrEmpty(log.CustomerName) ? "お施主様" : log.CustomerName)
+                                    </td>
+                                    <td>
+                                        <!-- 明細項目の表示 -->
+                                        <div class="item-desc text-dark text-truncate" title="@(log.ItemDescription ?? "維持管理・清掃作業料")">
+                                            <i class="bi bi-box-seam me-1 text-primary"></i>@(string.IsNullOrEmpty(log.ItemDescription) ? "維持管理・清掃作業料" : log.ItemDescription)
+                                        </div>
                                     </td>
                                     <td class="text-end fw-bold text-success fs-5">
                                         ¥@log.Amount.ToString("#,0")
@@ -158,7 +163,7 @@
                         else
                         {
                             <tr>
-                                <td colspan="10" class="text-center py-5 text-muted">
+                                <td colspan="11" class="text-center py-5 text-muted">
                                     <i class="bi bi-inbox fs-1 d-block mb-2 text-secondary"></i>
                                     登録済みの決済・請求データが存在しません。
                                 </td>

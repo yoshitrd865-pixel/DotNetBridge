@@ -28,9 +28,6 @@ namespace DotNetBridgeApp.Controllers
                 ?? Environment.GetEnvironmentVariable("STRIPE_SECRET_KEY");
         }
 
-        /// <summary>
-        /// QRコードスキャン時にStripe Checkoutセッションを生成して決済画面へリダイレクト
-        /// </summary>
         [HttpGet("redirect-checkout")]
         public async Task<IActionResult> RedirectCheckout(
             [FromQuery] long amount,
@@ -42,6 +39,7 @@ namespace DotNetBridgeApp.Controllers
             try
             {
                 var domain = $"{Request.Scheme}://{Request.Host}";
+                var descriptionText = string.IsNullOrEmpty(item_description) ? "浄化槽維持管理費" : item_description;
 
                 var options = new SessionCreateOptions
                 {
@@ -56,7 +54,7 @@ namespace DotNetBridgeApp.Controllers
                                 Currency = "jpy",
                                 ProductData = new SessionLineItemPriceDataProductDataOptions
                                 {
-                                    Name = string.IsNullOrEmpty(item_description) ? "浄化槽維持管理費" : item_description,
+                                    Name = descriptionText,
                                 },
                             },
                             Quantity = 1,
@@ -69,7 +67,8 @@ namespace DotNetBridgeApp.Controllers
                     {
                         { "invoice_no", invoice_no ?? "" },
                         { "customer_code", customer_code ?? "" },
-                        { "customer_name", customer_name ?? "" }
+                        { "customer_name", customer_name ?? "" },
+                        { "item_description", descriptionText }
                     }
                 };
 
@@ -80,14 +79,10 @@ namespace DotNetBridgeApp.Controllers
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[Stripe Checkout Create Error]");
-                return BadRequest($"決済セッションの生成に失敗しました: {ex.Message}");
+                return BadRequest($"決済セッション生成失敗: {ex.Message}");
             }
         }
 
-        /// <summary>
-        /// ★ 追加: Stripe決済完了後のスマホ用リダイレクト画面
-        /// </summary>
         [HttpGet("/StripePayment/Success")]
         public async Task<IActionResult> Success([FromQuery] string session_id)
         {
@@ -103,10 +98,7 @@ namespace DotNetBridgeApp.Controllers
                     }
                 }
             }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "[Stripe Success Page Processing Error]");
-            }
+            catch { }
 
             var html = @"<!DOCTYPE html>
             <html lang='ja'>
@@ -134,9 +126,6 @@ namespace DotNetBridgeApp.Controllers
             return Content(html, "text/html; charset=utf-8");
         }
 
-        /// <summary>
-        /// ★ 追加: Stripe決済中断時のスマホ用画面
-        /// </summary>
         [HttpGet("/StripePayment/Cancel")]
         public IActionResult Cancel()
         {
@@ -166,9 +155,6 @@ namespace DotNetBridgeApp.Controllers
             return Content(html, "text/html; charset=utf-8");
         }
 
-        /// <summary>
-        /// Stripe Webhook
-        /// </summary>
         [HttpPost("webhook")]
         public async Task<IActionResult> Webhook()
         {
@@ -195,21 +181,18 @@ namespace DotNetBridgeApp.Controllers
 
                 return Ok();
             }
-            catch (Exception ex)
+            catch
             {
-                _logger.LogError(ex, "[Stripe Webhook Error]");
                 return BadRequest();
             }
         }
 
-        /// <summary>
-        /// 決済成功時の共通処理（日本時間 JST で記録）
-        /// </summary>
         private async Task ProcessPaymentSuccessAsync(Session session)
         {
             var invoiceNo = session.Metadata.ContainsKey("invoice_no") ? session.Metadata["invoice_no"] : "";
             var customerCode = session.Metadata.ContainsKey("customer_code") ? session.Metadata["customer_code"] : "";
             var customerName = session.Metadata.ContainsKey("customer_name") ? session.Metadata["customer_name"] : "";
+            var itemDesc = session.Metadata.ContainsKey("item_description") ? session.Metadata["item_description"] : "";
 
             PaymentLog? log = null;
             if (!string.IsNullOrEmpty(invoiceNo) && invoiceNo != "未指定")
@@ -224,7 +207,6 @@ namespace DotNetBridgeApp.Controllers
                     .FirstOrDefaultAsync(p => p.StripeSessionId == session.Id);
             }
 
-            // ★ 日本時間（JST = UTC + 9時間）で保存
             var nowJst = DateTime.UtcNow.AddHours(9);
 
             if (log != null)
@@ -240,6 +222,10 @@ namespace DotNetBridgeApp.Controllers
                 {
                     log.CustomerName = customerName;
                 }
+                if (!string.IsNullOrEmpty(itemDesc) && string.IsNullOrEmpty(log.ItemDescription))
+                {
+                    log.ItemDescription = itemDesc;
+                }
             }
             else
             {
@@ -248,6 +234,7 @@ namespace DotNetBridgeApp.Controllers
                     InvoiceNo = string.IsNullOrEmpty(invoiceNo) ? "未指定" : invoiceNo,
                     CustomerCode = string.IsNullOrEmpty(customerCode) ? "未指定" : customerCode,
                     CustomerName = string.IsNullOrEmpty(customerName) ? "お施主様" : customerName,
+                    ItemDescription = string.IsNullOrEmpty(itemDesc) ? "維持管理・清掃作業料" : itemDesc,
                     Amount = session.AmountTotal ?? 0,
                     StripeSessionId = session.Id,
                     Status = "completed",
@@ -260,7 +247,6 @@ namespace DotNetBridgeApp.Controllers
             }
 
             await _dbContext.SaveChangesAsync();
-            _logger.LogInformation($"[Stripe決済完了処理完了] 伝票: {invoiceNo}, SessionId: {session.Id}");
         }
     }
 }

@@ -57,10 +57,33 @@ namespace DotNetBridgeApp.Controllers
 
                     if (existingLog != null)
                     {
-                        // ① 既に決済完了している場合はStripeに飛ばさず、専用画面を表示する（二重決済防止）
+                        // ① 既に決済完了している場合はStripeに飛ばさず、直接HTMLを返して完了画面を表示（500エラー防止）
                         if (existingLog.Status == "completed")
                         {
-                            return View("~/Views/StripePayment/AlreadyPaid.cshtml");
+                            var htmlContent = $@"
+                                <!DOCTYPE html>
+                                <html lang='ja'>
+                                <head>
+                                    <meta charset='utf-8'>
+                                    <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+                                    <title>お支払い済み</title>
+                                </head>
+                                <body style='background-color: #f4f6f8; font-family: sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0;'>
+                                    <div style='background: white; padding: 40px 20px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.08); text-align: center; max-width: 400px; width: 90%;'>
+                                        <div style='font-size: 50px; margin-bottom: 10px;'>✅</div>
+                                        <h2 style='color: #2e7d32; margin-top: 0; font-size: 22px;'>お支払い完了済み</h2>
+                                        <p style='font-size: 15px; color: #444; line-height: 1.6; margin-top: 20px;'>
+                                            この請求書（伝票No: {cleanInvoiceNo}）は<br>既にお支払いが完了しております。<br>
+                                            誠にありがとうございました。
+                                        </p>
+                                        <p style='font-size: 13px; color: #888; margin-top: 30px; border-top: 1px solid #eee; padding-top: 15px;'>
+                                            ※ご不明な点がございましたら、担当窓口までお問い合わせください。
+                                        </p>
+                                    </div>
+                                </body>
+                                </html>";
+
+                            return Content(htmlContent, "text/html", System.Text.Encoding.UTF8);
                         }
 
                         // ② まだ未決済だがDBにデータがある場合、URLの金額を無視してDBの金額を強制適用（金額改ざん防止）

@@ -118,6 +118,29 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<PaymentDbContext>();
     db.Database.EnsureCreated();
 
+    // --------------------------------------------------
+    // ★【SQLiteスキーマ自動拡張】PaymentLogs テーブルへの新カラム補正
+    // --------------------------------------------------
+    var alterSqls = new[]
+    {
+        @"ALTER TABLE ""PaymentLogs"" ADD COLUMN ""CustomerName"" TEXT NULL;",
+        @"ALTER TABLE ""PaymentLogs"" ADD COLUMN ""IssuedBy"" TEXT NULL;",
+        @"ALTER TABLE ""PaymentLogs"" ADD COLUMN ""IssuedAt"" TEXT NOT NULL DEFAULT '0001-01-01 00:00:00';",
+        @"ALTER TABLE ""PaymentLogs"" ADD COLUMN ""PdfFileName"" TEXT NULL;"
+    };
+
+    foreach (var sql in alterSqls)
+    {
+        try 
+        { 
+            db.Database.ExecuteSqlRaw(sql); 
+        } 
+        catch 
+        { 
+            // 既にカラムが存在している場合はエラーを無視して継続
+        }
+    }
+
     var fusenDb = scope.ServiceProvider.GetRequiredService<FusenDbContext>();
     fusenDb.Database.EnsureCreated();
 

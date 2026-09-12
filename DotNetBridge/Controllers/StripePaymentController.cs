@@ -24,7 +24,6 @@ namespace DotNetBridgeApp.Controllers
             _dbContext = dbContext;
             _logger = logger;
             
-            // Stripe APIキーの設定
             StripeConfiguration.ApiKey = _config["Stripe:SecretKey"] 
                 ?? Environment.GetEnvironmentVariable("STRIPE_SECRET_KEY");
         }
@@ -87,7 +86,88 @@ namespace DotNetBridgeApp.Controllers
         }
 
         /// <summary>
-        /// Stripe Webhook (決済完了イベント checkout.session.completed の受信)
+        /// ★ 追加: Stripe決済完了後のスマホ用リダイレクト画面
+        /// </summary>
+        [HttpGet("/StripePayment/Success")]
+        public async Task<IActionResult> Success([FromQuery] string session_id)
+        {
+            try
+            {
+                if (!string.IsNullOrEmpty(session_id))
+                {
+                    var service = new SessionService();
+                    var session = await service.GetAsync(session_id);
+                    if (session != null && session.PaymentStatus == "paid")
+                    {
+                        await ProcessPaymentSuccessAsync(session);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[Stripe Success Page Processing Error]");
+            }
+
+            var html = @"<!DOCTYPE html>
+            <html lang='ja'>
+            <head>
+                <meta charset='utf-8'>
+                <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+                <title>決済完了</title>
+                <link href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css' rel='stylesheet'>
+                <link rel='stylesheet' href='https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css'>
+            </head>
+            <body class='bg-light d-flex align-items-center justify-content-center min-vh-100 py-4'>
+                <div class='card shadow-lg border-0 text-center p-4 m-3' style='max-width: 420px; border-radius: 16px;'>
+                    <div class='card-body'>
+                        <div class='text-success mb-3'>
+                            <i class='bi bi-check-circle-fill' style='font-size: 4.5rem;'></i>
+                        </div>
+                        <h3 class='fw-bold text-dark mb-2'>お支払い完了</h3>
+                        <p class='text-muted mb-4'>クレジットカードでの決済が正常に完了いたしました。<br>ご協力ありがとうございました。</p>
+                        <button onclick='window.close()' class='btn btn-success btn-lg w-100 shadow-sm rounded-pill'>画面を閉じる</button>
+                    </div>
+                </div>
+            </body>
+            </html>";
+
+            return Content(html, "text/html; charset=utf-8");
+        }
+
+        /// <summary>
+        /// ★ 追加: Stripe決済中断時のスマホ用画面
+        /// </summary>
+        [HttpGet("/StripePayment/Cancel")]
+        public IActionResult Cancel()
+        {
+            var html = @"<!DOCTYPE html>
+            <html lang='ja'>
+            <head>
+                <meta charset='utf-8'>
+                <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+                <title>決済キャンセル</title>
+                <link href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css' rel='stylesheet'>
+                <link rel='stylesheet' href='https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css'>
+            </head>
+            <body class='bg-light d-flex align-items-center justify-content-center min-vh-100 py-4'>
+                <div class='card shadow-lg border-0 text-center p-4 m-3' style='max-width: 420px; border-radius: 16px;'>
+                    <div class='card-body'>
+                        <div class='text-warning mb-3'>
+                            <i class='bi bi-exclamation-triangle-fill' style='font-size: 4.5rem;'></i>
+                        </div>
+                        <h3 class='fw-bold text-dark mb-2'>決済が中断されました</h3>
+                        <p class='text-muted mb-4'>お支払い手続きが完了していません。</p>
+                        <button onclick='window.close()' class='btn btn-secondary btn-lg w-100 shadow-sm rounded-pill'>画面を閉じる</button>
+                    </div>
+                </div>
+            </body>
+            </html>";
+
+            return Content(html, "text/html; charset=utf-8");
+        }
+
+        /// <summary>
+        /// Stripe Webhook
         /// </summary>
         [HttpPost("webhook")]
         public async Task<IActionResult> Webhook()
@@ -104,7 +184,6 @@ namespace DotNetBridgeApp.Controllers
                     webhookSecret
                 );
 
-                // ★ ビルドエラー修正: Events から EventTypes.CheckoutSessionCompleted / "checkout.session.completed" へ変更
                 if (stripeEvent.Type == EventTypes.CheckoutSessionCompleted || stripeEvent.Type == "checkout.session.completed")
                 {
                     var session = stripeEvent.Data.Object as Session;
@@ -124,33 +203,7 @@ namespace DotNetBridgeApp.Controllers
         }
 
         /// <summary>
-        /// 画面リダイレクト時の成功ハンドラ（Webhookが遅延した場合のフォールバック）
-        /// </summary>
-        [HttpGet("process-success")]
-        public async Task<IActionResult> ProcessSuccess([FromQuery] string session_id)
-        {
-            try
-            {
-                var service = new SessionService();
-                var session = await service.GetAsync(session_id);
-
-                if (session != null && session.PaymentStatus == "paid")
-                {
-                    await ProcessPaymentSuccessAsync(session);
-                    return Ok(new { success = true });
-                }
-
-                return BadRequest("未決済のセッションです。");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "[Process Success Error]");
-                return StatusCode(500, ex.Message);
-            }
-        }
-
-        /// <summary>
-        /// 決済成功時の共通処理（既存のunpaidレコードを優先更新）
+        /// 決済成功時の共通処理（日本時間 JST で記録）
         /// </summary>
         private async Task ProcessPaymentSuccessAsync(Session session)
         {
@@ -158,7 +211,6 @@ namespace DotNetBridgeApp.Controllers
             var customerCode = session.Metadata.ContainsKey("customer_code") ? session.Metadata["customer_code"] : "";
             var customerName = session.Metadata.ContainsKey("customer_name") ? session.Metadata["customer_name"] : "";
 
-            // 1. 「伝票番号 ＋ 顧客コード」で事前作成された未決済ログを探す
             PaymentLog? log = null;
             if (!string.IsNullOrEmpty(invoiceNo) && invoiceNo != "未指定")
             {
@@ -166,21 +218,20 @@ namespace DotNetBridgeApp.Controllers
                     .FirstOrDefaultAsync(p => p.InvoiceNo == invoiceNo && p.CustomerCode == customerCode);
             }
 
-            // 2. 見つからない場合は StripeSessionId で検索
             if (log == null)
             {
                 log = await _dbContext.PaymentLogs
                     .FirstOrDefaultAsync(p => p.StripeSessionId == session.Id);
             }
 
-            var now = DateTime.UtcNow;
+            // ★ 日本時間（JST = UTC + 9時間）で保存
+            var nowJst = DateTime.UtcNow.AddHours(9);
 
             if (log != null)
             {
-                // 既存の未決済レコードを「Stripe決済済」に更新
                 log.StripeSessionId = session.Id;
                 log.Status = "completed";
-                log.PaidAt = now;
+                log.PaidAt = nowJst;
                 if (session.AmountTotal.HasValue && session.AmountTotal.Value > 0)
                 {
                     log.Amount = session.AmountTotal.Value;
@@ -192,7 +243,6 @@ namespace DotNetBridgeApp.Controllers
             }
             else
             {
-                // 印刷を経由せずに直接決済された場合の新規作成
                 log = new PaymentLog
                 {
                     InvoiceNo = string.IsNullOrEmpty(invoiceNo) ? "未指定" : invoiceNo,
@@ -202,8 +252,8 @@ namespace DotNetBridgeApp.Controllers
                     StripeSessionId = session.Id,
                     Status = "completed",
                     IssuedBy = "Stripe直接決済",
-                    IssuedAt = now,
-                    PaidAt = now,
+                    IssuedAt = nowJst,
+                    PaidAt = nowJst,
                     PdfFileName = null
                 };
                 _dbContext.PaymentLogs.Add(log);

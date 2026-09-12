@@ -34,7 +34,7 @@ namespace DotNetBridgeApp.Controllers
             public string InvoiceNo { get; set; } = string.Empty;
             public string CustomerCode { get; set; } = string.Empty;
             public string? CustomerName { get; set; }
-            public string? ItemDescription { get; set; } // 明細項目
+            public string? ItemDescription { get; set; }
             public long Amount { get; set; }
             public string? IssuedBy { get; set; }
         }
@@ -95,8 +95,10 @@ namespace DotNetBridgeApp.Controllers
                 return StatusCode(500, $"PDF生成失敗: {ex.Message}");
             }
 
+            var cleanInvoiceNo = req.InvoiceNo?.Trim() ?? "";
+            var cleanCustomerCode = req.CustomerCode?.Trim() ?? "";
             var nowJst = DateTime.UtcNow.AddHours(9);
-            var fileName = $"invoice_{req.CustomerCode}_{req.InvoiceNo}_{nowJst:yyyyMMddHHmmss}.pdf";
+            var fileName = $"invoice_{cleanCustomerCode}_{cleanInvoiceNo}_{nowJst:yyyyMMddHHmmss}.pdf";
 
             try
             {
@@ -131,7 +133,6 @@ namespace DotNetBridgeApp.Controllers
                     ? req.IssuedBy 
                     : (HttpContext.Session.GetString("UserEmail") ?? "未指定");
 
-                // ★ 明細項目の自動補正ロジック（リクエストが空の場合はHTMLから解析して抽出）
                 var itemDesc = !string.IsNullOrWhiteSpace(req.ItemDescription)
                     ? req.ItemDescription
                     : ExtractItemDescriptionFromHtml(req.Html);
@@ -141,11 +142,13 @@ namespace DotNetBridgeApp.Controllers
                     itemDesc = "維持管理・清掃作業料";
                 }
 
+                // ★ 重複チェック：前後の空白を考慮して検索
                 PaymentLog? log = null;
-                if (!string.IsNullOrEmpty(req.InvoiceNo) && req.InvoiceNo != "未指定")
+                if (!string.IsNullOrEmpty(cleanInvoiceNo) && cleanInvoiceNo != "未指定")
                 {
                     log = await _dbContext.PaymentLogs
-                        .FirstOrDefaultAsync(p => p.InvoiceNo == req.InvoiceNo && p.CustomerCode == req.CustomerCode);
+                        .FirstOrDefaultAsync(p => p.InvoiceNo != null && p.InvoiceNo.Trim() == cleanInvoiceNo 
+                                               && p.CustomerCode != null && p.CustomerCode.Trim() == cleanCustomerCode);
                 }
 
                 if (log != null)
@@ -161,8 +164,8 @@ namespace DotNetBridgeApp.Controllers
                 {
                     log = new PaymentLog
                     {
-                        InvoiceNo = string.IsNullOrEmpty(req.InvoiceNo) ? "未指定" : req.InvoiceNo,
-                        CustomerCode = string.IsNullOrEmpty(req.CustomerCode) ? "未指定" : req.CustomerCode,
+                        InvoiceNo = string.IsNullOrEmpty(cleanInvoiceNo) ? "未指定" : cleanInvoiceNo,
+                        CustomerCode = string.IsNullOrEmpty(cleanCustomerCode) ? "未指定" : cleanCustomerCode,
                         CustomerName = string.IsNullOrEmpty(req.CustomerName) ? "お施主様" : req.CustomerName,
                         ItemDescription = itemDesc,
                         Amount = req.Amount,
@@ -221,23 +224,18 @@ namespace DotNetBridgeApp.Controllers
         {
             try
             {
-            // 1. 全レコードの削除
-            _dbContext.PaymentLogs.RemoveRange(_dbContext.PaymentLogs);
-            await _dbContext.SaveChangesAsync();
+                _dbContext.PaymentLogs.RemoveRange(_dbContext.PaymentLogs);
+                await _dbContext.SaveChangesAsync();
+                await _dbContext.Database.ExecuteSqlRawAsync("DELETE FROM sqlite_sequence WHERE name='PaymentLogs';");
 
-            // 2. SQLiteの AUTOINCREMENT カウンターを 0 にリセット
-            await _dbContext.Database.ExecuteSqlRawAsync("DELETE FROM sqlite_sequence WHERE name='PaymentLogs';");
-
-            return Ok(new { success = true, message = "すべてのデータとIDカウンターをリセットしました。" });
+                return Ok(new { success = true, message = "すべてのデータとIDカウンターをリセットしました。" });
             }
             catch (Exception ex)
             {
-            return StatusCode(500, new { success = false, error = ex.Message });
+                return StatusCode(500, new { success = false, error = ex.Message });
             }
         }
-        /// <summary>
-        /// 請求書HTMLのDOM構造から、設置先・日付・金額・消費税を除外して純粋な明細品目テキストを抽出
-        /// </summary>
+
         private static string ExtractItemDescriptionFromHtml(string html)
         {
             if (string.IsNullOrEmpty(html)) return string.Empty;

@@ -8,6 +8,8 @@ function showPdfArchiveStatus(message, bgColor = 'rgba(0,0,0,0.85)') {
     if (!toast) {
         toast = document.createElement('div');
         toast.id = 'pdf-archive-toast';
+        // ★ 印刷プレビューに絶対写り込まないよう no-print クラスを付与
+        toast.className = 'no-print';
         toast.style.cssText = 'position:fixed; bottom:50px; left:10px; color:#fff; padding:10px 14px; border-radius:8px; font-size:12px; z-index:999999; font-weight:bold; box-shadow:0 4px 10px rgba(0,0,0,0.3); transition: all 0.3s ease;';
         document.body.appendChild(toast);
     }
@@ -32,6 +34,31 @@ function getBase64Image(img) {
     }
 }
 
+/**
+ * 請求書DOMから「設置先・日付・数字・消費税」を除外し、実際の請求項目のみを自動抽出
+ */
+export function extractItemDescription() {
+    const items = [];
+    const detailTds = document.querySelectorAll('td.detail.left.top, td.detail.left, td.detail');
+
+    detailTds.forEach(td => {
+        let text = td.textContent.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
+        if (!text) return;
+
+        // 除外フィルター
+        if (text.includes('設置先：') || text.includes('設置先:')) return;
+        if (['消費税', '地方消費税', '小計', '合計', '内税合計', '外税合計', '明細項目'].includes(text)) return;
+        if (/^\d{4}\/\d{2}\/\d{2}$/.test(text)) return;
+        if (/^[\d,]+$/.test(text)) return;
+
+        if (!items.includes(text)) {
+            items.push(text);
+        }
+    });
+
+    return items.length > 0 ? items.join(' / ') : '';
+}
+
 // 完成した画面HTMLを一時保持するモジュール変数
 let capturedHtmlString = null;
 
@@ -51,6 +78,7 @@ export function captureCurrentPageDom() {
             '#tfk-remove-modal', 
             '#tfk-my-fusen-modal',
             '#pdf-archive-toast',
+            '.no-print',
             '#tfk-my-fusen-float-btn'
         ];
         removeSelectors.forEach(selector => {
@@ -98,7 +126,6 @@ export function captureCurrentPageDom() {
  * @param {Object|string} params - 送信データオブジェクト（旧互換用文字列対応）
  */
 export async function archivePdfInBackground(params = {}) {
-    // 古い形式（引数が文字列）で呼び出された場合の互換性調整
     if (typeof params === 'string') {
         params = {
             invoiceNo: arguments[0],
@@ -110,10 +137,12 @@ export async function archivePdfInBackground(params = {}) {
         captureCurrentPageDom();
     }
 
-    // ★ 発行者名の動的設定（指定引数 ＞ ブラウザ記憶 ＞ デフォルト「未指定」）
     const operatorName = params.issuedBy 
         || localStorage.getItem('hhc_operator_name') 
         || "未指定";
+
+    // 明細品目名の動的抽出
+    const itemDesc = params.itemDescription || extractItemDescription();
 
     const toast = showPdfArchiveStatus('⚡ R2へ自動保存中...', '#2980b9');
 
@@ -125,6 +154,7 @@ export async function archivePdfInBackground(params = {}) {
             invoiceNo: params.invoiceNo || '',
             customerCode: params.customerCode || '',
             customerName: params.customerName || '',
+            itemDescription: itemDesc, // ★ 明細項目をセット
             amount: params.amount || 0,
             issuedBy: operatorName
         })

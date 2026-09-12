@@ -104,7 +104,8 @@ namespace DotNetBridgeApp.Controllers
                     webhookSecret
                 );
 
-                if (stripeEvent.Type == Events.CheckoutSessionCompleted)
+                // ★ ビルドエラー修正: Events から EventTypes.CheckoutSessionCompleted / "checkout.session.completed" へ変更
+                if (stripeEvent.Type == EventTypes.CheckoutSessionCompleted || stripeEvent.Type == "checkout.session.completed")
                 {
                     var session = stripeEvent.Data.Object as Session;
                     if (session != null)
@@ -157,7 +158,7 @@ namespace DotNetBridgeApp.Controllers
             var customerCode = session.Metadata.ContainsKey("customer_code") ? session.Metadata["customer_code"] : "";
             var customerName = session.Metadata.ContainsKey("customer_name") ? session.Metadata["customer_name"] : "";
 
-            // 1. まず「伝票番号 ＋ 顧客コード」で事前作成された未決済ログを探す
+            // 1. 「伝票番号 ＋ 顧客コード」で事前作成された未決済ログを探す
             PaymentLog? log = null;
             if (!string.IsNullOrEmpty(invoiceNo) && invoiceNo != "未指定")
             {
@@ -176,9 +177,9 @@ namespace DotNetBridgeApp.Controllers
 
             if (log != null)
             {
-                // ★ 既存の未決済レコード（ID 10など）を「Stripe決済済」に更新
+                // 既存の未決済レコードを「Stripe決済済」に更新
                 log.StripeSessionId = session.Id;
-                log.Status = "completed"; // Stripe決済完了ステータス
+                log.Status = "completed";
                 log.PaidAt = now;
                 if (session.AmountTotal.HasValue && session.AmountTotal.Value > 0)
                 {

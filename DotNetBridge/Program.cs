@@ -126,7 +126,8 @@ using (var scope = app.Services.CreateScope())
         @"ALTER TABLE ""PaymentLogs"" ADD COLUMN ""CustomerName"" TEXT NULL;",
         @"ALTER TABLE ""PaymentLogs"" ADD COLUMN ""IssuedBy"" TEXT NULL;",
         @"ALTER TABLE ""PaymentLogs"" ADD COLUMN ""IssuedAt"" TEXT NOT NULL DEFAULT '0001-01-01 00:00:00';",
-        @"ALTER TABLE ""PaymentLogs"" ADD COLUMN ""PdfFileName"" TEXT NULL;"
+        @"ALTER TABLE ""PaymentLogs"" ADD COLUMN ""PdfFileName"" TEXT NULL;",
+        @"ALTER TABLE ""PaymentLogs"" ADD COLUMN ""ItemDescription"" TEXT NULL;" // ★ 追加
     };
 
     foreach (var sql in alterSqls)

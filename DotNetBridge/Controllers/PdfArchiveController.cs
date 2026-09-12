@@ -32,6 +32,7 @@ namespace DotNetBridgeApp.Controllers
             public string InvoiceNo { get; set; } = string.Empty;
             public string CustomerCode { get; set; } = string.Empty;
             public string? CustomerName { get; set; }
+            public string? ItemDescription { get; set; } // ★ 明細項目
             public long Amount { get; set; }
             public string? IssuedBy { get; set; }
         }
@@ -44,7 +45,6 @@ namespace DotNetBridgeApp.Controllers
                 return BadRequest("HTMLデータが空です。");
             }
 
-            // 1. R2 設定の検証
             var accountId = _config["CloudflareR2:AccountId"] ?? Environment.GetEnvironmentVariable("R2_ACCOUNT_ID");
             var accessKeyId = _config["CloudflareR2:AccessKeyId"] ?? Environment.GetEnvironmentVariable("R2_ACCESS_KEY_ID");
             var secretAccessKey = _config["CloudflareR2:SecretAccessKey"] ?? Environment.GetEnvironmentVariable("R2_SECRET_ACCESS_KEY");
@@ -52,14 +52,12 @@ namespace DotNetBridgeApp.Controllers
 
             if (string.IsNullOrEmpty(accountId) || string.IsNullOrEmpty(accessKeyId) || string.IsNullOrEmpty(secretAccessKey))
             {
-                _logger.LogError("[PdfArchive] Cloudflare R2 の環境変数が設定されていません。");
                 return StatusCode(500, "R2の設定情報(AccountId/AccessKey)が未設定です。");
             }
 
             byte[] pdfBytes;
             try
             {
-                // 2. Puppeteer での PDF 変換
                 var browserFetcher = new BrowserFetcher();
                 await browserFetcher.DownloadAsync();
 
@@ -92,14 +90,12 @@ namespace DotNetBridgeApp.Controllers
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[PDF生成失敗]");
                 return StatusCode(500, $"PDF生成失敗: {ex.Message}");
             }
 
-            var now = DateTime.UtcNow;
-            var fileName = $"invoice_{req.CustomerCode}_{req.InvoiceNo}_{now:yyyyMMddHHmmss}.pdf";
+            var nowJst = DateTime.UtcNow.AddHours(9);
+            var fileName = $"invoice_{req.CustomerCode}_{req.InvoiceNo}_{nowJst:yyyyMMddHHmmss}.pdf";
 
-            // 3. R2 アップロード
             try
             {
                 var s3Config = new AmazonS3Config
@@ -124,11 +120,9 @@ namespace DotNetBridgeApp.Controllers
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[R2ストレージ書き込み失敗]");
                 return StatusCode(500, $"R2アップロード失敗: {ex.Message}");
             }
 
-            // 4. DB 登録
             try
             {
                 var issuerEmail = !string.IsNullOrEmpty(req.IssuedBy) 
@@ -146,9 +140,10 @@ namespace DotNetBridgeApp.Controllers
                 {
                     log.PdfFileName = fileName;
                     log.IssuedBy = issuerEmail;
-                    log.IssuedAt = now;
+                    log.IssuedAt = nowJst;
                     if (req.Amount > 0) log.Amount = req.Amount;
                     if (!string.IsNullOrEmpty(req.CustomerName)) log.CustomerName = req.CustomerName;
+                    if (!string.IsNullOrEmpty(req.ItemDescription)) log.ItemDescription = req.ItemDescription;
                 }
                 else
                 {
@@ -157,11 +152,12 @@ namespace DotNetBridgeApp.Controllers
                         InvoiceNo = string.IsNullOrEmpty(req.InvoiceNo) ? "未指定" : req.InvoiceNo,
                         CustomerCode = string.IsNullOrEmpty(req.CustomerCode) ? "未指定" : req.CustomerCode,
                         CustomerName = string.IsNullOrEmpty(req.CustomerName) ? "お施主様" : req.CustomerName,
+                        ItemDescription = string.IsNullOrEmpty(req.ItemDescription) ? "維持管理・清掃作業料" : req.ItemDescription,
                         Amount = req.Amount,
                         StripeSessionId = "",
                         Status = "unpaid",
                         IssuedBy = issuerEmail,
-                        IssuedAt = now,
+                        IssuedAt = nowJst,
                         PaidAt = new DateTime(1970, 1, 1),
                         PdfFileName = fileName
                     };
@@ -174,7 +170,6 @@ namespace DotNetBridgeApp.Controllers
             catch (Exception ex)
             {
                 var innerMsg = ex.InnerException != null ? ex.InnerException.Message : ex.Message;
-                _logger.LogError(ex, "[DB登録失敗]");
                 return StatusCode(500, $"DB登録失敗: {innerMsg}");
             }
         }
@@ -203,14 +198,12 @@ namespace DotNetBridgeApp.Controllers
 
                 return File(response.ResponseStream, "application/pdf");
             }
-            catch (Exception ex)
+            catch
             {
-                _logger.LogError(ex, $"[PDF View Error] {fileName}");
                 return NotFound("指定されたPDFファイルが見つかりません。");
             }
         }
 
-        // ★ 追加: テスト用決済・発行ログの一括削除処理
         [HttpPost("clear-all")]
         public async Task<IActionResult> ClearAllLogs()
         {
@@ -218,7 +211,7 @@ namespace DotNetBridgeApp.Controllers
             {
                 _dbContext.PaymentLogs.RemoveRange(_dbContext.PaymentLogs);
                 await _dbContext.SaveChangesAsync();
-                return Ok(new { success = true, message = "すべてのテストデータを削除しました。" });
+                return Ok(new { success = true });
             }
             catch (Exception ex)
             {

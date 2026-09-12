@@ -1,7 +1,7 @@
 @model IEnumerable<DotNetBridge.Data.PaymentLog>
 
 @{
-    Layout = null;
+    Layout = null; // スタンドアロン表示
     ViewData["Title"] = "売上請求・Stripe決済・PDFアーカイブ管理";
 }
 
@@ -11,38 +11,61 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>@ViewData["Title"]</title>
+    <!-- Bootstrap 5 CSS & Icons CDN -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
         body { background-color: #f8f9fa; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
-        .table-responsive { border-radius: 8px; overflow: hidden; }
-        .badge-status { font-size: 0.85rem; padding: 0.4em 0.75em; border-radius: 50rem; }
-        .pdf-btn { transition: all 0.2s ease-in-out; }
+        .table-responsive { border-radius: 8px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        .badge-status { font-size: 0.85rem; padding: 0.4em 0.75em; border-radius: 50rem; white-space: nowrap; }
+        .pdf-btn { transition: all 0.2s ease-in-out; white-space: nowrap; }
         .pdf-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
-        .session-id { font-size: 0.75rem; word-break: break-all; max-width: 150px; }
-        .item-desc { max-width: 180px; font-size: 0.85rem; }
+        .session-id { font-size: 0.75rem; word-break: break-all; min-width: 120px; max-width: 160px; }
+        
+        /* ★ 明細項目のテキスト折り返し設定 */
+        .item-desc { 
+            min-width: 220px; 
+            max-width: 350px; 
+            font-size: 0.88rem; 
+            line-height: 1.45; 
+            word-break: break-word; 
+            white-space: normal; 
+        }
+
+        /* ★ スマホ・タブレット用レスポンシブスタイル */
+        @@media (max-width: 768px) {
+            .container-fluid { padding-left: 0.75rem !important; padding-right: 0.75rem !important; }
+            .header-title { font-size: 1.25rem; }
+            .action-btns { width: 100%; display: flex; gap: 0.5rem; }
+            .action-btns .btn { flex: 1; font-size: 0.85rem; padding: 0.5rem; text-align: center; }
+            .table { font-size: 0.85rem; }
+            .fs-5 { font-size: 1.05rem !important; }
+            .item-desc { min-width: 180px; }
+        }
     </style>
 </head>
 <body>
 
-<div class="container-fluid py-4 px-4">
-    <div class="d-flex justify-content-between align-items-center mb-4 pb-2 border-bottom">
+<div class="container-fluid py-3 py-md-4 px-2 px-md-4">
+    <!-- ヘッダーエリア (スマホでは縦並び、PCでは横並び) -->
+    <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3 mb-4 pb-2 border-bottom">
         <div>
-            <h3 class="fw-bold text-dark mb-1">
+            <h3 class="fw-bold text-dark mb-1 header-title">
                 <i class="bi bi-credit-card-2-front-fill text-primary me-2"></i>Stripe 決済・PDFアーカイブ入金消込管理
             </h3>
-            <p class="text-muted small mb-0">現場請求書の発行履歴、Stripe決済状況、および ECOPRO 自動消込ステータスを一元管理します。</p>
+            <p class="text-muted small mb-0 d-none d-sm-block">現場請求書の発行履歴、Stripe決済状況、および ECOPRO 自動消込ステータスを一元管理します。</p>
         </div>
-        <div class="d-flex gap-2">
+        <div class="action-btns">
             <a href="/admin/payments" class="btn btn-primary shadow-sm">
-                <i class="bi bi-arrow-clockwise me-1"></i> 最新情報に更新
+                <i class="bi bi-arrow-clockwise me-1"></i> 更新
             </a>
             <button onclick="clearAllPaymentLogs()" class="btn btn-outline-danger shadow-sm">
-                <i class="bi bi-trash3 me-1"></i> テストデータ全消去
+                <i class="bi bi-trash3 me-1"></i> 全データ消去
             </button>
         </div>
     </div>
 
+    <!-- メインカード -->
     <div class="card border-0 shadow-sm">
         <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
             <span class="fw-bold text-secondary">
@@ -53,7 +76,7 @@
             <div class="table-responsive">
                 <table class="table table-hover align-middle mb-0">
                     <thead class="table-light border-bottom">
-                        <tr class="text-secondary small text-uppercase">
+                        <tr class="text-secondary small text-uppercase text-nowrap">
                             <th style="width: 50px;" class="text-center">ID</th>
                             <th>日時 (発行 / 決済)</th>
                             <th>伝票番号</th>
@@ -81,7 +104,7 @@
 
                                 <tr>
                                     <td class="text-center fw-bold text-muted">@log.Id</td>
-                                    <td>
+                                    <td class="text-nowrap">
                                         <div class="small">
                                             <span class="text-muted"><i class="bi bi-printer me-1"></i>発行:</span> @issuedStr
                                         </div>
@@ -99,19 +122,19 @@
                                             @(string.IsNullOrEmpty(log.CustomerCode) ? "未指定" : log.CustomerCode)
                                         </span>
                                     </td>
-                                    <td class="fw-bold text-dark">
+                                    <td class="fw-bold text-dark text-nowrap">
                                         @(string.IsNullOrEmpty(log.CustomerName) ? "お施主様" : log.CustomerName)
                                     </td>
                                     <td>
-                                        <!-- 明細項目の表示 -->
-                                        <div class="item-desc text-dark text-truncate" title="@(log.ItemDescription ?? "維持管理・清掃作業料")">
+                                        <!-- 明細項目の折り返し表示 -->
+                                        <div class="item-desc text-dark">
                                             <i class="bi bi-box-seam me-1 text-primary"></i>@(string.IsNullOrEmpty(log.ItemDescription) ? "維持管理・清掃作業料" : log.ItemDescription)
                                         </div>
                                     </td>
-                                    <td class="text-end fw-bold text-success fs-5">
+                                    <td class="text-end fw-bold text-success fs-5 text-nowrap">
                                         ¥@log.Amount.ToString("#,0")
                                     </td>
-                                    <td>
+                                    <td class="text-nowrap">
                                         <span class="badge bg-light text-dark border">
                                             <i class="bi bi-person-circle me-1 text-secondary"></i>@(string.IsNullOrEmpty(log.IssuedBy) ? "未指定" : log.IssuedBy)
                                         </span>
@@ -179,7 +202,7 @@
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 async function clearAllPaymentLogs() {
-    if (!confirm("これまでのテスト用決済・請求データをすべて削除してまっさらにしますか？\n（※削除すると元に戻せません）")) {
+    if (!confirm("これまでのテスト用決済・請求データをすべて削除し、IDカウンターも1へリセットしますか？\n（※削除すると元に戻せません）")) {
         return;
     }
 
@@ -187,7 +210,7 @@ async function clearAllPaymentLogs() {
         const res = await fetch('/api/PdfArchive/clear-all', { method: 'POST' });
         const data = await res.json();
         if (res.ok && data.success) {
-            alert("データをすべて削除しました。");
+            alert("データをすべて削除し、IDを初期化しました。");
             window.location.reload();
         } else {
             alert("削除に失敗しました: " + (data.error || "エラーが発生しました"));

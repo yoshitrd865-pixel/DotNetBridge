@@ -20,6 +20,7 @@
         .badge-status { font-size: 0.85rem; padding: 0.4em 0.75em; border-radius: 50rem; }
         .pdf-btn { transition: all 0.2s ease-in-out; }
         .pdf-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+        .session-id { font-size: 0.75rem; word-break: break-all; max-width: 180px; }
     </style>
 </head>
 <body>
@@ -37,7 +38,6 @@
             <a href="/admin/payments" class="btn btn-primary shadow-sm">
                 <i class="bi bi-arrow-clockwise me-1"></i> 最新情報に更新
             </a>
-            <!-- ★ 全削除ボタン -->
             <button onclick="clearAllPaymentLogs()" class="btn btn-outline-danger shadow-sm">
                 <i class="bi bi-trash3 me-1"></i> テストデータ全消去
             </button>
@@ -64,6 +64,7 @@
                             <th class="text-end">請求金額</th>
                             <th>発行担当</th>
                             <th class="text-center">消込ステータス</th>
+                            <th>Stripe Session ID</th>
                             <th class="text-center">請求書原本 (R2)</th>
                         </tr>
                     </thead>
@@ -134,6 +135,11 @@
                                             <span class="badge bg-dark badge-status">@(log.Status ?? "不明")</span>
                                         }
                                     </td>
+                                    <td>
+                                        <div class="session-id font-monospace text-muted">
+                                            @(string.IsNullOrEmpty(log.StripeSessionId) ? "-" : log.StripeSessionId)
+                                        </div>
+                                    </td>
                                     <td class="text-center">
                                         @if (!string.IsNullOrEmpty(log.PdfFileName))
                                         {
@@ -152,7 +158,7 @@
                         else
                         {
                             <tr>
-                                <td colspan="9" class="text-center py-5 text-muted">
+                                <td colspan="10" class="text-center py-5 text-muted">
                                     <i class="bi bi-inbox fs-1 d-block mb-2 text-secondary"></i>
                                     登録済みの決済・請求データが存在しません。
                                 </td>

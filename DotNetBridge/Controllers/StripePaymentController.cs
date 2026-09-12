@@ -1,308 +1,215 @@
+// Controllers/StripePaymentController.cs
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Stripe;
 using Stripe.Checkout;
-using System.Text.Json.Serialization;
-using Microsoft.EntityFrameworkCore;
 using DotNetBridge.Data;
 
-namespace DotNetBridge.Controllers
+namespace DotNetBridgeApp.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    public class StripePaymentController : Controller
+    public class StripePaymentController : ControllerBase
     {
         private readonly IConfiguration _config;
-        private readonly ILogger<StripePaymentController> _logger;
         private readonly PaymentDbContext _dbContext;
+        private readonly ILogger<StripePaymentController> _logger;
 
         public StripePaymentController(
             IConfiguration config, 
-            ILogger<StripePaymentController> logger,
-            PaymentDbContext dbContext)
+            PaymentDbContext dbContext,
+            ILogger<StripePaymentController> logger)
         {
             _config = config;
-            _logger = logger;
             _dbContext = dbContext;
-
-            var secretKey = Environment.GetEnvironmentVariable("Stripe__SecretKey") 
-                            ?? Environment.GetEnvironmentVariable("STRIPE_SECRET_KEY")
-                            ?? _config["Stripe:SecretKey"];
-
-            StripeConfiguration.ApiKey = secretKey;
-        }       
+            _logger = logger;
+            
+            // Stripe APIキーの設定
+            StripeConfiguration.ApiKey = _config["Stripe:SecretKey"] 
+                ?? Environment.GetEnvironmentVariable("STRIPE_SECRET_KEY");
+        }
 
         /// <summary>
-        /// QRコード読み取り専用エンドポイント（何度読み込んでも最新セッションを発行してリダイレクト）
+        /// QRコードスキャン時にStripe Checkoutセッションを生成して決済画面へリダイレクト
         /// </summary>
         [HttpGet("redirect-checkout")]
         public async Task<IActionResult> RedirectCheckout(
-            [FromQuery] long amount, 
-            [FromQuery] string? customer_code, 
-            [FromQuery] string? customer_name, 
-            [FromQuery] string? invoice_no, 
-            [FromQuery] string? item_description)
+            [FromQuery] long amount,
+            [FromQuery] string customer_code,
+            [FromQuery] string customer_name,
+            [FromQuery] string invoice_no,
+            [FromQuery] string item_description)
         {
-            var req = new CreateCheckoutRequest
-            {
-                Amount = amount,
-                CustomerCode = customer_code,
-                CustomerName = customer_name,
-                InvoiceNo = invoice_no,
-                ItemDescription = item_description
-            };
-
-            // 1. 読み出されるたびに新しい Stripe セッションを作成
-            var result = await CreateCheckout(req) as OkObjectResult;
-            if (result?.Value is null)
-            {
-                return BadRequest(new { error = "決済画面の生成に失敗しました" });
-            }
-
-            // 2. 匿名型オブジェクトから Stripe の決済 URL を取得
-            var urlProperty = result.Value.GetType().GetProperty("url");
-            var checkoutUrl = urlProperty?.GetValue(result.Value, null)?.ToString();
-
-            if (string.IsNullOrEmpty(checkoutUrl))
-            {
-                return BadRequest(new { error = "決済URLの取得に失敗しました" });
-            }
-
-            // 3. スマホのブラウザを最新の Stripe Checkout 画面へ自動転送
-            return Redirect(checkoutUrl);
-        }
-
-        [HttpPost("create-checkout")]
-        public async Task<IActionResult> CreateCheckout([FromBody] CreateCheckoutRequest req)
-        {
-            if (req.Amount <= 0) return BadRequest(new { error = "金額が無効です" });
-
             try
             {
                 var domain = $"{Request.Scheme}://{Request.Host}";
-                var customerName = string.IsNullOrWhiteSpace(req.CustomerName) ? "お施主様" : req.CustomerName.Trim();
-                if (!customerName.EndsWith("様") && !customerName.EndsWith("様邸"))
-                {
-                    customerName += " 様";
-                }
-
-                var itemDescription = string.IsNullOrWhiteSpace(req.ItemDescription) ? "浄化槽維持管理費" : req.ItemDescription.Trim();
-                var invoiceNo = string.IsNullOrWhiteSpace(req.InvoiceNo) ? "未指定" : req.InvoiceNo.Trim();
-                var customerCode = string.IsNullOrWhiteSpace(req.CustomerCode) ? "未指定" : req.CustomerCode.Trim();
 
                 var options = new SessionCreateOptions
                 {
-                    // カード、PayPay、コンビニ決済を有効化
-                    PaymentMethodTypes = new List<string>
-                    {
-                        "card",
-                        "paypay",
-                        "konbini"
-                    },
-                    // コンビニ決済用の必須オプション（有効期限: 3日後）
-                    PaymentMethodOptions = new SessionPaymentMethodOptionsOptions
-                    {
-                        Konbini = new SessionPaymentMethodOptionsKonbiniOptions
-                        {
-                            ExpiresAfterDays = 3
-                        }
-                    },
+                    PaymentMethodTypes = new List<string> { "card" },
                     LineItems = new List<SessionLineItemOptions>
                     {
                         new SessionLineItemOptions
                         {
                             PriceData = new SessionLineItemPriceDataOptions
                             {
+                                UnitAmount = amount,
                                 Currency = "jpy",
-                                UnitAmount = req.Amount,
                                 ProductData = new SessionLineItemPriceDataProductDataOptions
                                 {
-                                    Name = itemDescription,
-                                    Description = $"お施主様: {customerName} (伝票No: {invoiceNo})"
-                                }
+                                    Name = string.IsNullOrEmpty(item_description) ? "浄化槽維持管理費" : item_description,
+                                },
                             },
                             Quantity = 1,
-                        }
+                        },
                     },
                     Mode = "payment",
-                    SuccessUrl = $"{domain}/success?session_id={{CHECKOUT_SESSION_ID}}",
-                    CancelUrl = $"{domain}/cancel",
+                    SuccessUrl = $"{domain}/StripePayment/Success?session_id={{CHECKOUT_SESSION_ID}}",
+                    CancelUrl = $"{domain}/StripePayment/Cancel",
                     Metadata = new Dictionary<string, string>
                     {
-                        { "customer_code", customerCode },
-                        { "customer_name", customerName },
-                        { "invoice_no", invoiceNo },
-                        { "item_description", itemDescription }
-                    },
+                        { "invoice_no", invoice_no ?? "" },
+                        { "customer_code", customer_code ?? "" },
+                        { "customer_name", customer_name ?? "" }
+                    }
                 };
 
                 var service = new SessionService();
                 Session session = await service.CreateAsync(options);
 
-                return Ok(new { url = session.Url });
+                return Redirect(session.Url);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Stripe Checkout生成エラー");
-                return StatusCode(500, new { error = ex.Message });
+                _logger.LogError(ex, "[Stripe Checkout Create Error]");
+                return BadRequest($"決済セッションの生成に失敗しました: {ex.Message}");
             }
         }
 
+        /// <summary>
+        /// Stripe Webhook (決済完了イベント checkout.session.completed の受信)
+        /// </summary>
         [HttpPost("webhook")]
-        public async Task<IActionResult> ReceiveWebhook()
+        public async Task<IActionResult> Webhook()
         {
-            var webhookSecret = Environment.GetEnvironmentVariable("STRIPE_WEBHOOK_SECRET")
-                                ?? Environment.GetEnvironmentVariable("Stripe__WebhookSecret")
-                                ?? _config["Stripe:WebhookSecret"];
-
             var json = await new StreamReader(HttpContext.Request.Body).ReadToEndAsync();
-            var signatureHeader = Request.Headers["Stripe-Signature"];
+            var webhookSecret = _config["Stripe:WebhookSecret"] 
+                ?? Environment.GetEnvironmentVariable("STRIPE_WEBHOOK_SECRET");
 
             try
             {
                 var stripeEvent = EventUtility.ConstructEvent(
                     json,
-                    signatureHeader,
+                    Request.Headers["Stripe-Signature"],
                     webhookSecret
                 );
 
-                if (stripeEvent.Type == EventTypes.CheckoutSessionCompleted)
+                if (stripeEvent.Type == Events.CheckoutSessionCompleted)
                 {
                     var session = stripeEvent.Data.Object as Session;
-
                     if (session != null)
                     {
-                        // 二重書き込みチェック
-                        var existingLog = await _dbContext.PaymentLogs
-                            .FirstOrDefaultAsync(p => p.StripeSessionId == session.Id);
-
-                        if (existingLog == null)
-                        {
-                            var invoiceNo = session.Metadata?.GetValueOrDefault("invoice_no") ?? "未指定";
-                            var customerCode = session.Metadata?.GetValueOrDefault("customer_code") ?? "未指定";
-
-                            // DB へ消込ログ保存
-                            var paymentLog = new PaymentLog
-                            {
-                                InvoiceNo = invoiceNo,
-                                CustomerCode = customerCode,
-                                Amount = session.AmountTotal ?? 0,
-                                StripeSessionId = session.Id,
-                                Status = "completed",
-                                PaidAt = DateTime.UtcNow
-                            };
-
-                            _dbContext.PaymentLogs.Add(paymentLog);
-                            await _dbContext.SaveChangesAsync();
-
-                            _logger.LogInformation($"[DB保存成功] 伝票No: {invoiceNo}, 顧客コード: {customerCode}");
-                        }
+                        await ProcessPaymentSuccessAsync(session);
                     }
                 }
 
                 return Ok();
             }
-            catch (StripeException ex)
+            catch (Exception ex)
             {
-                _logger.LogError(ex, "Stripe Webhook 署名検証エラー");
-                return BadRequest(new { error = ex.Message });
+                _logger.LogError(ex, "[Stripe Webhook Error]");
+                return BadRequest();
+            }
+        }
+
+        /// <summary>
+        /// 画面リダイレクト時の成功ハンドラ（Webhookが遅延した場合のフォールバック）
+        /// </summary>
+        [HttpGet("process-success")]
+        public async Task<IActionResult> ProcessSuccess([FromQuery] string session_id)
+        {
+            try
+            {
+                var service = new SessionService();
+                var session = await service.GetAsync(session_id);
+
+                if (session != null && session.PaymentStatus == "paid")
+                {
+                    await ProcessPaymentSuccessAsync(session);
+                    return Ok(new { success = true });
+                }
+
+                return BadRequest("未決済のセッションです。");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Stripe Webhook 処理内部エラー");
-                return StatusCode(500, new { error = ex.Message });
+                _logger.LogError(ex, "[Process Success Error]");
+                return StatusCode(500, ex.Message);
             }
         }
 
-        // 保存された消込データを一覧取得する確認用 API
-        [HttpGet("logs")]
-        public async Task<IActionResult> GetPaymentLogs()
+        /// <summary>
+        /// 決済成功時の共通処理（既存のunpaidレコードを優先更新）
+        /// </summary>
+        private async Task ProcessPaymentSuccessAsync(Session session)
         {
-            var logs = await _dbContext.PaymentLogs
-                .OrderByDescending(p => p.PaidAt)
-                .ToListAsync();
-            return Ok(logs);
-        }
+            var invoiceNo = session.Metadata.ContainsKey("invoice_no") ? session.Metadata["invoice_no"] : "";
+            var customerCode = session.Metadata.ContainsKey("customer_code") ? session.Metadata["customer_code"] : "";
+            var customerName = session.Metadata.ContainsKey("customer_name") ? session.Metadata["customer_name"] : "";
 
-        // ─── 以下、Tampermonkey アシストくん用連携 API ───
+            // 1. まず「伝票番号 ＋ 顧客コード」で事前作成された未決済ログを探す
+            PaymentLog? log = null;
+            if (!string.IsNullOrEmpty(invoiceNo) && invoiceNo != "未指定")
+            {
+                log = await _dbContext.PaymentLogs
+                    .FirstOrDefaultAsync(p => p.InvoiceNo == invoiceNo && p.CustomerCode == customerCode);
+            }
 
-        // 1. 未処理データ取得 (GET)
-        [HttpGet("get_unprocessed")]
-        public async Task<IActionResult> GetUnprocessed()
-        {
-            var logs = await _dbContext.PaymentLogs
-                .Where(p => (p.Status == "completed" || p.Status == "PAID") && p.CustomerCode != "未指定" && p.InvoiceNo != "未指定")
-                .OrderBy(p => p.Id)
-                .Select(p => new
-                {
-                    id = p.Id,
-                    customer_code = p.CustomerCode,
-                    invoice_no = p.InvoiceNo,
-                    amount_total = p.Amount,
-                    status = p.Status
-                })
-                .ToListAsync();
+            // 2. 見つからない場合は StripeSessionId で検索
+            if (log == null)
+            {
+                log = await _dbContext.PaymentLogs
+                    .FirstOrDefaultAsync(p => p.StripeSessionId == session.Id);
+            }
 
-            return Ok(logs);
-        }
+            var now = DateTime.UtcNow;
 
-        // 2. 消込完了ステータス更新 (POST)
-        [HttpPost("get_unprocessed")]
-        public async Task<IActionResult> UpdateProcessed([FromBody] ProcessedRequest req)
-        {
-            if (req.Id <= 0) return BadRequest(new { success = false, error = "Missing ID" });
-
-            var log = await _dbContext.PaymentLogs.FindAsync(req.Id);
             if (log != null)
             {
-                log.Status = "processed";
-                await _dbContext.SaveChangesAsync();
-                return Ok(new { success = true });
+                // ★ 既存の未決済レコード（ID 10など）を「Stripe決済済」に更新
+                log.StripeSessionId = session.Id;
+                log.Status = "completed"; // Stripe決済完了ステータス
+                log.PaidAt = now;
+                if (session.AmountTotal.HasValue && session.AmountTotal.Value > 0)
+                {
+                    log.Amount = session.AmountTotal.Value;
+                }
+                if (!string.IsNullOrEmpty(customerName) && customerName != "未指定")
+                {
+                    log.CustomerName = customerName;
+                }
+            }
+            else
+            {
+                // 印刷を経由せずに直接決済された場合の新規作成
+                log = new PaymentLog
+                {
+                    InvoiceNo = string.IsNullOrEmpty(invoiceNo) ? "未指定" : invoiceNo,
+                    CustomerCode = string.IsNullOrEmpty(customerCode) ? "未指定" : customerCode,
+                    CustomerName = string.IsNullOrEmpty(customerName) ? "お施主様" : customerName,
+                    Amount = session.AmountTotal ?? 0,
+                    StripeSessionId = session.Id,
+                    Status = "completed",
+                    IssuedBy = "Stripe直接決済",
+                    IssuedAt = now,
+                    PaidAt = now,
+                    PdfFileName = null
+                };
+                _dbContext.PaymentLogs.Add(log);
             }
 
-            return NotFound(new { success = false, error = "Log not found" });
+            await _dbContext.SaveChangesAsync();
+            _logger.LogInformation($"[Stripe決済完了処理完了] 伝票: {invoiceNo}, SessionId: {session.Id}");
         }
-
-        /// <summary>
-        /// 決済完了画面
-        /// </summary>
-        [HttpGet("/success")]
-        public IActionResult Success([FromQuery] string session_id)
-        {
-            ViewBag.SessionId = session_id;
-            return View();
-        }
-
-        /// <summary>
-        /// 決済キャンセル・失敗画面
-        /// </summary>
-        [HttpGet("/cancel")]
-        public IActionResult Cancel()
-        {
-            return View();
-        }
-    }
-
-    public class ProcessedRequest
-    {
-        [JsonPropertyName("id")]
-        public int Id { get; set; }
-    }
-
-    public class CreateCheckoutRequest
-    {
-        [JsonPropertyName("amount")]
-        public long Amount { get; set; }
-
-        [JsonPropertyName("customer_name")]
-        public string? CustomerName { get; set; }
-
-        [JsonPropertyName("customer_code")]
-        public string? CustomerCode { get; set; }
-
-        [JsonPropertyName("invoice_no")]
-        public string? InvoiceNo { get; set; }
-
-        [JsonPropertyName("item_description")]
-        public string? ItemDescription { get; set; }
     }
 }

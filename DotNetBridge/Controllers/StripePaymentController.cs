@@ -41,6 +41,37 @@ namespace DotNetBridgeApp.Controllers
         {
             try
             {
+                // ==========================================
+                // 【追加対策】 二重決済ブロック ＆ 金額改ざん防止
+                // PdfArchiveControllerが作成したDBレコードを参照する
+                // ==========================================
+                var cleanInvoiceNo = invoice_no?.Trim() ?? "";
+                var cleanCustomerCode = customer_code?.Trim() ?? "";
+
+                if (!string.IsNullOrEmpty(cleanInvoiceNo) && !string.IsNullOrEmpty(cleanCustomerCode))
+                {
+                    // DBから同じ「伝票番号・顧客コード」の履歴を検索 (空白トリムを考慮)
+                    var existingLog = await _dbContext.PaymentLogs
+                        .FirstOrDefaultAsync(p => p.InvoiceNo != null && p.InvoiceNo.Trim() == cleanInvoiceNo 
+                                               && p.CustomerCode != null && p.CustomerCode.Trim() == cleanCustomerCode);
+
+                    if (existingLog != null)
+                    {
+                        // ① 既に決済完了している場合はStripeに飛ばさず、専用画面を表示する（二重決済防止）
+                        if (existingLog.Status == "completed")
+                        {
+                            return View("~/Views/StripePayment/AlreadyPaid.cshtml");
+                        }
+
+                        // ② まだ未決済だがDBにデータがある場合、URLの金額を無視してDBの金額を強制適用（金額改ざん防止）
+                        if (existingLog.Amount > 0)
+                        {
+                            amount = existingLog.Amount; 
+                        }
+                    }
+                }
+                // ==========================================
+
                 // ★ 本家IISでの404回避のため、戻り先ドメインをRenderへ固定
                 var domain = _config["AppBaseUrl"] 
                     ?? Environment.GetEnvironmentVariable("APP_BASE_URL") 
@@ -69,7 +100,7 @@ namespace DotNetBridgeApp.Controllers
                         {
                             PriceData = new SessionLineItemPriceDataOptions
                             {
-                                UnitAmount = amount,
+                                UnitAmount = amount, // ← 改ざんチェック済みの安全な金額が使われます
                                 Currency = "jpy",
                                 ProductData = new SessionLineItemPriceDataProductDataOptions
                                 {

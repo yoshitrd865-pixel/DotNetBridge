@@ -2,15 +2,15 @@
 
 /**
  * 画面左下に処理状況メッセージ（トーストUI）を表示する関数
+ * ※本番画面のフォーム入力やイベントを一切阻害しない設定
  */
 function showPdfArchiveStatus(message, bgColor = 'rgba(0,0,0,0.85)') {
     let toast = document.getElementById('pdf-archive-toast');
     if (!toast) {
         toast = document.createElement('div');
         toast.id = 'pdf-archive-toast';
-        // ★ 印刷プレビューに絶対写り込まないよう no-print クラスを付与
         toast.className = 'no-print';
-        toast.style.cssText = 'position:fixed; bottom:50px; left:10px; color:#fff; padding:10px 14px; border-radius:8px; font-size:12px; z-index:999999; font-weight:bold; box-shadow:0 4px 10px rgba(0,0,0,0.3); transition: all 0.3s ease;';
+        toast.style.cssText = 'position:fixed; bottom:50px; left:10px; color:#fff; padding:10px 14px; border-radius:8px; font-size:12px; z-index:999999; font-weight:bold; box-shadow:0 4px 10px rgba(0,0,0,0.3); transition: all 0.3s ease; pointer-events:none;';
         document.body.appendChild(toast);
     }
     toast.style.background = bgColor;
@@ -45,7 +45,6 @@ export function extractItemDescription() {
         let text = td.textContent.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
         if (!text) return;
 
-        // 除外フィルター
         if (text.includes('設置先：') || text.includes('設置先:')) return;
         if (['消費税', '地方消費税', '小計', '合計', '内税合計', '外税合計', '明細項目'].includes(text)) return;
         if (/^\d{4}\/\d{2}\/\d{2}$/.test(text)) return;
@@ -67,32 +66,56 @@ let capturedHtmlString = null;
  */
 export function captureCurrentPageDom() {
     try {
+        // 1. 本番画面のクローンを作成
         const docClone = document.documentElement.cloneNode(true);
 
-        // 1. 不要なscriptタグを除去してPuppeteerでの再実行エラーを防止
+        // ★ 重要: 本番DOMの全フォーム値 (ClaimCode, SetUpCode, hidden値等) をクローン側へ完全同期
+        const origInputs = document.querySelectorAll('input, select, textarea');
+        const clonedInputs = docClone.querySelectorAll('input, select, textarea');
+        origInputs.forEach((orig, idx) => {
+            if (clonedInputs[idx]) {
+                if (orig.tagName === 'SELECT') {
+                    const selectedOpt = orig.options[orig.selectedIndex];
+                    if (selectedOpt) {
+                        const clonedOpt = clonedInputs[idx].options[orig.selectedIndex];
+                        if (clonedOpt) clonedOpt.setAttribute('selected', 'selected');
+                    }
+                } else if (orig.type === 'checkbox' || orig.type === 'radio') {
+                    if (orig.checked) clonedInputs[idx].setAttribute('checked', 'checked');
+                    else clonedInputs[idx].removeAttribute('checked');
+                } else {
+                    clonedInputs[idx].setAttribute('value', orig.value || '');
+                }
+            }
+        });
+
+        // 2. 不要なscriptタグを除去してPuppeteerでの再実行エラーを防止
         docClone.querySelectorAll('script').forEach(s => s.remove());
 
-        // 2. モーダル・トーストなど純粋な拡張UI要素のみをピンポイント除去
+        // 3. モーダル・トーストなど「Visual UI専用」要素のみをクローン側からピンポイント除去
+        // ※ フォーム要素(input, form)を含むコンテナは絶対に削除しない
         const removeSelectors = [
             '#tfk-fusen-modal', 
             '#tfk-remove-modal', 
             '#tfk-my-fusen-modal',
             '#pdf-archive-toast',
-            '.no-print',
             '#tfk-my-fusen-float-btn'
         ];
         removeSelectors.forEach(selector => {
             docClone.querySelectorAll(selector).forEach(el => el.remove());
         });
 
-        // 3. HHC_Payの動的ステータストースト要素の除去
+        // 4. HHC_Payの動的ステータストースト要素の除去
         docClone.querySelectorAll('div').forEach(el => {
             if (el.innerText && (el.innerText.includes('HHC_Pay: QR生成完了') || el.innerText.includes('HHC_Pay: 画面を監視中'))) {
-                el.remove();
+                // inputを含まない純粋なメッセージdivのみ削除
+                if (!el.querySelector('input')) {
+                    el.remove();
+                }
             }
         });
 
-        // 4. 請求書側の角印（社印）の強制表示設定
+        // 5. 請求書側の角印（社印）の強制表示設定
         const sealSales = docClone.querySelector('#divSealSales') || docClone.querySelector('[id*="SealSales"]');
         if (sealSales) {
             sealSales.style.display = 'block';
@@ -100,7 +123,7 @@ export function captureCurrentPageDom() {
             sealSales.style.opacity = '1';
         }
 
-        // 5. 画像のBase64埋め込み化（QRコードやロゴ画像の読み込み漏れを防止）
+        // 6. 画像のBase64埋め込み化（QRコードやロゴ画像の読み込み漏れを防止）
         const originalImages = document.querySelectorAll('img');
         const clonedImages = docClone.querySelectorAll('img');
         clonedImages.forEach((clonedImg, index) => {
@@ -110,7 +133,7 @@ export function captureCurrentPageDom() {
             }
         });
 
-        // 6. 相対パス画像の崩れ防止用 Absolute URL 補正
+        // 7. 相対パス画像の崩れ防止用 Absolute URL 補正
         const base = document.createElement('base');
         base.href = window.location.origin + '/';
         docClone.querySelector('head').insertBefore(base, docClone.querySelector('head').firstChild);
@@ -123,7 +146,6 @@ export function captureCurrentPageDom() {
 
 /**
  * バックグラウンドでC# API (/api/PdfArchive/upload) へキャプチャHTMLを送信しR2保存を実行する関数
- * @param {Object|string} params - 送信データオブジェクト（旧互換用文字列対応）
  */
 export async function archivePdfInBackground(params = {}) {
     if (typeof params === 'string') {
@@ -141,7 +163,6 @@ export async function archivePdfInBackground(params = {}) {
         || localStorage.getItem('hhc_operator_name') 
         || "未指定";
 
-    // 明細品目名の動的抽出
     const itemDesc = params.itemDescription || extractItemDescription();
 
     const toast = showPdfArchiveStatus('⚡ R2へ自動保存中...', '#2980b9');
@@ -154,7 +175,7 @@ export async function archivePdfInBackground(params = {}) {
             invoiceNo: params.invoiceNo || '',
             customerCode: params.customerCode || '',
             customerName: params.customerName || '',
-            itemDescription: itemDesc, // ★ 明細項目をセット
+            itemDescription: itemDesc,
             amount: params.amount || 0,
             issuedBy: operatorName
         })
@@ -162,7 +183,7 @@ export async function archivePdfInBackground(params = {}) {
         if (res.ok) {
             toast.innerText = '✅ R2への自動保存が完了しました';
             toast.style.background = '#27ae60';
-            setTimeout(() => toast.remove(), 4000);
+            setTimeout(() => { if (toast.parentNode) toast.remove(); }, 4000);
         } else {
             throw new Error(await res.text());
         }
@@ -170,7 +191,7 @@ export async function archivePdfInBackground(params = {}) {
         console.error('[PdfArchive Error]', err);
         toast.innerText = `⚠️ R2保存失敗: ${err.message}`;
         toast.style.background = '#c0392b';
-        setTimeout(() => toast.remove(), 7000);
+        setTimeout(() => { if (toast.parentNode) toast.remove(); }, 7000);
     });
 }
 

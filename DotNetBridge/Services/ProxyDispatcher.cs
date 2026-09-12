@@ -35,7 +35,8 @@ namespace DotNetBridge.Services
                 path.StartsWith("/account") || 
                 path.StartsWith("/success") || 
                 path.StartsWith("/cancel") || 
-                path.StartsWith("/signin-google"))
+                path.StartsWith("/signin-google") ||
+                path.Contains("stripepayment")) // ★ 追加: Stripe決済関連のURLはプロキシせずにC#で処理
             {
                 return false; // プロキシしない
             }

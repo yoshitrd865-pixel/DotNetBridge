@@ -1,8 +1,6 @@
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Security.Claims;
-using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.EntityFrameworkCore;
 using DotNetBridge.Data;
 
@@ -24,7 +22,6 @@ namespace DotNetBridge.Services
 
         public async Task ProcessProxyAsync(HttpContext context)
         {
-            // 1. Googleログイン情報からメールアドレスを取得
             var userEmail = context.User.FindFirst(ClaimTypes.Email)?.Value
                             ?? context.User.Identity?.Name;
 
@@ -35,68 +32,43 @@ namespace DotNetBridge.Services
                 return;
             }
 
-            // 2. DBを参照し接続先URLを取得
             var db = context.RequestServices.GetRequiredService<SubscriptionDbContext>();
             var tenant = await db.TenantSubscriptions
                 .FirstOrDefaultAsync(t => t.GoogleEmail == userEmail);
 
             if (tenant == null || !tenant.IsActive || string.IsNullOrEmpty(tenant.TargetAspUrl))
             {
-                await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
-                context.Session.Clear();
                 context.Response.ContentType = "text/html; charset=utf-8";
                 await context.Response.WriteAsync("<html><body><script>window.top.location.href = '/Account/Login';</script></body></html>");
                 return;
             }
 
-            var targetBaseUrl = tenant.TargetAspUrl;
-
-            // URL構造解析
-            var uri = new Uri(targetBaseUrl);
-            string schemeHostPort = $"{uri.Scheme}://{uri.Host}:{uri.Port}";
+            // ベースURLの解析（例: https://hhc-eco11.com/EcoToubuF3/）
+            var baseUri = new Uri(tenant.TargetAspUrl);
+            string schemeHostPort = $"{baseUri.Scheme}://{baseUri.Host}:{baseUri.Port}";
             
-            var segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
-            string appRootName = segments.FirstOrDefault() ?? ""; // 例: EcoHHCDemo
-            string appRootUrl = !string.IsNullOrEmpty(appRootName) 
-                ? $"{schemeHostPort}/{appRootName}/" 
-                : $"{schemeHostPort}/";
-
-            if (!targetBaseUrl.EndsWith("/"))
-            {
-                targetBaseUrl += "/";
-            }
-
+            // アプリケーションルートパス（例: /EcoToubuF3/）を取得
+            string basePath = baseUri.AbsolutePath.TrimEnd('/') + "/";
             string reqPath = context.Request.Path.Value?.TrimStart('/') ?? string.Empty;
+
             if (string.IsNullOrEmpty(reqPath))
             {
-                reqPath = "login.html";
+                reqPath = "Main/FrameMain.asp";
             }
 
-            // --- 3. スマートパス判定 ---
+            // リクエストパスがすでに basePath を含んでいるかのチェックと転送URL作成
             string targetUri;
-
-            if (!string.IsNullOrEmpty(appRootName) && reqPath.StartsWith(appRootName, StringComparison.OrdinalIgnoreCase))
+            string appDirName = baseUri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "";
+            
+            if (!string.IsNullOrEmpty(appDirName) && reqPath.StartsWith(appDirName + "/", StringComparison.OrdinalIgnoreCase))
             {
                 targetUri = $"{schemeHostPort}/{reqPath}{context.Request.QueryString.Value}";
             }
-            else if (reqPath.Contains('/'))
-            {
-                var firstDir = reqPath.Split('/')[0];
-                if (firstDir.Equals("main", StringComparison.OrdinalIgnoreCase))
-                {
-                    targetUri = appRootUrl + reqPath + context.Request.QueryString.Value;
-                }
-                else
-                {
-                    targetUri = appRootUrl + reqPath + context.Request.QueryString.Value;
-                }
-            }
             else
             {
-                targetUri = targetBaseUrl + reqPath + context.Request.QueryString.Value;
+                targetUri = $"{schemeHostPort}{basePath}{reqPath}{context.Request.QueryString.Value}";
             }
 
-            // POSTリクエストボディの取得
             byte[] bodyBytes = Array.Empty<byte>();
             if (HttpMethods.IsPost(context.Request.Method) ||
                 HttpMethods.IsPut(context.Request.Method) ||
@@ -112,7 +84,6 @@ namespace DotNetBridge.Services
 
             var proxyOrigin = $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}";
 
-            // --- 4. リクエストヘッダー転送（IIS互換Cookie成形） ---
             foreach (var header in context.Request.Headers)
             {
                 var key = header.Key;
@@ -169,13 +140,13 @@ namespace DotNetBridge.Services
                 return;
             }
 
-            // --- 5. レスポンスヘッダー転送 ---
             context.Response.StatusCode = (int)upstreamResponse.StatusCode;
 
             foreach (var header in upstreamResponse.Headers)
             {
                 var key = header.Key;
                 if (HopByHopHeaders.Contains(key.ToLowerInvariant())) continue;
+                if (key.Equals("WWW-Authenticate", StringComparison.OrdinalIgnoreCase)) continue; // 基本認証ダイアログの発生を完全遮断
 
                 if (key.Equals("Set-Cookie", StringComparison.OrdinalIgnoreCase))
                 {
@@ -196,12 +167,9 @@ namespace DotNetBridge.Services
                 if (key.Equals("Location", StringComparison.OrdinalIgnoreCase))
                 {
                     var loc = header.Value.FirstOrDefault() ?? "";
-                    loc = loc.Replace($"https://{uri.Host}", proxyOrigin)
-                             .Replace($"http://{uri.Host}", proxyOrigin)
-                             .Replace($"//{uri.Host}", proxyOrigin.Replace("https:", "").Replace("http:", ""))
-                             .Replace("https://hhc-eco1.com", proxyOrigin)
-                             .Replace("http://hhc-eco1.com", proxyOrigin)
-                             .Replace("//hhc-eco1.com", proxyOrigin.Replace("https:", "").Replace("http:", ""));
+                    loc = loc.Replace($"https://{baseUri.Host}", proxyOrigin)
+                             .Replace($"http://{baseUri.Host}", proxyOrigin)
+                             .Replace($"//{baseUri.Host}", proxyOrigin.Replace("https:", "").Replace("http:", ""));
                     context.Response.Headers[key] = loc;
                     continue;
                 }
@@ -216,30 +184,39 @@ namespace DotNetBridge.Services
                 context.Response.Headers[key] = header.Value.ToArray();
             }
 
-            // --- 6. レスポンス本文処理 ---
             var contentType = upstreamResponse.Content.Headers.ContentType?.ToString() ?? string.Empty;
             bool isText = contentType.Contains("text/html", StringComparison.OrdinalIgnoreCase) ||
                          contentType.Contains("javascript", StringComparison.OrdinalIgnoreCase) ||
                          contentType.Contains("text/css", StringComparison.OrdinalIgnoreCase) ||
                          reqPath.EndsWith(".htm", StringComparison.OrdinalIgnoreCase) ||
-                         reqPath.EndsWith(".html", StringComparison.OrdinalIgnoreCase);
+                         reqPath.EndsWith(".html", StringComparison.OrdinalIgnoreCase) ||
+                         reqPath.EndsWith(".asp", StringComparison.OrdinalIgnoreCase);
 
             if (isText)
             {
                 var rawBytes = await upstreamResponse.Content.ReadAsByteArrayAsync();
-                
                 Encoding encoding;
                 try { encoding = Encoding.GetEncoding(932); }
                 catch { encoding = Encoding.UTF8; }
 
                 var textContent = encoding.GetString(rawBytes);
 
-                textContent = textContent.Replace($"https://{uri.Host}", proxyOrigin)
-                                         .Replace($"http://{uri.Host}", proxyOrigin)
-                                         .Replace($"//{uri.Host}", proxyOrigin.Replace("https:", "").Replace("http:", ""))
-                                         .Replace("https://hhc-eco1.com", proxyOrigin)
-                                         .Replace("http://hhc-eco1.com", proxyOrigin)
-                                         .Replace("//hhc-eco1.com", proxyOrigin.Replace("https:", "").Replace("http:", ""));
+                textContent = textContent.Replace($"https://{baseUri.Host}", proxyOrigin)
+                                         .Replace($"http://{baseUri.Host}", proxyOrigin)
+                                         .Replace($"//{baseUri.Host}", proxyOrigin.Replace("https:", "").Replace("http:", ""));
+
+                if (contentType.Contains("text/html", StringComparison.OrdinalIgnoreCase))
+                {
+                    var scriptTag = "<script type=\"module\" src=\"/js/ecopro-inject.js\"></script>";
+                    if (textContent.Contains("</body>", StringComparison.OrdinalIgnoreCase))
+                    {
+                        textContent = Regex.Replace(textContent, "</body>", $"{scriptTag}\n</body>", RegexOptions.IgnoreCase);
+                    }
+                    else
+                    {
+                        textContent += scriptTag;
+                    }
+                }
 
                 var modifiedBytes = encoding.GetBytes(textContent);
                 context.Response.ContentLength = modifiedBytes.Length;

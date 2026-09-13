@@ -68,7 +68,7 @@ namespace DotNetBridge.Services
                 reqPath = "FrameMain.asp";
             }
 
-            // 静的アセット・共通フォルダのみ AppRoot 直下へ判定（login.html/login.asp は Main/ 配下へ）
+            // 静的アセット・共通フォルダの判定
             string[] rootAssetFolders = new[] { "css/", "icon/", "icons/", "img/", "images/", "js/", "report/", "printdaily/", "mobile60_hyojun/" };
             bool isRootAsset = rootAssetFolders.Any(f => reqPath.StartsWith(f, StringComparison.OrdinalIgnoreCase));
 
@@ -79,7 +79,6 @@ namespace DotNetBridge.Services
             }
             else
             {
-                // 重複する AppRoot 名や Main/ の除去
                 string appDirName = appRootPath.Split('/', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "";
                 if (!string.IsNullOrEmpty(appDirName) && reqPath.StartsWith(appDirName + "/", StringComparison.OrdinalIgnoreCase))
                 {
@@ -109,19 +108,31 @@ namespace DotNetBridge.Services
 
             var proxyOrigin = $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}";
 
+            // ★ 1. Basic認証ヘッダーの自動補完・復元処理
+            string? basicAuthHeader = context.Request.Headers["Authorization"].FirstOrDefault();
+            if (string.IsNullOrEmpty(basicAuthHeader))
+            {
+                context.Request.Cookies.TryGetValue("EcoPro_BasicAuth", out basicAuthHeader);
+            }
+
+            if (!string.IsNullOrEmpty(basicAuthHeader))
+            {
+                upstreamRequest.Headers.TryAddWithoutValidation("Authorization", basicAuthHeader);
+            }
+
             foreach (var header in context.Request.Headers)
             {
                 var key = header.Key;
                 if (key.Equals("Host", StringComparison.OrdinalIgnoreCase) ||
                     key.Equals("Content-Length", StringComparison.OrdinalIgnoreCase) ||
                     key.Equals("Accept-Encoding", StringComparison.OrdinalIgnoreCase) ||
+                    key.Equals("Authorization", StringComparison.OrdinalIgnoreCase) || // 上記で個別に設定済みのためスキップ
                     key.StartsWith(":", StringComparison.Ordinal) ||
                     key.Equals("Content-Type", StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
                 }
 
-                // ASP.NET Core内部Cookie (.AspNetCore) を除外し、IIS互換の "; " で成形転送
                 if (key.Equals("Cookie", StringComparison.OrdinalIgnoreCase))
                 {
                     var cookieValues = header.Value
@@ -129,7 +140,8 @@ namespace DotNetBridge.Services
                         .Select(c => c.Trim())
                         .Where(c => !string.IsNullOrEmpty(c))
                         .Where(c => !c.StartsWith(".AspNetCore", StringComparison.OrdinalIgnoreCase) &&
-                                    !c.StartsWith("Session", StringComparison.OrdinalIgnoreCase))
+                                    !c.StartsWith("Session", StringComparison.OrdinalIgnoreCase) &&
+                                    !c.StartsWith("EcoPro_BasicAuth", StringComparison.OrdinalIgnoreCase))
                         .Distinct();
 
                     string formattedCookie = string.Join("; ", cookieValues);
@@ -172,6 +184,18 @@ namespace DotNetBridge.Services
             }
 
             context.Response.StatusCode = (int)upstreamResponse.StatusCode;
+
+            // ★ 2. 正常にBasic認証が通過した場合、Cookie "EcoPro_BasicAuth" に保存して次回以降自動付与
+            var incomingAuth = context.Request.Headers["Authorization"].FirstOrDefault();
+            if (!string.IsNullOrEmpty(incomingAuth) && (int)upstreamResponse.StatusCode < 400)
+            {
+                context.Response.Cookies.Append("EcoPro_BasicAuth", incomingAuth, new CookieOptions
+                {
+                    Path = "/",
+                    HttpOnly = true,
+                    SameSite = SameSiteMode.Lax
+                });
+            }
 
             foreach (var header in upstreamResponse.Headers)
             {

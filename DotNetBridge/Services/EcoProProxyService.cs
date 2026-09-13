@@ -1,6 +1,8 @@
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Security.Claims;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.EntityFrameworkCore;
 using DotNetBridge.Data;
 
@@ -13,6 +15,18 @@ namespace DotNetBridge.Services
             "transfer-encoding", "content-length", "content-encoding", "connection", "keep-alive"
         };
 
+        // アセット・共通帳票用ルートフォルダ群 (appRootUrl 直下に結合)
+        private static readonly string[] RootFolders =
+        {
+            "report", "printdaily", "mobile60_hyojun", "icon", "css", "img", "images", "js"
+        };
+
+        // 静的ファイル拡張子
+        private static readonly string[] AssetExtensions =
+        {
+            ".css", ".js", ".png", ".jpg", ".jpeg", ".gif", ".ico", ".svg", ".woff", ".woff2", ".ttf"
+        };
+
         private readonly IHttpClientFactory _httpClientFactory;
 
         public EcoProProxyService(IHttpClientFactory httpClientFactory)
@@ -22,77 +36,90 @@ namespace DotNetBridge.Services
 
         public async Task ProcessProxyAsync(HttpContext context)
         {
-            var userEmail = context.User.FindFirst(ClaimTypes.Email)?.Value
-                            ?? context.User.Identity?.Name;
+            // 1. Googleログイン情報からメールアドレスを取得
+            var userEmail = context.User.FindFirst(ClaimTypes.Email)?.Value;
 
             if (string.IsNullOrEmpty(userEmail))
             {
-                context.Response.ContentType = "text/html; charset=utf-8";
-                await context.Response.WriteAsync("<html><body><script>window.top.location.href = '/Account/Login';</script></body></html>");
+                context.Response.Redirect("/Account/Login");
                 return;
             }
 
+            // 2. DBを参照し接続先URLを取得
             var db = context.RequestServices.GetRequiredService<SubscriptionDbContext>();
             var tenant = await db.TenantSubscriptions
                 .FirstOrDefaultAsync(t => t.GoogleEmail == userEmail);
 
             if (tenant == null || !tenant.IsActive || string.IsNullOrEmpty(tenant.TargetAspUrl))
             {
+                await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+                context.Session.Clear();
+                
+                // frameset脱出用HTMLを返却 (無限リダイレクト防止)
                 context.Response.ContentType = "text/html; charset=utf-8";
-                await context.Response.WriteAsync("<html><body><script>window.top.location.href = '/Account/Login';</script></body></html>");
+                await context.Response.WriteAsync("<script>window.top.location.href='/Account/Suspended';</script>");
                 return;
             }
 
-            var baseUri = new Uri(tenant.TargetAspUrl);
-            string schemeHostPort = $"{baseUri.Scheme}://{baseUri.Host}:{baseUri.Port}";
-            
-            string absolutePath = baseUri.AbsolutePath.TrimEnd('/');
-            string appRootPath;
-            string mainPath;
+            var targetBaseUrl = tenant.TargetAspUrl;
 
-            if (absolutePath.EndsWith("/Main", StringComparison.OrdinalIgnoreCase))
+            // URL構造解析
+            var uri = new Uri(targetBaseUrl);
+            string schemeHostPort = $"{uri.Scheme}://{uri.Host}:{uri.Port}";
+            
+            var segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            string appRootName = segments.FirstOrDefault() ?? ""; // 例: EcoHHCDemo
+            string appRootUrl = !string.IsNullOrEmpty(appRootName) 
+                ? $"{schemeHostPort}/{appRootName}/" 
+                : $"{schemeHostPort}/";
+
+            if (!targetBaseUrl.EndsWith("/"))
             {
-                appRootPath = absolutePath.Substring(0, absolutePath.Length - 4).TrimEnd('/') + "/";
-                mainPath = absolutePath + "/";
-            }
-            else
-            {
-                appRootPath = absolutePath + "/";
-                mainPath = absolutePath + "/";
+                targetBaseUrl += "/";
             }
 
             string reqPath = context.Request.Path.Value?.TrimStart('/') ?? string.Empty;
-
             if (string.IsNullOrEmpty(reqPath))
             {
-                reqPath = "FrameMain.asp";
+                reqPath = "login.html";
             }
 
-            // 静的アセット・共通フォルダの判定
-            string[] rootAssetFolders = new[] { "css/", "icon/", "icons/", "img/", "images/", "js/", "report/", "printdaily/", "mobile60_hyojun/" };
-            bool isRootAsset = rootAssetFolders.Any(f => reqPath.StartsWith(f, StringComparison.OrdinalIgnoreCase));
-
+            // --- 3. スマートパス判定 (復元ロジック) ---
             string targetUri;
-            if (isRootAsset)
+
+            if (!string.IsNullOrEmpty(appRootName) && reqPath.StartsWith(appRootName, StringComparison.OrdinalIgnoreCase))
             {
-                targetUri = $"{schemeHostPort}{appRootPath}{reqPath}{context.Request.QueryString.Value}";
+                // リクエストがすでに /EcoHHCDemo/... の完全パスで来ている場合
+                targetUri = $"{schemeHostPort}/{reqPath}{context.Request.QueryString.Value}";
             }
             else
             {
-                string appDirName = appRootPath.Split('/', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "";
-                if (!string.IsNullOrEmpty(appDirName) && reqPath.StartsWith(appDirName + "/", StringComparison.OrdinalIgnoreCase))
-                {
-                    reqPath = reqPath.Substring(appDirName.Length + 1);
-                }
+                var firstDir = reqPath.Contains('/') ? reqPath.Split('/')[0].ToLowerInvariant() : string.Empty;
+                var ext = Path.GetExtension(reqPath)?.ToLowerInvariant() ?? string.Empty;
 
-                if (reqPath.StartsWith("Main/", StringComparison.OrdinalIgnoreCase))
+                // ① ルート直下に存在する共通アセットフォルダの場合
+                if (RootFolders.Contains(firstDir))
                 {
-                    reqPath = reqPath.Substring(5);
+                    targetUri = appRootUrl + reqPath + context.Request.QueryString.Value;
                 }
-
-                targetUri = $"{schemeHostPort}{mainPath}{reqPath}{context.Request.QueryString.Value}";
+                // ② 業務画面フォルダ (main/ 直下) の場合
+                else if (reqPath.StartsWith("main/", StringComparison.OrdinalIgnoreCase))
+                {
+                    targetUri = appRootUrl + reqPath + context.Request.QueryString.Value;
+                }
+                // ③ 静的アセットファイル (.css, .png 等) の場合
+                else if (AssetExtensions.Contains(ext))
+                {
+                    targetUri = appRootUrl + reqPath + context.Request.QueryString.Value;
+                }
+                // ④ それ以外（業務画面ファイル単体・相対パス機能）は targetBaseUrl (例: .../Main/) へ直撃
+                else
+                {
+                    targetUri = targetBaseUrl + reqPath + context.Request.QueryString.Value;
+                }
             }
 
+            // POSTリクエストボディの取得
             byte[] bodyBytes = Array.Empty<byte>();
             if (HttpMethods.IsPost(context.Request.Method) ||
                 HttpMethods.IsPut(context.Request.Method) ||
@@ -108,25 +135,13 @@ namespace DotNetBridge.Services
 
             var proxyOrigin = $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}";
 
-            // ★ 1. Basic認証ヘッダーの自動補完・復元処理
-            string? basicAuthHeader = context.Request.Headers["Authorization"].FirstOrDefault();
-            if (string.IsNullOrEmpty(basicAuthHeader))
-            {
-                context.Request.Cookies.TryGetValue("EcoPro_BasicAuth", out basicAuthHeader);
-            }
-
-            if (!string.IsNullOrEmpty(basicAuthHeader))
-            {
-                upstreamRequest.Headers.TryAddWithoutValidation("Authorization", basicAuthHeader);
-            }
-
+            // --- 4. リクエストヘッダー転送 (IIS互換Cookie成形) ---
             foreach (var header in context.Request.Headers)
             {
                 var key = header.Key;
                 if (key.Equals("Host", StringComparison.OrdinalIgnoreCase) ||
                     key.Equals("Content-Length", StringComparison.OrdinalIgnoreCase) ||
                     key.Equals("Accept-Encoding", StringComparison.OrdinalIgnoreCase) ||
-                    key.Equals("Authorization", StringComparison.OrdinalIgnoreCase) || // 上記で個別に設定済みのためスキップ
                     key.StartsWith(":", StringComparison.Ordinal) ||
                     key.Equals("Content-Type", StringComparison.OrdinalIgnoreCase))
                 {
@@ -139,16 +154,10 @@ namespace DotNetBridge.Services
                         .SelectMany(v => v.Split(';'))
                         .Select(c => c.Trim())
                         .Where(c => !string.IsNullOrEmpty(c))
-                        .Where(c => !c.StartsWith(".AspNetCore", StringComparison.OrdinalIgnoreCase) &&
-                                    !c.StartsWith("Session", StringComparison.OrdinalIgnoreCase) &&
-                                    !c.StartsWith("EcoPro_BasicAuth", StringComparison.OrdinalIgnoreCase))
                         .Distinct();
 
                     string formattedCookie = string.Join("; ", cookieValues);
-                    if (!string.IsNullOrEmpty(formattedCookie))
-                    {
-                        upstreamRequest.Headers.TryAddWithoutValidation("Cookie", formattedCookie);
-                    }
+                    upstreamRequest.Headers.TryAddWithoutValidation("Cookie", formattedCookie);
                     continue;
                 }
 
@@ -183,19 +192,17 @@ namespace DotNetBridge.Services
                 return;
             }
 
-            context.Response.StatusCode = (int)upstreamResponse.StatusCode;
-
-            // ★ 2. 正常にBasic認証が通過した場合、Cookie "EcoPro_BasicAuth" に保存して次回以降自動付与
-            var incomingAuth = context.Request.Headers["Authorization"].FirstOrDefault();
-            if (!string.IsNullOrEmpty(incomingAuth) && (int)upstreamResponse.StatusCode < 400)
+            // --- 5. 本家IIS 401 Unauthorized 遮断フィルター ---
+            if (upstreamResponse.StatusCode == System.Net.HttpStatusCode.Unauthorized)
             {
-                context.Response.Cookies.Append("EcoPro_BasicAuth", incomingAuth, new CookieOptions
-                {
-                    Path = "/",
-                    HttpOnly = true,
-                    SameSite = SameSiteMode.Lax
-                });
+                context.Response.StatusCode = 200;
+                context.Response.ContentType = "text/html; charset=utf-8";
+                await context.Response.WriteAsync("<script>window.top.location.href='/Account/Login';</script>");
+                return;
             }
+
+            // --- 6. レスポンスヘッダー転送 ---
+            context.Response.StatusCode = (int)upstreamResponse.StatusCode;
 
             foreach (var header in upstreamResponse.Headers)
             {
@@ -221,9 +228,12 @@ namespace DotNetBridge.Services
                 if (key.Equals("Location", StringComparison.OrdinalIgnoreCase))
                 {
                     var loc = header.Value.FirstOrDefault() ?? "";
-                    loc = loc.Replace($"https://{baseUri.Host}", proxyOrigin)
-                             .Replace($"http://{baseUri.Host}", proxyOrigin)
-                             .Replace($"//{baseUri.Host}", proxyOrigin.Replace("https:", "").Replace("http:", ""));
+                    loc = loc.Replace($"https://{uri.Host}", proxyOrigin)
+                             .Replace($"http://{uri.Host}", proxyOrigin)
+                             .Replace($"//{uri.Host}", proxyOrigin.Replace("https:", "").Replace("http:", ""))
+                             .Replace("https://hhc-eco1.com", proxyOrigin)
+                             .Replace("http://hhc-eco1.com", proxyOrigin)
+                             .Replace("//hhc-eco1.com", proxyOrigin.Replace("https:", "").Replace("http:", ""));
                     context.Response.Headers[key] = loc;
                     continue;
                 }
@@ -238,39 +248,30 @@ namespace DotNetBridge.Services
                 context.Response.Headers[key] = header.Value.ToArray();
             }
 
+            // --- 7. レスポンス本文処理 (CP932文字コード保持) ---
             var contentType = upstreamResponse.Content.Headers.ContentType?.ToString() ?? string.Empty;
             bool isText = contentType.Contains("text/html", StringComparison.OrdinalIgnoreCase) ||
                          contentType.Contains("javascript", StringComparison.OrdinalIgnoreCase) ||
                          contentType.Contains("text/css", StringComparison.OrdinalIgnoreCase) ||
                          reqPath.EndsWith(".htm", StringComparison.OrdinalIgnoreCase) ||
-                         reqPath.EndsWith(".html", StringComparison.OrdinalIgnoreCase) ||
-                         reqPath.EndsWith(".asp", StringComparison.OrdinalIgnoreCase);
+                         reqPath.EndsWith(".html", StringComparison.OrdinalIgnoreCase);
 
             if (isText)
             {
                 var rawBytes = await upstreamResponse.Content.ReadAsByteArrayAsync();
+                
                 Encoding encoding;
                 try { encoding = Encoding.GetEncoding(932); }
                 catch { encoding = Encoding.UTF8; }
 
                 var textContent = encoding.GetString(rawBytes);
 
-                textContent = textContent.Replace($"https://{baseUri.Host}", proxyOrigin)
-                                         .Replace($"http://{baseUri.Host}", proxyOrigin)
-                                         .Replace($"//{baseUri.Host}", proxyOrigin.Replace("https:", "").Replace("http:", ""));
-
-                if (contentType.Contains("text/html", StringComparison.OrdinalIgnoreCase))
-                {
-                    var scriptTag = "<script type=\"module\" src=\"/js/ecopro-inject.js\"></script>";
-                    if (textContent.Contains("</body>", StringComparison.OrdinalIgnoreCase))
-                    {
-                        textContent = Regex.Replace(textContent, "</body>", $"{scriptTag}\n</body>", RegexOptions.IgnoreCase);
-                    }
-                    else
-                    {
-                        textContent += scriptTag;
-                    }
-                }
+                textContent = textContent.Replace($"https://{uri.Host}", proxyOrigin)
+                                         .Replace($"http://{uri.Host}", proxyOrigin)
+                                         .Replace($"//{uri.Host}", proxyOrigin.Replace("https:", "").Replace("http:", ""))
+                                         .Replace("https://hhc-eco1.com", proxyOrigin)
+                                         .Replace("http://hhc-eco1.com", proxyOrigin)
+                                         .Replace("//hhc-eco1.com", proxyOrigin.Replace("https:", "").Replace("http:", ""));
 
                 var modifiedBytes = encoding.GetBytes(textContent);
                 context.Response.ContentLength = modifiedBytes.Length;

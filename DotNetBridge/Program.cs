@@ -203,13 +203,18 @@ app.Use(async (context, next) =>
 {
     var path = context.Request.Path.Value ?? "";
 
-    // 内部画面や静的ファイルアクセス時はプロキシをバイパス
+// --------------------------------------------------
+// ★ プロキシバイパス・ガード付きミドルウェア
+// --------------------------------------------------
+app.Use(async (context, next) =>
+{
+    var path = context.Request.Path.Value ?? "";
+
+    // C#コントローラーで処理する専用ルートのみプロキシをバイパス
     if (path.StartsWith("/Account", StringComparison.OrdinalIgnoreCase) ||
         path.StartsWith("/admin", StringComparison.OrdinalIgnoreCase) ||
-        path.StartsWith("/css", StringComparison.OrdinalIgnoreCase) ||
-        path.StartsWith("/js", StringComparison.OrdinalIgnoreCase) ||
-        path.StartsWith("/lib", StringComparison.OrdinalIgnoreCase) ||
-        path.Equals("/favicon.ico", StringComparison.OrdinalIgnoreCase))
+        path.StartsWith("/Subscription", StringComparison.OrdinalIgnoreCase) ||
+        path.StartsWith("/api", StringComparison.OrdinalIgnoreCase))
     {
         await next();
         return;

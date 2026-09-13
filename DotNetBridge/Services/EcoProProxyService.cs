@@ -136,23 +136,12 @@ namespace DotNetBridge.Services
                 return;
             }
 
-            // ★ 401 Unauthorized発生時はBasic認証ポップアップを抑止しログイン画面へトップ脱出
-            if (upstreamResponse.StatusCode == System.Net.HttpStatusCode.Unauthorized)
-            {
-                context.Response.Headers.Remove("WWW-Authenticate");
-                context.Response.StatusCode = StatusCodes.Status200OK;
-                context.Response.ContentType = "text/html; charset=utf-8";
-                await context.Response.WriteAsync("<html><body><script>window.top.location.href = '/Account/Login';</script></body></html>");
-                return;
-            }
-
             context.Response.StatusCode = (int)upstreamResponse.StatusCode;
 
             foreach (var header in upstreamResponse.Headers)
             {
                 var key = header.Key;
                 if (HopByHopHeaders.Contains(key.ToLowerInvariant())) continue;
-                if (key.Equals("WWW-Authenticate", StringComparison.OrdinalIgnoreCase)) continue;
 
                 if (key.Equals("Set-Cookie", StringComparison.OrdinalIgnoreCase))
                 {

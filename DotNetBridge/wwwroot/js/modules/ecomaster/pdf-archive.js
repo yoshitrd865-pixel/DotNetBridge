@@ -1,6 +1,6 @@
 // wwwroot/js/modules/pdf-archive.js
 
-// ★ 印刷プレビュー写り込み防止スタイルを自動注入（手作業でのCSS編集不要）
+// ★ 印刷プレビュー写り込み防止スタイルを自動注入
 (function injectPrintStyle() {
     if (!document.getElementById('pdf-archive-print-style')) {
         const style = document.createElement('style');
@@ -18,7 +18,7 @@ function showPdfArchiveStatus(message, bgColor = 'rgba(0,0,0,0.85)') {
     if (!toast) {
         toast = document.createElement('div');
         toast.id = 'pdf-archive-toast';
-        toast.className = 'no-print'; // 印刷除外用クラス
+        toast.className = 'no-print';
         toast.style.cssText = 'position:fixed; bottom:50px; left:10px; color:#fff; padding:10px 14px; border-radius:8px; font-size:12px; z-index:999999; font-weight:bold; box-shadow:0 4px 10px rgba(0,0,0,0.3); transition: all 0.3s ease; pointer-events:none;';
         document.body.appendChild(toast);
     }
@@ -68,6 +68,7 @@ export function extractItemDescription() {
 }
 
 let capturedHtmlString = null;
+let isArchivingNow = false; // 連打防止用ロック
 
 /**
  * 画面が完成した瞬間にDOMのスナップショット（クローン）を作成・整形する関数
@@ -76,7 +77,6 @@ export function captureCurrentPageDom() {
     try {
         const docClone = document.documentElement.cloneNode(true);
 
-        // 本番DOMの全フォーム値をクローン側へ同期（ClaimCodeの消失防止）
         const origInputs = document.querySelectorAll('input, select, textarea');
         const clonedInputs = docClone.querySelectorAll('input, select, textarea');
         origInputs.forEach((orig, idx) => {
@@ -96,10 +96,8 @@ export function captureCurrentPageDom() {
             }
         });
 
-        // 不要なscriptタグを除去
         docClone.querySelectorAll('script').forEach(s => s.remove());
 
-        // クローン側からUI表示専用要素を除去
         const removeSelectors = [
             '#tfk-fusen-modal', 
             '#tfk-remove-modal', 
@@ -112,7 +110,6 @@ export function captureCurrentPageDom() {
             docClone.querySelectorAll(selector).forEach(el => el.remove());
         });
 
-        // HHC_Payトースト除去
         docClone.querySelectorAll('div').forEach(el => {
             if (el.innerText && (el.innerText.includes('HHC_Pay: QR生成完了') || el.innerText.includes('HHC_Pay: 画面を監視中'))) {
                 if (!el.querySelector('input')) {
@@ -121,7 +118,6 @@ export function captureCurrentPageDom() {
             }
         });
 
-        // 角印表示設定
         const sealSales = docClone.querySelector('#divSealSales') || docClone.querySelector('[id*="SealSales"]');
         if (sealSales) {
             sealSales.style.display = 'block';
@@ -129,7 +125,6 @@ export function captureCurrentPageDom() {
             sealSales.style.opacity = '1';
         }
 
-        // 画像のBase64化
         const originalImages = document.querySelectorAll('img');
         const clonedImages = docClone.querySelectorAll('img');
         clonedImages.forEach((clonedImg, index) => {
@@ -139,7 +134,6 @@ export function captureCurrentPageDom() {
             }
         });
 
-        // Absolute URL補正
         const base = document.createElement('base');
         base.href = window.location.origin + '/';
         docClone.querySelector('head').insertBefore(base, docClone.querySelector('head').firstChild);
@@ -161,6 +155,20 @@ export async function archivePdfInBackground(params = {}) {
         };
     }
 
+    const invoiceNo = params.invoiceNo || '';
+    // 伝票番号（無ければURLパス）をキーにして重複を記録
+    const archiveKey = invoiceNo ? `pdf_archived_${invoiceNo}` : `pdf_archived_${window.location.pathname}`;
+
+    // ★ 既に保存済みの場合は通信を行わずに終了
+    if (sessionStorage.getItem(archiveKey) === 'true') {
+        const toast = showPdfArchiveStatus('ℹ️ R2へ保存済みです（重複スキップ）', '#7f8c8d');
+        setTimeout(() => { if (toast.parentNode) toast.remove(); }, 3000);
+        return;
+    }
+
+    if (isArchivingNow) return;
+    isArchivingNow = true;
+
     if (!capturedHtmlString) {
         captureCurrentPageDom();
     }
@@ -178,7 +186,7 @@ export async function archivePdfInBackground(params = {}) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             html: capturedHtmlString,
-            invoiceNo: params.invoiceNo || '',
+            invoiceNo: invoiceNo,
             customerCode: params.customerCode || '',
             customerName: params.customerName || '',
             itemDescription: itemDesc,
@@ -187,6 +195,8 @@ export async function archivePdfInBackground(params = {}) {
         })
     }).then(async res => {
         if (res.ok) {
+            // ★ 保存成功時にフラグを記録（タブを閉じるまで保持される）
+            sessionStorage.setItem(archiveKey, 'true');
             toast.innerText = '✅ R2への自動保存が完了しました';
             toast.style.background = '#27ae60';
             setTimeout(() => { if (toast.parentNode) toast.remove(); }, 4000);
@@ -198,6 +208,8 @@ export async function archivePdfInBackground(params = {}) {
         toast.innerText = `⚠️ R2保存失敗: ${err.message}`;
         toast.style.background = '#c0392b';
         setTimeout(() => { if (toast.parentNode) toast.remove(); }, 7000);
+    }).finally(() => {
+        isArchivingNow = false;
     });
 }
 

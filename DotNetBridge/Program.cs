@@ -205,12 +205,16 @@ app.MapControllerRoute(
     defaults: new { controller = "Account" });
 
 // --------------------------------------------------
-// ★【リバースプロキシ用ミドルウェア】（復元したProxyDispatcherの型に適合）
+// ★【リバースプロキシ用ミドルウェア】
 // --------------------------------------------------
 app.Use(async (context, next) =>
 {
     var dispatcher = context.RequestServices.GetRequiredService<ProxyDispatcher>();
-    await dispatcher.DispatchAsync(context, next);
-});
+    await dispatcher.DispatchAsync(context);
 
-app.Run();
+    // プロキシ側でレスポンスが開始されていない場合（/admin や /api など）は C# のコントローラーへ回す
+    if (!context.Response.HasStarted)
+    {
+        await next();
+    }
+});

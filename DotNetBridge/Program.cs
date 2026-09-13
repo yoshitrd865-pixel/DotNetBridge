@@ -166,7 +166,6 @@ using (var scope = app.Services.CreateScope())
 
     EnsureColumnExists(subDb, "TenantSubscriptions", "PaidAt", "TEXT NOT NULL DEFAULT '0001-01-01 00:00:00'");
 
-    // ★ 再起動時にも現場用・事務所用の両アカウントを自動確保
     try
     {
         subDb.Database.ExecuteSqlRaw(@"
@@ -197,17 +196,20 @@ app.MapControllerRoute(
     defaults: new { controller = "Account" });
 
 // --------------------------------------------------
-// ★ プロキシバイパス・ガード付きミドルウェア
+// プロキシバイパス・ガード付きミドルウェア (完全補正)
 // --------------------------------------------------
 app.Use(async (context, next) =>
 {
     var path = context.Request.Path.Value ?? "";
 
-    // C#コントローラーで処理する専用ルートのみプロキシをバイパス
+    // C#専用ルート・OAuth・決済結果のみプロキシをバイパス
     if (path.StartsWith("/Account", StringComparison.OrdinalIgnoreCase) ||
         path.StartsWith("/admin", StringComparison.OrdinalIgnoreCase) ||
         path.StartsWith("/Subscription", StringComparison.OrdinalIgnoreCase) ||
-        path.StartsWith("/api", StringComparison.OrdinalIgnoreCase))
+        path.StartsWith("/api", StringComparison.OrdinalIgnoreCase) ||
+        path.StartsWith("/success", StringComparison.OrdinalIgnoreCase) ||
+        path.StartsWith("/cancel", StringComparison.OrdinalIgnoreCase) ||
+        path.StartsWith("/signin-google", StringComparison.OrdinalIgnoreCase))
     {
         await next();
         return;

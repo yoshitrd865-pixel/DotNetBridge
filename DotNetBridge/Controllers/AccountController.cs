@@ -20,11 +20,23 @@ namespace DotNetBridge.Controllers
         }
 
         [HttpGet]
-        public IActionResult Login()
+        public async Task<IActionResult> Login()
         {
             if (User.Identity?.IsAuthenticated == true)
             {
-                return Redirect("/");
+                var email = User.FindFirst(ClaimTypes.Email)?.Value;
+                var tenant = await _db.TenantSubscriptions
+                    .FirstOrDefaultAsync(t => t.GoogleEmail == email);
+
+                // 有効な契約の場合は iframe 脱出スクリプトでトップ画面へ引っこ抜く
+                if (tenant != null && tenant.IsActive)
+                {
+                    return Content("<script>window.top.location.href='/';</script>", "text/html");
+                }
+
+                // 未登録または無効アカウントの場合は認証情報を破棄して再ログインへ
+                await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+                HttpContext.Session.Clear();
             }
             return View();
         }
@@ -79,7 +91,8 @@ namespace DotNetBridge.Controllers
             HttpContext.Session.SetString("TargetAspUrl", tenant.TargetAspUrl);
             HttpContext.Session.SetString("UserEmail", tenant.GoogleEmail);
 
-            return Redirect("/");
+            // OAuthログイン完了時も window.top で画面枠を強制更新
+            return Content("<script>window.top.location.href='/';</script>", "text/html");
         }
 
         [HttpGet]
@@ -87,10 +100,10 @@ namespace DotNetBridge.Controllers
         {
             HttpContext.Session.Clear();
             await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
-            return RedirectToAction("Login");
+            return Content("<script>window.top.location.href='/Account/Login';</script>", "text/html");
         }
 
-        // 3. アカウント停止案内画面（★リダイレクトを停止してループを防止）
+        // アカウント停止案内画面 (無限リダイレクト防止)
         [HttpGet("Account/Suspended")]
         public IActionResult Suspended()
         {

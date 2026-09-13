@@ -203,13 +203,6 @@ app.Use(async (context, next) =>
 {
     var path = context.Request.Path.Value ?? "";
 
-// --------------------------------------------------
-// ★ プロキシバイパス・ガード付きミドルウェア
-// --------------------------------------------------
-app.Use(async (context, next) =>
-{
-    var path = context.Request.Path.Value ?? "";
-
     // C#コントローラーで処理する専用ルートのみプロキシをバイパス
     if (path.StartsWith("/Account", StringComparison.OrdinalIgnoreCase) ||
         path.StartsWith("/admin", StringComparison.OrdinalIgnoreCase) ||

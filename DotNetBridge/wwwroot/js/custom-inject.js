@@ -12,71 +12,63 @@ import { initCleanAutoLink } from './modules/ecomaster/clean-autolink.js';
 import { initCommentSpeaker } from './modules/ecomaster/comment-speaker.js';
 import { initInvoiceHistory } from './modules/ecomaster/invoice-history.js';
 
-console.log("[ProxyInject] エンジン起動");
+const isEcoPro = window.location.pathname.includes('/Main/') || document.querySelector('frameset') !== null;
 
-const page = getCurrentPage();
-const isMenuStandard = window.location.pathname.includes("menuStandard.asp"); // ★ 直接URL判定
+if (!isEcoPro) {
+    console.log("[ProxyInject] EcoMaster エンジン起動");
 
-/**
- * 🛡️ 機能がONの時だけ安全に実行する一括ガード関数
- */
-function runIfEnabled(featureId, action) {
-    const settings = getSettings();
-    if (settings[featureId]) {
-        action();
-    } else {
-        console.log(`[ProxyInject] ${featureId} は設定でOFFのためスキップ`);
-    }
-}
+    const page = getCurrentPage();
+    const isMenuStandard = window.location.pathname.includes("menuStandard.asp");
 
-/**
- * 👤 画面ヘッダー (td.pagetitle) からログイン担当者名を抽出し localStorage に常時記録する関数
- */
-function captureOperatorName() {
-    const pageTitleEl = document.querySelector('td.pagetitle');
-    if (pageTitleEl) {
-        const name = pageTitleEl.textContent.trim();
-        // "メニュー" などのタイトル名除外を行い、個人名（例: 柏木芳光）のみ保持
-        if (name && name !== "メニュー") {
-            localStorage.setItem('hhc_operator_name', name);
+    function runIfEnabled(featureId, action) {
+        const settings = getSettings();
+        if (settings[featureId]) {
+            action();
+        } else {
+            console.log(`[ProxyInject] ${featureId} は設定でOFFのためスキップ`);
         }
     }
+
+    function captureOperatorName() {
+        const pageTitleEl = document.querySelector('td.pagetitle');
+        if (pageTitleEl) {
+            const name = pageTitleEl.textContent.trim();
+            if (name && name !== "メニュー") {
+                localStorage.setItem('hhc_operator_name', name);
+            }
+        }
+    }
+
+    observeDOM(() => {
+        captureOperatorName();
+
+        if (page === "menu" && !isMenuStandard) {
+            initSettingsMenu();
+        }
+
+        if (isMenuStandard) {
+            runIfEnabled("invoice_history_kun", initInvoiceHistory);
+        }
+
+        switch (page) {
+            case "receipt":
+                runIfEnabled("hhc_pay_kun", initStripePay);
+                break;
+
+            case "login":
+                runIfEnabled("auto_login", initAutoLogin);
+                break;
+
+            case "upload":
+                runIfEnabled("continuous_upload", initContinuousUpload);
+                break;
+        }
+
+        runIfEnabled("auto_login", initAutoLogin);
+        runIfEnabled("tenkenbox_worp", initInspectionWarp);
+        runIfEnabled("zandaka_copy", initZandakaCopy);
+        runIfEnabled("fusen_kun", initFusenKun);
+        runIfEnabled("clean_autolink", initCleanAutoLink);
+        runIfEnabled("comment_speaker", initCommentSpeaker);
+    });
 }
-
-observeDOM(() => {
-    // 👤 全画面共通: 担当者名の自動キャッチ＆ブラウザストレージ同期
-    captureOperatorName();
-
-    // ⚙️ メニュー画面のカスタマイズカード表示（通常メニューの時のみ）
-    if (page === "menu" && !isMenuStandard) {
-        initSettingsMenu();
-    }
-
-    // 📜 業務メニュー（残高）画面の時は直接実行
-    if (isMenuStandard) {
-        runIfEnabled("invoice_history_kun", initInvoiceHistory);
-    }
-
-    // 各画面に応じた個別機能
-    switch (page) {
-        case "receipt":
-            runIfEnabled("hhc_pay_kun", initStripePay);
-            break;
-
-        case "login":
-            runIfEnabled("auto_login", initAutoLogin);
-            break;
-
-        case "upload":
-            runIfEnabled("continuous_upload", initContinuousUpload);
-            break;
-    }
-
-    // 全画面共通機能
-    runIfEnabled("auto_login", initAutoLogin);
-    runIfEnabled("tenkenbox_worp", initInspectionWarp);
-    runIfEnabled("zandaka_copy", initZandakaCopy);
-    runIfEnabled("fusen_kun", initFusenKun);
-    runIfEnabled("clean_autolink", initCleanAutoLink);
-    runIfEnabled("comment_speaker", initCommentSpeaker);
-});

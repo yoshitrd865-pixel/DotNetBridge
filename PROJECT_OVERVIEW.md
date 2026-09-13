@@ -121,38 +121,39 @@ DotNetBridge/
 
 # PROJECT OVERVIEW (追加・更新セクション)
 
-**開発環境における認証バイパス構成**
+**開発環境・マルチテナント認証構成**
 
-* **目的**: シークレットウィンドウ等の Google 未ログイン状態でも、開発環境（Render）から対象 ASP（`mobile60_ToubuF`）へ直通接続し、試走・開発を行える状態にする。
+* **アカウント分離設計（現場／事務所の独立化）**:
+  * **ID 1 (現場・EcoMaster)**: `eco@tfkankyo.com` ➔ `https://hhc-eco11.com/EcoToubuF3/mobile60_ToubuF/`
+  * **ID 4 (事務所・EcoPro)**: `ecopro@tfkankyo.com` ➔ `https://hhc-eco11.com/EcoToubuF3/Main/`
+  * メールアドレスごとに接続先 `TargetAspUrl` を完全分離し、現場端末の動作に一切影響を与えずに事務所用のプロキシ調整・検証を行える環境を構築。
 
 ---
 
 **トラブルシューティング & 修正履歴**
 
-* **無限リダイレクトループの解消**:
-  * `ProxyDispatcher` の未認証判定と `AccountController`（`Suspended`）の相互転送によるピンポン現象を、`AccountController.cs` の `Redirect("/")` を廃止・静的レスポンス化することで切断。
-* **プロキシ内部エンジン（`EcoMasterProxyService`）の権限突破**:
-  * セッション値の不保持および `context.User`（クレーム）の不在により、プロキシ内部でアカウント停止判定となっていた問題を解決。
-  * `Program.cs` の起動処理にて SQLite DB（`TenantSubscriptions`）へ開発用アカウント（`eco@tfkankyo.com`）を自動挿入。
-  * `ProxyDispatcher.cs` にて、未ログインアクセス時に `ClaimsIdentity`（`ClaimTypes.Email` = `eco@tfkankyo.com`）を動的に擬装生成し、内部サービスの権限チェックを通過させる構造を確立。
-* **クラウド付箋くん（`fusen-kun.js` v52.3）の飛び火遮断と全画面同期化**:
-  * **ホワイトリスト制御による飛び火遮断**: 帳票ポップアップ（`/Report/`）やサブウィンドウ、写真確認画面等での誤爆を防ぐため、動作対象を主要6画面（`menuCheck.asp`, `listCheck.asp`, `listClean.asp`, `menuClean.asp`, `listStandard.asp`, `menuStandard.asp`）に完全限定。
-  * **誤爆防止・1行1個制限の強化**: リスト表示時、数字のみの要素（「4」「7」等のインデックス枠）への直接挿入をスキップし、親要素に `dataset.fusenInjected = "true"` フラグを刻むことで多重挿入を遮断。
-  * **顧客共通ID（浄化槽番号）の優先抽出**: 清掃メニュー等で伝票固有の `CleanNumber` ではなく、DOM内の「浄化槽番号」や `SetUpCode` を最優先取得するロジックに統一。
-  * **ドメインキーの統一（全画面共通化）**: `cleanDomain`（DB参照キー）の算出処理から `.asp` 画面名を除外処理し、同一テナント内の全画面で同一の付箋データ領域（`fusen.db`）を参照・大判カード同期表示する構造を確立。
-  * **キー視認性の向上**: ボタンテキストに判定中のID（例: `[1175]`）を直接表示し、画面間でのキー一致を一目で確認可能に改修。
-* **HHC_Pay 純正領収書干渉・チラつき防止（`stripe-pay.js`）**:
-  * **潜伏領収書の強制無効化**: PDFキャプチャ（`captureCurrentPageDom()`）や自動印刷（`window.print()`）実行時に、本家ASPの隠れ領収書枠（「領 収 書」「￥ 0.-」）が `@media print` やスタイル再計算によって表面に浮き出・重複表示される不具合を改修。
-  * **@media all, print スタイル注入とDOM即時消去**: 通常描画時および `@media print` 実行時の両方に対応する遮断スタイル（`display: none !important;`）を動的注入し、DOM直接検索による非表示ガードとの併用で一瞬の露出を完全ブロック。
+* **起動時DBマイグレーションの例外根絶（`Program.cs`）**:
+  * `PaymentLogs` および `TenantSubscriptions` テーブルへの `ALTER TABLE` 実行時、SQLiteの既存カラム二重追加による起動時例外・`fail:` ログが発生していた問題を解消。
+  * `PRAGMA table_info` を使用した事前存在チェック関数（`EnsureColumnExists`）を実装し、エラーログを出さない安全なテーブル初期化フローを確立。
+* **Render再起動時のアカウント消去・`/Account/Suspended` ループ防止**:
+  * Renderのコンテナ再起動（ディスクリセット）時にデータベースが初期化され、未登録扱いとなったログインが `/Account/Suspended` へ無限リダイレクトする問題を改修。
+  * `Program.cs` の初期データ作成ロジックに `eco@tfkankyo.com` および `ecopro@tfkankyo.com` の自動インサート処理を追加し、起動と同時に常時復元される構造へ変更。
+* **プロキシバイパス判定の正常化と静的アセット（CSS/JS）通信の復元**:
+  * ミドルウェアのバイパス条件に `/css` や `/js` を含めたことで本家IIS上のCSSファイルが404エラー（Renderローカル探し）となりスタイルが崩れていた問題を修正。
+  * プロキシバイパス対象を C# コントローラー専用ルート（`/Account`, `/admin`, `/Subscription`, `/api`）のみに限定し、本家IIS上の全CSS/画像/JSがプロキシ経由で正しくレンダリングされるよう復旧。
+* **Basic認証ダイアログ（ポップアップ）遮断とフレーム内認証（`EcoProProxyService.cs`）**:
+  * 本家IISから `401 Unauthorized` が返却された際、ブラウザが標準認証ダイアログ（ユーザー名/パスワード入力ポップアップ）を出す問題を解決。
+  * `EcoProProxyService` 内で `401` ステータスを検知した場合、ステータスを `200 OK` に書き換えた上でログイン画面への `window.top.location.href` 脱出HTMLを返却する遮断フィルターを配備。
 
 ---
 
 **現在の進捗状況と次の対応項目**
 
 * **達成済み**:
-  * シークレットウィンドウからのアクセスで、ASP 業務画面（`menuStandard.asp`）およびカスタム拡張ウィジェットの正常表示を確認。
-  * クラウド付箋くんの「飛び火完封」および「一覧〜業務/清掃メニュー間の大判付箋カード1:1リアルタイム同期」の完元を確認。
-  * HHC_Pay（`stripe-pay.js`）生成時の純正領収書露出・チラつき現象の完全防護を確認。
-* **次の対応項目**:
-  * 決済完了・キャンセル画面（`/success`, `/cancel`）のUIリッチ化。
-  * 管理者ログイン情報（`admin` / `password123`）のハッシュ化およびDB管理移行。
+  * **EcoMaster (現場用)**: `menu.asp` および `listCheck.asp` におけるCSSレイアウトの復元、カスタマイズパネル（残高コピーくん等）の完全動作を確認。明日の現場稼働準備完了。
+  * **Render環境**: 自動ビルドおよびデプロイの完全正常化（`Live` 緑色表示維持、起動ログエラー根絶）。
+  * **アカウント分離**: 現場用（`eco@`）と事務所用（`ecopro@`）のDB登録・プロキシ振り分け基盤の構築完了。
+* **次の対応項目（事務所用 EcoPro の改修）**:
+  * `ecopro@tfkankyo.com` を用いた事務所用マルチフレーム（`FrameMain.asp` / `FrameCheckPlan.asp`）でのセッション（`ASPSESSIONID`）透過補正。
+  * 左側フレーム内の各機能アイコン画像パスのドメイン・相対パス自動変換補正。
+  * Google OAuthログイン完了後の二重ログイン画面（IIS標準ログインフォーム）の自動スキップ化。

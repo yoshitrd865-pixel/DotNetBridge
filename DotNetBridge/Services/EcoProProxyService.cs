@@ -46,7 +46,6 @@ namespace DotNetBridge.Services
             var baseUri = new Uri(tenant.TargetAspUrl);
             string schemeHostPort = $"{baseUri.Scheme}://{baseUri.Host}:{baseUri.Port}";
             
-            // AppRoot (例: /EcoToubuF3/) と MainPath (例: /EcoToubuF3/Main/) を分離解析
             string absolutePath = baseUri.AbsolutePath.TrimEnd('/');
             string appRootPath;
             string mainPath;
@@ -69,7 +68,7 @@ namespace DotNetBridge.Services
                 reqPath = "FrameMain.asp";
             }
 
-            // 静的アセット・共通フォルダ・ルート直下ファイルの判定
+            // 静的アセット・共通フォルダ・認証画面の判定
             string[] rootAssetFolders = new[] { "css/", "icon/", "icons/", "img/", "images/", "js/", "report/", "printdaily/", "mobile60_hyojun/" };
             bool isRootAsset = rootAssetFolders.Any(f => reqPath.StartsWith(f, StringComparison.OrdinalIgnoreCase)) ||
                                reqPath.Equals("login.html", StringComparison.OrdinalIgnoreCase) ||
@@ -78,26 +77,23 @@ namespace DotNetBridge.Services
             string targetUri;
             if (isRootAsset)
             {
-                // アセット類は AppRoot 直下へ送る
                 targetUri = $"{schemeHostPort}{appRootPath}{reqPath}{context.Request.QueryString.Value}";
             }
             else
             {
-                // 業務画面パスから重複する Main/ を除去して MainPath へ送る
+                // 重複する AppRoot 名や Main/ の除去
+                string appDirName = appRootPath.Split('/', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "";
+                if (!string.IsNullOrEmpty(appDirName) && reqPath.StartsWith(appDirName + "/", StringComparison.OrdinalIgnoreCase))
+                {
+                    reqPath = reqPath.Substring(appDirName.Length + 1);
+                }
+
                 if (reqPath.StartsWith("Main/", StringComparison.OrdinalIgnoreCase))
                 {
                     reqPath = reqPath.Substring(5);
                 }
 
-                string appDirName = appRootPath.Split('/', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "";
-                if (!string.IsNullOrEmpty(appDirName) && reqPath.StartsWith(appDirName + "/", StringComparison.OrdinalIgnoreCase))
-                {
-                    targetUri = $"{schemeHostPort}/{reqPath}{context.Request.QueryString.Value}";
-                }
-                else
-                {
-                    targetUri = $"{schemeHostPort}{mainPath}{reqPath}{context.Request.QueryString.Value}";
-                }
+                targetUri = $"{schemeHostPort}{mainPath}{reqPath}{context.Request.QueryString.Value}";
             }
 
             byte[] bodyBytes = Array.Empty<byte>();
@@ -127,16 +123,22 @@ namespace DotNetBridge.Services
                     continue;
                 }
 
+                // ★ プロキシ内部Cookie (.AspNetCore) を除外し、IIS互換の "; " で成形転送
                 if (key.Equals("Cookie", StringComparison.OrdinalIgnoreCase))
                 {
                     var cookieValues = header.Value
                         .SelectMany(v => v.Split(';'))
                         .Select(c => c.Trim())
                         .Where(c => !string.IsNullOrEmpty(c))
+                        .Where(c => !c.StartsWith(".AspNetCore", StringComparison.OrdinalIgnoreCase) &&
+                                    !c.StartsWith("Session", StringComparison.OrdinalIgnoreCase))
                         .Distinct();
 
                     string formattedCookie = string.Join("; ", cookieValues);
-                    upstreamRequest.Headers.TryAddWithoutValidation("Cookie", formattedCookie);
+                    if (!string.IsNullOrEmpty(formattedCookie))
+                    {
+                        upstreamRequest.Headers.TryAddWithoutValidation("Cookie", formattedCookie);
+                    }
                     continue;
                 }
 

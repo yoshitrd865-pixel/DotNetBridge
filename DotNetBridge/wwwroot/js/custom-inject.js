@@ -1,16 +1,16 @@
 // wwwroot/js/custom-inject.js
-import { observeDOM } from './modules/common.js';
-import { getCurrentPage } from './modules/router.js';
-import { initStripePay } from './modules/stripe-pay.js';
-import { initAutoLogin } from './modules/auto-login.js';
-import { initContinuousUpload } from './modules/continuous-upload.js';
-import { initSettingsMenu, getSettings } from './modules/settings.js';
-import { initInspectionWarp } from './modules/inspection-warp.js';
-import { initZandakaCopy } from './modules/zandaka-copy.js';
-import { initFusenKun } from './modules/fusen-kun.js';
-import { initCleanAutoLink } from './modules/clean-autolink.js';
-import { initCommentSpeaker } from './modules/comment-speaker.js';
-import { initInvoiceHistory } from './modules/invoice-history.js';
+import { observeDOM } from './modules/ecomaster/common.js';
+import { getCurrentPage } from './modules/ecomaster/router.js';
+import { initStripePay } from './modules/ecomaster/stripe-pay.js';
+import { initAutoLogin } from './modules/ecomaster/auto-login.js';
+import { initContinuousUpload } from './modules/ecomaster/continuous-upload.js';
+import { initSettingsMenu, getSettings } from './modules/ecomaster/settings.js';
+import { initInspectionWarp } from './modules/ecomaster/inspection-warp.js';
+import { initZandakaCopy } from './modules/ecomaster/zandaka-copy.js';
+import { initFusenKun } from './modules/ecomaster/fusen-kun.js';
+import { initCleanAutoLink } from './modules/ecomaster/clean-autolink.js';
+import { initCommentSpeaker } from './modules/ecomaster/comment-speaker.js';
+import { initInvoiceHistory } from './modules/ecomaster/invoice-history.js';
 
 console.log("[ProxyInject] エンジン起動");
 

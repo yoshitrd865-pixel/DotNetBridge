@@ -1,12 +1,7 @@
-// Program.cs
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.Google;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.EntityFrameworkCore.Storage;
-using Microsoft.Extensions.DependencyInjection;
-using System.Linq;
 using DotNetBridge.Services;
 using DotNetBridge.Data;
 
@@ -115,32 +110,50 @@ app.UseForwardedHeaders(forwardedHeadersOptions);
 // 起動時に DB テーブルおよびカラムの自動生成・初期アカウント作成を実行
 using (var scope = app.Services.CreateScope())
 {
+    // 事前にSQLiteカラム存在確認を行ってから ALTER TABLE する安全関数
+    void EnsureColumnExists(DbContext dbContext, string tableName, string columnName, string columnDef)
+    {
+        try
+        {
+            var conn = dbContext.Database.GetDbConnection();
+            bool wasOpen = conn.State == System.Data.ConnectionState.Open;
+            if (!wasOpen) conn.Open();
+
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = $"PRAGMA table_info(\"{tableName}\");";
+            using var reader = cmd.ExecuteReader();
+            bool exists = false;
+            while (reader.Read())
+            {
+                if (string.Equals(reader["name"]?.ToString(), columnName, StringComparison.OrdinalIgnoreCase))
+                {
+                    exists = true;
+                    break;
+                }
+            }
+            reader.Close();
+
+            if (!exists)
+            {
+                using var alterCmd = conn.CreateCommand();
+                alterCmd.CommandText = $"ALTER TABLE \"{tableName}\" ADD COLUMN \"{columnName}\" {columnDef};";
+                alterCmd.ExecuteNonQuery();
+            }
+
+            if (!wasOpen) conn.Close();
+        }
+        catch { }
+    }
+
     var db = scope.ServiceProvider.GetRequiredService<PaymentDbContext>();
     db.Database.EnsureCreated();
 
-    // --------------------------------------------------
-    // ★【SQLiteスキーマ自動拡張】PaymentLogs テーブルへの新カラム補正
-    // --------------------------------------------------
-    var alterSqls = new[]
-    {
-        @"ALTER TABLE ""PaymentLogs"" ADD COLUMN ""CustomerName"" TEXT NULL;",
-        @"ALTER TABLE ""PaymentLogs"" ADD COLUMN ""IssuedBy"" TEXT NULL;",
-        @"ALTER TABLE ""PaymentLogs"" ADD COLUMN ""IssuedAt"" TEXT NOT NULL DEFAULT '0001-01-01 00:00:00';",
-        @"ALTER TABLE ""PaymentLogs"" ADD COLUMN ""PdfFileName"" TEXT NULL;",
-        @"ALTER TABLE ""PaymentLogs"" ADD COLUMN ""ItemDescription"" TEXT NULL;"
-    };
-
-    foreach (var sql in alterSqls)
-    {
-        try 
-        { 
-            db.Database.ExecuteSqlRaw(sql); 
-        } 
-        catch 
-        { 
-            // 既にカラムが存在している場合はエラーを無視して継続
-        }
-    }
+    // PaymentLogs カラム補正（事前存在チェック付き）
+    EnsureColumnExists(db, "PaymentLogs", "CustomerName", "TEXT NULL");
+    EnsureColumnExists(db, "PaymentLogs", "IssuedBy", "TEXT NULL");
+    EnsureColumnExists(db, "PaymentLogs", "IssuedAt", "TEXT NOT NULL DEFAULT '0001-01-01 00:00:00'");
+    EnsureColumnExists(db, "PaymentLogs", "PdfFileName", "TEXT NULL");
+    EnsureColumnExists(db, "PaymentLogs", "ItemDescription", "TEXT NULL");
 
     var fusenDb = scope.ServiceProvider.GetRequiredService<FusenDbContext>();
     fusenDb.Database.EnsureCreated();
@@ -169,14 +182,7 @@ using (var scope = app.Services.CreateScope())
         );
     ");
 
-    try
-    {
-        subDb.Database.ExecuteSqlRaw(@"ALTER TABLE ""TenantSubscriptions"" ADD COLUMN ""PaidAt"" TEXT NOT NULL DEFAULT '0001-01-01 00:00:00';");
-    }
-    catch
-    {
-        // 既に PaidAt カラムが存在する場合はスキップ
-    }
+    EnsureColumnExists(subDb, "TenantSubscriptions", "PaidAt", "TEXT NOT NULL DEFAULT '0001-01-01 00:00:00'");
 
     // ★ 完全新規起動時（テーブルが空の場合）のみ初期レコードを作成。一度でも存在すれば変更しない
     try

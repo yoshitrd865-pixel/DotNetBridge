@@ -45,32 +45,59 @@ namespace DotNetBridge.Services
 
             var baseUri = new Uri(tenant.TargetAspUrl);
             string schemeHostPort = $"{baseUri.Scheme}://{baseUri.Host}:{baseUri.Port}";
-            string basePath = baseUri.AbsolutePath.TrimEnd('/') + "/";
+            
+            // AppRoot (例: /EcoToubuF3/) と MainPath (例: /EcoToubuF3/Main/) を分離解析
+            string absolutePath = baseUri.AbsolutePath.TrimEnd('/');
+            string appRootPath;
+            string mainPath;
+
+            if (absolutePath.EndsWith("/Main", StringComparison.OrdinalIgnoreCase))
+            {
+                appRootPath = absolutePath.Substring(0, absolutePath.Length - 4).TrimEnd('/') + "/";
+                mainPath = absolutePath + "/";
+            }
+            else
+            {
+                appRootPath = absolutePath + "/";
+                mainPath = absolutePath + "/";
+            }
+
             string reqPath = context.Request.Path.Value?.TrimStart('/') ?? string.Empty;
 
-            // 1. ルートアクセス時のデフォルト補正 (basePath 側に Main/ が含まれるため FrameMain.asp のみ指定)
             if (string.IsNullOrEmpty(reqPath))
             {
                 reqPath = "FrameMain.asp";
             }
 
-            // 2. TargetAspUrl の末尾ディレクトリ（例: Main）と reqPath の先頭が重複している場合は自動除去
-            string lastDir = baseUri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries).LastOrDefault() ?? "";
-            if (!string.IsNullOrEmpty(lastDir) && reqPath.StartsWith(lastDir + "/", StringComparison.OrdinalIgnoreCase))
-            {
-                reqPath = reqPath.Substring(lastDir.Length + 1);
-            }
+            // 静的アセット・共通フォルダ・ルート直下ファイルの判定
+            string[] rootAssetFolders = new[] { "css/", "icon/", "icons/", "img/", "images/", "js/", "report/", "printdaily/", "mobile60_hyojun/" };
+            bool isRootAsset = rootAssetFolders.Any(f => reqPath.StartsWith(f, StringComparison.OrdinalIgnoreCase)) ||
+                               reqPath.Equals("login.html", StringComparison.OrdinalIgnoreCase) ||
+                               reqPath.Equals("login.asp", StringComparison.OrdinalIgnoreCase);
 
             string targetUri;
-            string appDirName = baseUri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "";
-            
-            if (!string.IsNullOrEmpty(appDirName) && reqPath.StartsWith(appDirName + "/", StringComparison.OrdinalIgnoreCase))
+            if (isRootAsset)
             {
-                targetUri = $"{schemeHostPort}/{reqPath}{context.Request.QueryString.Value}";
+                // アセット類は AppRoot 直下へ送る
+                targetUri = $"{schemeHostPort}{appRootPath}{reqPath}{context.Request.QueryString.Value}";
             }
             else
             {
-                targetUri = $"{schemeHostPort}{basePath}{reqPath}{context.Request.QueryString.Value}";
+                // 業務画面パスから重複する Main/ を除去して MainPath へ送る
+                if (reqPath.StartsWith("Main/", StringComparison.OrdinalIgnoreCase))
+                {
+                    reqPath = reqPath.Substring(5);
+                }
+
+                string appDirName = appRootPath.Split('/', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "";
+                if (!string.IsNullOrEmpty(appDirName) && reqPath.StartsWith(appDirName + "/", StringComparison.OrdinalIgnoreCase))
+                {
+                    targetUri = $"{schemeHostPort}/{reqPath}{context.Request.QueryString.Value}";
+                }
+                else
+                {
+                    targetUri = $"{schemeHostPort}{mainPath}{reqPath}{context.Request.QueryString.Value}";
+                }
             }
 
             byte[] bodyBytes = Array.Empty<byte>();

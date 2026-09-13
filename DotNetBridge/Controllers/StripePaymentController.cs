@@ -28,6 +28,35 @@ namespace DotNetBridgeApp.Controllers
         }
 
         /// <summary>
+        /// ECOPRO側の自動消込JSから呼び出される未消込データ取得API
+        /// </summary>
+        [HttpGet("api/StripePayment/unpaid-logs")]
+        [HttpGet("/EcoToubuF3/mobile60_ToubuF/api/StripePayment/unpaid-logs")]
+        public async Task<IActionResult> GetUnpaidLogs([FromQuery] string customer_code)
+        {
+            if (string.IsNullOrEmpty(customer_code))
+            {
+                return Ok(new List<object>());
+            }
+
+            var cleanCustomerCode = customer_code.Trim();
+
+            // Statusが "completed" (Stripe決済済み) の未消込データを取得
+            var unpaidLogs = await _dbContext.PaymentLogs
+                .Where(p => p.CustomerCode != null && p.CustomerCode.Trim() == cleanCustomerCode && p.Status == "completed")
+                .Select(p => new
+                {
+                    invoiceNo = p.InvoiceNo,
+                    amount = p.Amount,
+                    customerCode = p.CustomerCode,
+                    customerName = p.CustomerName
+                })
+                .ToListAsync();
+
+            return Ok(unpaidLogs);
+        }
+
+        /// <summary>
         /// QRコードスキャン時にStripe Checkoutセッションを生成して決済画面へリダイレクト
         /// </summary>
         [HttpGet("api/StripePayment/redirect-checkout")]
@@ -189,7 +218,7 @@ namespace DotNetBridgeApp.Controllers
         /// Stripe決済キャンセル画面（Views/StripePayment/Cancel.cshtml を表示）
         /// </summary>
         [HttpGet("/StripePayment/Cancel")]
-        [HttpGet("/EcoToubuF3/mobile60_ToubuF/StripePayment/Cancel")]
+        [HttpGet("/EcoToubuF3/mobile60_ToubuF/Cancel")]
         public IActionResult Cancel()
         {
             return View("~/Views/StripePayment/Cancel.cshtml");

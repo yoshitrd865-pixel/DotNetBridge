@@ -36,16 +36,14 @@ namespace DotNetBridge.Services
                 path.StartsWith("/success") || 
                 path.StartsWith("/cancel") || 
                 path.StartsWith("/signin-google") ||
-                path.Contains("stripepayment")) // ★ 追加: Stripe決済関連のURLはプロキシせずにC#で処理
+                path.Contains("stripepayment"))
             {
                 return false; // プロキシしない
             }
 
-            string targetBaseUrl = "https://hhc-eco11.com/EcoToubuF3/mobile60_ToubuF/";
             string devEmail = "eco@tfkankyo.com";
 
             // 1. セッション情報の補完
-            context.Session.SetString("TargetAspUrl", targetBaseUrl);
             context.Session.SetString("UserEmail", devEmail);
 
             // 2. 開発用認証クレームの動的擬装生成
@@ -60,15 +58,18 @@ namespace DotNetBridge.Services
                 context.User = new ClaimsPrincipal(identity);
             }
 
-            // 3. 転送先の判別と実行
-            bool isEcoMaster = targetBaseUrl.Contains("mobile60", StringComparison.OrdinalIgnoreCase);
+            // 3. 転送先の自動判定
+            // パスに mobile60 が含まれる場合は EcoMaster、それ以外（Main, Sales などの事務所系）は EcoPro へ振り分け
+            bool isEcoMaster = path.Contains("mobile60");
 
             if (isEcoMaster)
             {
+                context.Session.SetString("TargetAspUrl", "https://hhc-eco11.com/EcoToubuF3/mobile60_ToubuF/");
                 await _ecoMaster.ProcessProxyAsync(context);
             }
             else
             {
+                context.Session.SetString("TargetAspUrl", "https://hhc-eco11.com/EcoToubuF3/");
                 await _ecoPro.ProcessProxyAsync(context);
             }
 

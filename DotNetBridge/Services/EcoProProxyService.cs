@@ -48,9 +48,17 @@ namespace DotNetBridge.Services
             string basePath = baseUri.AbsolutePath.TrimEnd('/') + "/";
             string reqPath = context.Request.Path.Value?.TrimStart('/') ?? string.Empty;
 
+            // 1. ルートアクセス時のデフォルト補正 (basePath 側に Main/ が含まれるため FrameMain.asp のみ指定)
             if (string.IsNullOrEmpty(reqPath))
             {
-                reqPath = "Main/FrameMain.asp";
+                reqPath = "FrameMain.asp";
+            }
+
+            // 2. TargetAspUrl の末尾ディレクトリ（例: Main）と reqPath の先頭が重複している場合は自動除去
+            string lastDir = baseUri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries).LastOrDefault() ?? "";
+            if (!string.IsNullOrEmpty(lastDir) && reqPath.StartsWith(lastDir + "/", StringComparison.OrdinalIgnoreCase))
+            {
+                reqPath = reqPath.Substring(lastDir.Length + 1);
             }
 
             string targetUri;

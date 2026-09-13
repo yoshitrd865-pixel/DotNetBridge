@@ -241,20 +241,6 @@ namespace DotNetBridge.Services
                                          .Replace("http://hhc-eco1.com", proxyOrigin)
                                          .Replace("//hhc-eco1.com", proxyOrigin.Replace("https:", "").Replace("http:", ""));
 
-                // ★ ECOPRO用の自動消込JSスクリプトタグを挿入
-                if (contentType.Contains("text/html", StringComparison.OrdinalIgnoreCase))
-                {
-                    var scriptTag = "<script type=\"module\" src=\"/js/ecopro-inject.js\"></script>";
-                    if (textContent.Contains("</body>", StringComparison.OrdinalIgnoreCase))
-                    {
-                        textContent = Regex.Replace(textContent, "</body>", $"{scriptTag}\n</body>", RegexOptions.IgnoreCase);
-                    }
-                    else
-                    {
-                        textContent += scriptTag;
-                    }
-                }
-
                 var modifiedBytes = encoding.GetBytes(textContent);
                 context.Response.ContentLength = modifiedBytes.Length;
                 await context.Response.Body.WriteAsync(modifiedBytes, 0, modifiedBytes.Length);

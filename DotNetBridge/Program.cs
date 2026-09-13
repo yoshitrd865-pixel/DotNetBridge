@@ -224,3 +224,5 @@ app.Use(async (context, next) =>
         await next();
     }
 });
+// ★ Webサーバーの起動・待機処理（これが必要です）
+app.Run();

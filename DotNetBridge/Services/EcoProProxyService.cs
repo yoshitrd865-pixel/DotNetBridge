@@ -68,11 +68,9 @@ namespace DotNetBridge.Services
                 reqPath = "FrameMain.asp";
             }
 
-            // 静的アセット・共通フォルダ・認証画面の判定
+            // 静的アセット・共通フォルダのみ AppRoot 直下へ判定（login.html/login.asp は Main/ 配下へ）
             string[] rootAssetFolders = new[] { "css/", "icon/", "icons/", "img/", "images/", "js/", "report/", "printdaily/", "mobile60_hyojun/" };
-            bool isRootAsset = rootAssetFolders.Any(f => reqPath.StartsWith(f, StringComparison.OrdinalIgnoreCase)) ||
-                               reqPath.Equals("login.html", StringComparison.OrdinalIgnoreCase) ||
-                               reqPath.Equals("login.asp", StringComparison.OrdinalIgnoreCase);
+            bool isRootAsset = rootAssetFolders.Any(f => reqPath.StartsWith(f, StringComparison.OrdinalIgnoreCase));
 
             string targetUri;
             if (isRootAsset)
@@ -123,7 +121,7 @@ namespace DotNetBridge.Services
                     continue;
                 }
 
-                // ★ プロキシ内部Cookie (.AspNetCore) を除外し、IIS互換の "; " で成形転送
+                // ASP.NET Core内部Cookie (.AspNetCore) を除外し、IIS互換の "; " で成形転送
                 if (key.Equals("Cookie", StringComparison.OrdinalIgnoreCase))
                 {
                     var cookieValues = header.Value

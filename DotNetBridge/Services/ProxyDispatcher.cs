@@ -6,7 +6,7 @@ using DotNetBridge.Data;
 namespace DotNetBridge.Services
 {
     /// <summary>
-    /// リバースプロキシの振り分けおよび開発用認証バイパスを担当するディスパッチャー
+    /// リバースプロキシの振り分けおよびGoogleログインユーザー認証を担当するディスパッチャー
     /// </summary>
     public class ProxyDispatcher
     {
@@ -28,7 +28,7 @@ namespace DotNetBridge.Services
             var path = context.Request.Path.Value?.ToLower() ?? "";
 
             // --------------------------------------------------
-            // ★ C# ローカルエンドポイントは false を返して Controller へ引き継ぐ
+            // 1. C# ローカルエンドポイントは false を返して Controller へ引き継ぐ
             // --------------------------------------------------
             if (path.StartsWith("/admin") || 
                 path.StartsWith("/api") || 
@@ -38,38 +38,52 @@ namespace DotNetBridge.Services
                 path.StartsWith("/signin-google") ||
                 path.Contains("stripepayment"))
             {
-                return false; // プロキシしない
+                return false; // プロキシ処理をせずローカルルーティングへ
             }
 
-            string devEmail = "eco@tfkankyo.com";
+            // --------------------------------------------------
+            // 2. Googleログイン情報（Claim）からメールアドレスを取得
+            // --------------------------------------------------
+            var userEmail = context.User.FindFirst(ClaimTypes.Email)?.Value
+                            ?? context.User.Identity?.Name;
 
-            // 1. セッション情報の補完
-            context.Session.SetString("UserEmail", devEmail);
-
-            // 2. 開発用認証クレームの動的擬装生成
-            if (context.User.Identity?.IsAuthenticated != true)
+            // 未認証（Google未ログイン）の場合はログイン画面へ誘導
+            if (string.IsNullOrEmpty(userEmail) || context.User.Identity?.IsAuthenticated != true)
             {
-                var claims = new[]
-                {
-                    new Claim(ClaimTypes.Name, devEmail),
-                    new Claim(ClaimTypes.Email, devEmail)
-                };
-                var identity = new ClaimsIdentity(claims, "DevBypassAuth");
-                context.User = new ClaimsPrincipal(identity);
+                context.Response.ContentType = "text/html; charset=utf-8";
+                await context.Response.WriteAsync("<html><body><script>window.top.location.href = '/Account/Login';</script></body></html>");
+                return true;
             }
 
-            // 3. 転送先の自動判定
-            // パスに mobile60 が含まれる場合は EcoMaster、それ以外（Main, Sales などの事務所系）は EcoPro へ振り分け
+            // --------------------------------------------------
+            // 3. DBからログインユーザーのテナント契約情報を取得
+            // --------------------------------------------------
+            var db = context.RequestServices.GetRequiredService<SubscriptionDbContext>();
+            var tenant = await db.TenantSubscriptions
+                .FirstOrDefaultAsync(t => t.GoogleEmail == userEmail);
+
+            if (tenant == null || !tenant.IsActive || string.IsNullOrEmpty(tenant.TargetAspUrl))
+            {
+                context.Response.ContentType = "text/html; charset=utf-8";
+                await context.Response.WriteAsync("<html><body><script>alert('有効なサブスクリプション契約が見つかりません'); window.top.location.href = '/Account/Login';</script></body></html>");
+                return true;
+            }
+
+            // セッション情報の更新
+            context.Session.SetString("UserEmail", userEmail);
+            context.Session.SetString("TargetAspUrl", tenant.TargetAspUrl);
+
+            // --------------------------------------------------
+            // 4. アクセスパスに応じた EcoMaster / EcoPro の自動振り分け
+            // --------------------------------------------------
             bool isEcoMaster = path.Contains("mobile60");
 
             if (isEcoMaster)
             {
-                context.Session.SetString("TargetAspUrl", "https://hhc-eco11.com/EcoToubuF3/mobile60_ToubuF/");
                 await _ecoMaster.ProcessProxyAsync(context);
             }
             else
             {
-                context.Session.SetString("TargetAspUrl", "https://hhc-eco11.com/EcoToubuF3/");
                 await _ecoPro.ProcessProxyAsync(context);
             }
 

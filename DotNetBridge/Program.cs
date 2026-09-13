@@ -127,7 +127,7 @@ using (var scope = app.Services.CreateScope())
         @"ALTER TABLE ""PaymentLogs"" ADD COLUMN ""IssuedBy"" TEXT NULL;",
         @"ALTER TABLE ""PaymentLogs"" ADD COLUMN ""IssuedAt"" TEXT NOT NULL DEFAULT '0001-01-01 00:00:00';",
         @"ALTER TABLE ""PaymentLogs"" ADD COLUMN ""PdfFileName"" TEXT NULL;",
-        @"ALTER TABLE ""PaymentLogs"" ADD COLUMN ""ItemDescription"" TEXT NULL;" // ★ 追加
+        @"ALTER TABLE ""PaymentLogs"" ADD COLUMN ""ItemDescription"" TEXT NULL;"
     };
 
     foreach (var sql in alterSqls)
@@ -178,13 +178,21 @@ using (var scope = app.Services.CreateScope())
         // 既に PaidAt カラムが存在する場合はスキップ
     }
 
-    // 開発用アカウントを SQLite DB へ自動注入
+    // 開発用アカウントを SQLite DB へ自動注入 ＆ 既存データの TargetAspUrl 補正
     try
     {
+        // 1. 新規注入時はベースルート (/EcoToubuF3/) で作成
         subDb.Database.ExecuteSqlRaw(@"
             INSERT INTO ""TenantSubscriptions"" (""GoogleEmail"", ""TargetAspUrl"", ""IsActive"", ""CreatedAt"")
-            SELECT 'eco@tfkankyo.com', 'https://hhc-eco11.com/EcoToubuF3/mobile60_ToubuF/', 1, '2026-01-01 00:00:00'
+            SELECT 'eco@tfkankyo.com', 'https://hhc-eco11.com/EcoToubuF3/', 1, '2026-01-01 00:00:00'
             WHERE NOT EXISTS (SELECT 1 FROM ""TenantSubscriptions"" WHERE ""GoogleEmail"" = 'eco@tfkankyo.com');
+        ");
+
+        // 2. ★ 既存のDBに mobile60_ToubuF/ が入っている場合も自動でベースルートへ統一補正
+        subDb.Database.ExecuteSqlRaw(@"
+            UPDATE ""TenantSubscriptions"" 
+            SET ""TargetAspUrl"" = 'https://hhc-eco11.com/EcoToubuF3/' 
+            WHERE ""GoogleEmail"" = 'eco@tfkankyo.com' AND ""TargetAspUrl"" LIKE '%mobile60_ToubuF%';
         ");
     }
     catch { }
@@ -212,7 +220,6 @@ app.Use(async (context, next) =>
     var dispatcher = context.RequestServices.GetRequiredService<ProxyDispatcher>();
     
     // ProxyDispatcher 側でプロキシを実行（true）したか判定
-    // /admin/payments や /api などのローカル処理対象（false）の場合は next() を呼んで C# コントローラーへリクエストをバトンタッチ
     bool handled = await dispatcher.DispatchAsync(context);
     if (!handled)
     {

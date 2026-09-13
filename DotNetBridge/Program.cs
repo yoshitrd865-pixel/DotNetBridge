@@ -5,34 +5,24 @@ using Microsoft.EntityFrameworkCore;
 using DotNetBridge.Services;
 using DotNetBridge.Data;
 
-// Linux環境(Render)での inotify ハンドル上限到達によるエラーを防止する環境変数設定
 Environment.SetEnvironmentVariable("DOTNET_USE_POLLING_FILE_WATCHER", "1");
-
-// CP932 (Shift-JIS) 相互エンコーディング用のプロバイダー登録
 System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
 
-var builder = WebApplication.CreateBuilder(new WebApplicationOptions
-{
-    Args = args
-});
+var builder = WebApplication.CreateBuilder(new WebApplicationOptions { Args = args });
 
-// appsettings.json の構成設定（inotifyファイル監視オフで安全化）
 builder.Configuration.Sources.Clear();
 builder.Configuration.AddJsonFile("appsettings.json", optional: true, reloadOnChange: false);
 builder.Configuration.AddJsonFile($"appsettings.{builder.Environment.EnvironmentName}.json", optional: true, reloadOnChange: false);
 builder.Configuration.AddEnvironmentVariables();
 
-// --- 暗号キーの保存先を永続化（再デプロイしてもログイン状態を維持） ---
 builder.Services.AddDataProtection()
     .PersistKeysToFileSystem(new DirectoryInfo(@"./keys"));
 
-// コントローラー・ビューおよびプロキシ依存サービスの登録
 builder.Services.AddControllersWithViews();
 builder.Services.AddScoped<EcoMasterProxyService>();
 builder.Services.AddScoped<EcoProProxyService>();
 builder.Services.AddScoped<ProxyDispatcher>();
 
-// ★ セッション機能の追加（有効期限8時間）
 builder.Services.AddSession(options =>
 {
     options.IdleTimeout = TimeSpan.FromHours(8);
@@ -40,7 +30,6 @@ builder.Services.AddSession(options =>
     options.Cookie.IsEssential = true;
 });
 
-// ★ HttpClientがクッキー(ASPSESSIONID)を自動削除しないよう UseCookies = false を設定
 builder.Services.AddHttpClient("NoRedirectClient", client => { })
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
     {
@@ -48,7 +37,6 @@ builder.Services.AddHttpClient("NoRedirectClient", client => { })
         UseCookies = false
     });
 
-// --- 認証設定（Cookie認証 ＋ Google OAuth） ---
 builder.Services.AddAuthentication(options =>
     {
         options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
@@ -81,10 +69,8 @@ builder.Services.AddAuthentication(options =>
         options.ClientSecret = builder.Configuration["GOOGLE_CLIENT_SECRET"] ?? "";
     });
 
-// Render の PORT 環境変数を読み込む（無ければ8080）
 builder.WebHost.UseUrls($"http://*:{Environment.GetEnvironmentVariable("PORT") ?? "8080"}");
 
-// SQLite DB（DbContext）の接続設定
 builder.Services.AddDbContext<PaymentDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("PaymentConnection")));
 
@@ -97,7 +83,6 @@ builder.Services.AddDbContext<SubscriptionDbContext>(options =>
 
 var app = builder.Build();
 
-// ★ Renderなどのプロキシ環境下で https を正しく認識させる設定
 var forwardedHeadersOptions = new ForwardedHeadersOptions
 {
     ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto
@@ -107,10 +92,8 @@ forwardedHeadersOptions.KnownProxies.Clear();
 
 app.UseForwardedHeaders(forwardedHeadersOptions);
 
-// 起動時に DB テーブルおよびカラムの自動生成・初期アカウント作成を実行
 using (var scope = app.Services.CreateScope())
 {
-    // 事前にSQLiteカラム存在確認を行ってから ALTER TABLE する安全関数
     void EnsureColumnExists(DbContext dbContext, string tableName, string columnName, string columnDef)
     {
         try
@@ -148,7 +131,6 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<PaymentDbContext>();
     db.Database.EnsureCreated();
 
-    // PaymentLogs カラム補正（事前存在チェック付き）
     EnsureColumnExists(db, "PaymentLogs", "CustomerName", "TEXT NULL");
     EnsureColumnExists(db, "PaymentLogs", "IssuedBy", "TEXT NULL");
     EnsureColumnExists(db, "PaymentLogs", "IssuedAt", "TEXT NOT NULL DEFAULT '0001-01-01 00:00:00'");
@@ -184,13 +166,17 @@ using (var scope = app.Services.CreateScope())
 
     EnsureColumnExists(subDb, "TenantSubscriptions", "PaidAt", "TEXT NOT NULL DEFAULT '0001-01-01 00:00:00'");
 
-    // ★ 完全新規起動時（テーブルが空の場合）のみ初期レコードを作成。一度でも存在すれば変更しない
+    // ★ 再起動時にも現場用・事務所用の両アカウントを自動確保
     try
     {
         subDb.Database.ExecuteSqlRaw(@"
             INSERT INTO ""TenantSubscriptions"" (""GoogleEmail"", ""TargetAspUrl"", ""IsActive"", ""CreatedAt"")
             SELECT 'eco@tfkankyo.com', 'https://hhc-eco11.com/EcoToubuF3/mobile60_ToubuF/', 1, '2026-01-01 00:00:00'
             WHERE NOT EXISTS (SELECT 1 FROM ""TenantSubscriptions"" WHERE ""GoogleEmail"" = 'eco@tfkankyo.com');
+
+            INSERT INTO ""TenantSubscriptions"" (""GoogleEmail"", ""TargetAspUrl"", ""IsActive"", ""CreatedAt"")
+            SELECT 'ecopro@tfkankyo.com', 'https://hhc-eco11.com/EcoToubuF3/Main/', 1, '2026-01-01 00:00:00'
+            WHERE NOT EXISTS (SELECT 1 FROM ""TenantSubscriptions"" WHERE ""GoogleEmail"" = 'ecopro@tfkankyo.com');
         ");
     }
     catch { }
@@ -211,18 +197,31 @@ app.MapControllerRoute(
     defaults: new { controller = "Account" });
 
 // --------------------------------------------------
-// ★【リバースプロキシ用ミドルウェア】
+// ★ プロキシバイパス・ガード付きミドルウェア
 // --------------------------------------------------
 app.Use(async (context, next) =>
 {
+    var path = context.Request.Path.Value ?? "";
+
+    // 内部画面や静的ファイルアクセス時はプロキシをバイパス
+    if (path.StartsWith("/Account", StringComparison.OrdinalIgnoreCase) ||
+        path.StartsWith("/admin", StringComparison.OrdinalIgnoreCase) ||
+        path.StartsWith("/css", StringComparison.OrdinalIgnoreCase) ||
+        path.StartsWith("/js", StringComparison.OrdinalIgnoreCase) ||
+        path.StartsWith("/lib", StringComparison.OrdinalIgnoreCase) ||
+        path.Equals("/favicon.ico", StringComparison.OrdinalIgnoreCase))
+    {
+        await next();
+        return;
+    }
+
     var dispatcher = context.RequestServices.GetRequiredService<ProxyDispatcher>();
     await dispatcher.DispatchAsync(context);
 
-    // プロキシ側でレスポンスが開始されていない場合（/admin や /api など）は C# のコントローラーへ回す
     if (!context.Response.HasStarted)
     {
         await next();
     }
 });
-// ★ Webサーバーの起動・待機処理（これが必要です）
+
 app.Run();

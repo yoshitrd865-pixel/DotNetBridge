@@ -143,7 +143,6 @@ using (var scope = app.Services.CreateScope())
     var subDb = scope.ServiceProvider.GetRequiredService<SubscriptionDbContext>();
     subDb.Database.EnsureCreated();
 
-    // 接続先マッピングテーブル（単一化）
     subDb.Database.ExecuteSqlRaw(@"
         CREATE TABLE IF NOT EXISTS ""TenantSubscriptions"" (
             ""Id"" INTEGER NOT NULL CONSTRAINT ""PK_TenantSubscriptions"" PRIMARY KEY AUTOINCREMENT,
@@ -176,15 +175,7 @@ app.UseSession();
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.MapControllers();
-app.MapControllerRoute(
-    name: "default",
-    pattern: "Account/{action=Login}/{id?}",
-    defaults: new { controller = "Account" });
-
-// --------------------------------------------------
-// プロキシバイパス（簡略版）
-// --------------------------------------------------
+// ★ 修正点：ルーティング実行前にプロキシ判定を割り込ませる
 app.Use(async (context, next) =>
 {
     var path = context.Request.Path.Value ?? "";
@@ -200,11 +191,11 @@ app.Use(async (context, next) =>
 
     var dispatcher = context.RequestServices.GetRequiredService<ProxyDispatcher>();
     await dispatcher.DispatchAsync(context);
-
-    if (!context.Response.HasStarted)
-    {
-        await next();
-    }
 });
+
+app.MapControllers();
+app.MapControllerRoute(
+    name: "default",
+    pattern: "{controller=Account}/{action=Login}/{id?}");
 
 app.Run();

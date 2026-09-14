@@ -29,8 +29,7 @@ namespace DotNetBridge.Services
 
             if (string.IsNullOrEmpty(userEmail))
             {
-                context.Response.ContentType = "text/html; charset=utf-8";
-                await context.Response.WriteAsync("<html><body><script>window.top.location.href = '/Account/Suspended';</script></body></html>");
+                context.Response.Redirect("/Account/Login");
                 return;
             }
 
@@ -38,12 +37,11 @@ namespace DotNetBridge.Services
             var tenant = await db.TenantSubscriptions
                 .FirstOrDefaultAsync(t => t.GoogleEmail == userEmail);
 
-            if (tenant == null || !tenant.IsActive || string.IsNullOrEmpty(tenant.TargetAspUrl))
+            if (tenant == null || string.IsNullOrEmpty(tenant.TargetAspUrl))
             {
                 await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
                 context.Session.Clear();
-                context.Response.ContentType = "text/html; charset=utf-8";
-                await context.Response.WriteAsync("<html><body><script>window.top.location.href = '/Account/Suspended';</script></body></html>");
+                context.Response.Redirect("/Account/Login");
                 return;
             }
 

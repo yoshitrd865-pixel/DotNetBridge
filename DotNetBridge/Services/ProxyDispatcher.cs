@@ -20,11 +20,10 @@ namespace DotNetBridge.Services
             var userEmail = context.User.FindFirst(ClaimTypes.Email)?.Value 
                             ?? context.User.Identity?.Name;
 
-            // 1. 未認証時はログイン画面へ直接誘導（ループ防止）
+            // 未認証時はログイン画面へ誘導
             if (string.IsNullOrEmpty(userEmail))
             {
-                context.Response.ContentType = "text/html; charset=utf-8";
-                await context.Response.WriteAsync("<html><body><script>window.top.location.href = '/Account/Login';</script></body></html>");
+                context.Response.Redirect("/Account/Login");
                 return;
             }
 
@@ -32,31 +31,17 @@ namespace DotNetBridge.Services
             var tenant = await db.TenantSubscriptions
                 .FirstOrDefaultAsync(t => t.GoogleEmail == userEmail);
 
-            // 2. 未登録・無効時は休止画面へ誘導
-            if (tenant == null || !tenant.IsActive)
+            // 未登録・転送先未設定時はログイン画面へ誘導
+            if (tenant == null || string.IsNullOrEmpty(tenant.TargetAspUrl))
             {
-                if (context.Request.Headers["X-Requested-With"] == "XMLHttpRequest" || context.Request.Path.StartsWithSegments("/api"))
-                {
-                    context.Response.StatusCode = StatusCodes.Status402PaymentRequired;
-                    return;
-                }
-
-                context.Response.ContentType = "text/html; charset=utf-8";
-                await context.Response.WriteAsync("<html><body><script>window.top.location.href = '/Account/Suspended';</script></body></html>");
+                context.Response.Redirect("/Account/Login");
                 return;
             }
 
-            // 3. 転送先URL未設定時
-            if (string.IsNullOrEmpty(tenant.TargetAspUrl))
-            {
-                context.Response.ContentType = "text/html; charset=utf-8";
-                await context.Response.WriteAsync("<html><body><script>window.top.location.href = '/Account/Suspended';</script></body></html>");
-                return;
-            }
-
-            // 4. Roleに応じた自動中継
+            // TargetAspUrl に mobile60 または EcoMaster が含まれていれば EcoMaster 側へルーティング
             var targetBaseUrl = tenant.TargetAspUrl;
-            bool isEcoMaster = targetBaseUrl.Contains("mobile60", StringComparison.OrdinalIgnoreCase);
+            bool isEcoMaster = targetBaseUrl.Contains("mobile60", StringComparison.OrdinalIgnoreCase) ||
+                               targetBaseUrl.Contains("EcoMaster", StringComparison.OrdinalIgnoreCase);
 
             if (isEcoMaster)
             {

@@ -37,7 +37,6 @@ namespace DotNetBridge.Services
             var tenant = await db.TenantSubscriptions
                 .FirstOrDefaultAsync(t => t.GoogleEmail == userEmail);
 
-            // IsActiveチェックと /Account/Suspended 転送を完全撤廃
             if (tenant == null || string.IsNullOrEmpty(tenant.TargetAspUrl))
             {
                 await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
@@ -81,7 +80,7 @@ namespace DotNetBridge.Services
 
             var path = context.Request.Path.Value?.TrimStart('/') ?? string.Empty;
 
-            // ★ EcoMaster（モバイル版）の初期アクセス時は login.html が正解
+            // ★ EcoMaster（現場用）は302リダイレクトを行わず、内部パス補正(login.html)で処理する
             if (string.IsNullOrEmpty(path))
             {
                 path = "login.html";
@@ -112,8 +111,20 @@ namespace DotNetBridge.Services
                 targetUri = targetBaseUrl + path + context.Request.QueryString.Value;
             }
 
+            byte[] bodyBytes = [];
+            if (HttpMethods.IsPost(context.Request.Method) ||
+                HttpMethods.IsPut(context.Request.Method) ||
+                HttpMethods.IsPatch(context.Request.Method))
+            {
+                using var ms = new MemoryStream();
+                await context.Request.Body.CopyToAsync(ms);
+                bodyBytes = ms.ToArray();
+            }
+
             using var client = _httpClientFactory.CreateClient("NoRedirectClient");
             using var upstreamRequest = new HttpRequestMessage(new HttpMethod(context.Request.Method), targetUri);
+
+            var proxyOrigin = $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}";
 
             foreach (var header in context.Request.Headers)
             {
@@ -124,16 +135,25 @@ namespace DotNetBridge.Services
                 if (key.StartsWith(":", StringComparison.Ordinal)) continue;
                 if (key.Equals("Content-Type", StringComparison.OrdinalIgnoreCase)) continue;
 
+                // ★ IIS互換Cookie整形の適用 (ガードレール第2条)
+                if (key.Equals("Cookie", StringComparison.OrdinalIgnoreCase))
+                {
+                    var cookieValues = header.Value
+                        .SelectMany(v => v.Split(';'))
+                        .Select(c => c.Trim())
+                        .Where(c => !string.IsNullOrEmpty(c))
+                        .Distinct();
+
+                    string formattedCookie = string.Join("; ", cookieValues);
+                    upstreamRequest.Headers.TryAddWithoutValidation("Cookie", formattedCookie);
+                    continue;
+                }
+
                 if (key.Equals("Referer", StringComparison.OrdinalIgnoreCase) ||
                     key.Equals("Origin", StringComparison.OrdinalIgnoreCase))
                 {
                     var original = header.Value.ToString();
-                    var marker = "/proxy/";
-                    var idx = original.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
-                    var rewrittenValue = idx >= 0
-                        ? targetBaseUrl + original.Substring(idx + marker.Length)
-                        : targetBaseUrl;
-
+                    var rewrittenValue = original.Replace(proxyOrigin, $"{uri.Scheme}://{uri.Host}:{uri.Port}");
                     upstreamRequest.Headers.TryAddWithoutValidation(key, rewrittenValue);
                     continue;
                 }
@@ -141,15 +161,9 @@ namespace DotNetBridge.Services
                 upstreamRequest.Headers.TryAddWithoutValidation(key, header.Value.ToArray());
             }
 
-            if (HttpMethods.IsPost(context.Request.Method) ||
-                HttpMethods.IsPut(context.Request.Method) ||
-                HttpMethods.IsPatch(context.Request.Method))
+            if (bodyBytes.Length > 0)
             {
-                var memoryStream = new MemoryStream();
-                await context.Request.Body.CopyToAsync(memoryStream);
-                memoryStream.Position = 0;
-
-                var streamContent = new StreamContent(memoryStream);
+                var streamContent = new ByteArrayContent(bodyBytes);
                 if (context.Request.ContentType != null)
                 {
                     streamContent.Headers.TryAddWithoutValidation("Content-Type", context.Request.ContentType);
@@ -179,9 +193,28 @@ namespace DotNetBridge.Services
                     var modifiedCookies = header.Value.Select(cookie =>
                     {
                         var c = Regex.Replace(cookie, @"Domain=[^;]+;?", string.Empty, RegexOptions.IgnoreCase);
-                        return Regex.Replace(c, @"Path=[^;]+;?", "Path=/;", RegexOptions.IgnoreCase);
+                        c = Regex.Replace(c, @"Path=[^;]+;?", "Path=/;", RegexOptions.IgnoreCase);
+                        if (!c.Contains("SameSite", StringComparison.OrdinalIgnoreCase))
+                        {
+                            c += "; SameSite=Lax";
+                        }
+                        return c;
                     }).ToArray();
                     context.Response.Headers[key] = modifiedCookies;
+                    continue;
+                }
+
+                // ★ LocationヘッダーのプロキシURL書き換え（本家IISへの直接露出防止）
+                if (key.Equals("Location", StringComparison.OrdinalIgnoreCase))
+                {
+                    var loc = header.Value.FirstOrDefault() ?? "";
+                    loc = loc.Replace($"https://{uri.Host}", proxyOrigin)
+                             .Replace($"http://{uri.Host}", proxyOrigin)
+                             .Replace($"//{uri.Host}", proxyOrigin.Replace("https:", "").Replace("http:", ""))
+                             .Replace("https://hhc-eco1.com", proxyOrigin)
+                             .Replace("http://hhc-eco1.com", proxyOrigin)
+                             .Replace("//hhc-eco1.com", proxyOrigin.Replace("https:", "").Replace("http:", ""));
+                    context.Response.Headers[key] = loc;
                     continue;
                 }
 

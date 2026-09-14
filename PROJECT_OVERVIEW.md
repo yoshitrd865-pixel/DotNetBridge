@@ -93,7 +93,7 @@ DotNetBridge/
 
 2. IIS互換Cookie整形の維持
    プロキシ内部Cookie（.AspNetCore等）を除去し、`; `（セミコロン＋スペース）で連結して転送する。
-
+    
 3. 画面脱出時の window.top 徹底
    frameset/iframe 内の崩れを防ぐため、リダイレクト時は window.top.location.href を使用する。
 

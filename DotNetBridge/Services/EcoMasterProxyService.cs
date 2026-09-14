@@ -37,6 +37,7 @@ namespace DotNetBridge.Services
             var tenant = await db.TenantSubscriptions
                 .FirstOrDefaultAsync(t => t.GoogleEmail == userEmail);
 
+            // IsActiveチェックと /Account/Suspended 転送を完全撤廃
             if (tenant == null || string.IsNullOrEmpty(tenant.TargetAspUrl))
             {
                 await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
@@ -80,6 +81,7 @@ namespace DotNetBridge.Services
 
             var path = context.Request.Path.Value?.TrimStart('/') ?? string.Empty;
 
+            // ★ EcoMaster（モバイル版）の初期アクセス時は login.html が正解
             if (string.IsNullOrEmpty(path))
             {
                 path = "login.html";

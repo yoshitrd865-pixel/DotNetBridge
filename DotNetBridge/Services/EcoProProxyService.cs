@@ -65,14 +65,14 @@ namespace DotNetBridge.Services
 
             string reqPath = context.Request.Path.Value?.TrimStart('/') ?? string.Empty;
             
-            // ルート(/)アクセス時はブラウザのURLごと /Main/FrameMain.asp へ自動転送
-            if (string.IsNullOrEmpty(reqPath))
+            // ★ ルート(/) または /FrameMain.asp 直アクセス時はブラウザのURL表示ごと /Main/FrameMain.asp へ正規化リダイレクト
+            if (string.IsNullOrEmpty(reqPath) || reqPath.Equals("FrameMain.asp", StringComparison.OrdinalIgnoreCase))
             {
                 context.Response.Redirect("/Main/FrameMain.asp");
                 return;
             }
 
-            // --- 3. スマートパス判定 (提示コードをベースに最適化) ---
+            // --- 3. スマートパス判定 ---
             string targetUri;
 
             if (!string.IsNullOrEmpty(appRootName) && reqPath.StartsWith(appRootName, StringComparison.OrdinalIgnoreCase))
@@ -90,7 +90,7 @@ namespace DotNetBridge.Services
                 targetUri = targetBaseUrl + reqPath + context.Request.QueryString.Value;
             }
 
-            // POSTリクエストボディの取得 (C# 12コレクション式 [] で警告解消)
+            // POSTリクエストボディの取得 (C# 12コレクション式 [])
             byte[] bodyBytes = [];
             if (HttpMethods.IsPost(context.Request.Method) ||
                 HttpMethods.IsPut(context.Request.Method) ||
@@ -163,7 +163,7 @@ namespace DotNetBridge.Services
                 return;
             }
 
-            // --- 5. レスポンスヘッダー転送 (ステータスコード・WWW-Authenticate等もそのまま透過) ---
+            // --- 5. レスポンスヘッダー転送 ---
             context.Response.StatusCode = (int)upstreamResponse.StatusCode;
 
             foreach (var header in upstreamResponse.Headers)

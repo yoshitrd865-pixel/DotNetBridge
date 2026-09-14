@@ -48,6 +48,12 @@ namespace DotNetBridge.Services
             var targetBaseUrl = tenant.TargetAspUrl;
 
             var uri = new Uri(targetBaseUrl);
+            
+            // ★ ポート443の二重付与を防止し、綺麗なドメインURLを生成
+            string schemeHostPort = uri.IsDefaultPort 
+                ? $"{uri.Scheme}://{uri.Host}" 
+                : $"{uri.Scheme}://{uri.Host}:{uri.Port}";
+
             string absolutePath = uri.AbsolutePath;
 
             if (Path.HasExtension(absolutePath))
@@ -64,7 +70,7 @@ namespace DotNetBridge.Services
                 absolutePath += "/";
             }
 
-            targetBaseUrl = $"{uri.Scheme}://{uri.Host}:{uri.Port}{absolutePath}";
+            targetBaseUrl = $"{schemeHostPort}{absolutePath}";
 
             var lastTargetUrl = context.Session.GetString("LastTargetAspUrl");
             if (!string.IsNullOrEmpty(lastTargetUrl) && lastTargetUrl != targetBaseUrl)
@@ -80,7 +86,7 @@ namespace DotNetBridge.Services
 
             var path = context.Request.Path.Value?.TrimStart('/') ?? string.Empty;
 
-            // ★ EcoMaster（現場用）は302リダイレクトを行わず、内部パス補正(login.html)で処理する
+            // ★ 本家IISの404回避：ルート(/)アクセス時は内部パスを login.html へ書き換えて取得
             if (string.IsNullOrEmpty(path))
             {
                 path = "login.html";
@@ -135,7 +141,6 @@ namespace DotNetBridge.Services
                 if (key.StartsWith(":", StringComparison.Ordinal)) continue;
                 if (key.Equals("Content-Type", StringComparison.OrdinalIgnoreCase)) continue;
 
-                // ★ IIS互換Cookie整形の適用 (ガードレール第2条)
                 if (key.Equals("Cookie", StringComparison.OrdinalIgnoreCase))
                 {
                     var cookieValues = header.Value
@@ -153,7 +158,7 @@ namespace DotNetBridge.Services
                     key.Equals("Origin", StringComparison.OrdinalIgnoreCase))
                 {
                     var original = header.Value.ToString();
-                    var rewrittenValue = original.Replace(proxyOrigin, $"{uri.Scheme}://{uri.Host}:{uri.Port}");
+                    var rewrittenValue = original.Replace(proxyOrigin, schemeHostPort);
                     upstreamRequest.Headers.TryAddWithoutValidation(key, rewrittenValue);
                     continue;
                 }
@@ -204,7 +209,7 @@ namespace DotNetBridge.Services
                     continue;
                 }
 
-                // ★ LocationヘッダーのプロキシURL書き換え（本家IISへの直接露出防止）
+                // ★ Locationヘッダーの書き換え（本家からの302リダイレクトによるプロキシ脱出を防止）
                 if (key.Equals("Location", StringComparison.OrdinalIgnoreCase))
                 {
                     var loc = header.Value.FirstOrDefault() ?? "";

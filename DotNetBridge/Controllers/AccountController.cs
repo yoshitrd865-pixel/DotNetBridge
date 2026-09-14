@@ -19,6 +19,14 @@ namespace DotNetBridge.Controllers
             _db = db;
         }
 
+        // テナントの接続先に応じて適切な初期URLを返却
+        private string GetDestinationUrl(string targetAspUrl)
+        {
+            bool isEcoMaster = targetAspUrl.Contains("mobile60", StringComparison.OrdinalIgnoreCase) ||
+                               targetAspUrl.Contains("EcoMaster", StringComparison.OrdinalIgnoreCase);
+            return isEcoMaster ? "/" : "/Main/FrameMain.asp";
+        }
+
         [HttpGet]
         public async Task<IActionResult> Login()
         {
@@ -30,8 +38,8 @@ namespace DotNetBridge.Controllers
 
                 if (tenant != null && !string.IsNullOrEmpty(tenant.TargetAspUrl))
                 {
-                    // URL階層を /Main/FrameMain.asp に固定してトップ画面へ引っこ抜く
-                    return Content("<script>window.top.location.href='/Main/FrameMain.asp';</script>", "text/html");
+                    var dest = GetDestinationUrl(tenant.TargetAspUrl);
+                    return Content($"<script>window.top.location.href='{dest}';</script>", "text/html");
                 }
 
                 await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
@@ -84,8 +92,9 @@ namespace DotNetBridge.Controllers
             HttpContext.Session.SetString("TargetAspUrl", tenant.TargetAspUrl);
             HttpContext.Session.SetString("UserEmail", tenant.GoogleEmail);
 
-            // 認証成功時も /Main/FrameMain.asp へ遷移
-            return Content("<script>window.top.location.href='/Main/FrameMain.asp';</script>", "text/html");
+            // 認証成功時、テナントに応じたURLへ動的遷移
+            var destinationUrl = GetDestinationUrl(tenant.TargetAspUrl);
+            return Content($"<script>window.top.location.href='{destinationUrl}';</script>", "text/html");
         }
 
         [HttpGet]

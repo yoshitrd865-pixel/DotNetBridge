@@ -15,7 +15,7 @@ namespace DotNetBridge.Services
             "transfer-encoding", "content-length", "content-encoding", "connection", "keep-alive"
         };
 
-        // アセット・共通帳票用ルートフォルダ群 (appRootUrl 直下に結合)
+        // アセット・共通帳票用ルートフォルダ群
         private static readonly string[] RootFolders =
         {
             "report", "printdaily", "mobile60_hyojun", "icon", "css", "img", "images", "js"
@@ -50,14 +50,11 @@ namespace DotNetBridge.Services
             var tenant = await db.TenantSubscriptions
                 .FirstOrDefaultAsync(t => t.GoogleEmail == userEmail);
 
-            if (tenant == null || !tenant.IsActive || string.IsNullOrEmpty(tenant.TargetAspUrl))
+            if (tenant == null || string.IsNullOrEmpty(tenant.TargetAspUrl))
             {
                 await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
                 context.Session.Clear();
-                
-                // frameset脱出用HTMLを返却 (無限リダイレクト防止)
-                context.Response.ContentType = "text/html; charset=utf-8";
-                await context.Response.WriteAsync("<script>window.top.location.href='/Account/Suspended';</script>");
+                context.Response.Redirect("/Account/Login");
                 return;
             }
 
@@ -68,7 +65,7 @@ namespace DotNetBridge.Services
             string schemeHostPort = $"{uri.Scheme}://{uri.Host}:{uri.Port}";
             
             var segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
-            string appRootName = segments.FirstOrDefault() ?? ""; // 例: EcoHHCDemo
+            string appRootName = segments.FirstOrDefault() ?? "";
             string appRootUrl = !string.IsNullOrEmpty(appRootName) 
                 ? $"{schemeHostPort}/{appRootName}/" 
                 : $"{schemeHostPort}/";
@@ -84,12 +81,11 @@ namespace DotNetBridge.Services
                 reqPath = "login.html";
             }
 
-            // --- 3. スマートパス判定 (復元ロジック) ---
+            // --- 3. スマートパス判定 ---
             string targetUri;
 
             if (!string.IsNullOrEmpty(appRootName) && reqPath.StartsWith(appRootName, StringComparison.OrdinalIgnoreCase))
             {
-                // リクエストがすでに /EcoHHCDemo/... の完全パスで来ている場合
                 targetUri = $"{schemeHostPort}/{reqPath}{context.Request.QueryString.Value}";
             }
             else
@@ -97,22 +93,18 @@ namespace DotNetBridge.Services
                 var firstDir = reqPath.Contains('/') ? reqPath.Split('/')[0].ToLowerInvariant() : string.Empty;
                 var ext = Path.GetExtension(reqPath)?.ToLowerInvariant() ?? string.Empty;
 
-                // ① ルート直下に存在する共通アセットフォルダの場合
                 if (RootFolders.Contains(firstDir))
                 {
                     targetUri = appRootUrl + reqPath + context.Request.QueryString.Value;
                 }
-                // ② 業務画面フォルダ (main/ 直下) の場合
                 else if (reqPath.StartsWith("main/", StringComparison.OrdinalIgnoreCase))
                 {
                     targetUri = appRootUrl + reqPath + context.Request.QueryString.Value;
                 }
-                // ③ 静的アセットファイル (.css, .png 等) の場合
                 else if (AssetExtensions.Contains(ext))
                 {
                     targetUri = appRootUrl + reqPath + context.Request.QueryString.Value;
                 }
-                // ④ それ以外（業務画面ファイル単体・相対パス機能）は targetBaseUrl (例: .../Main/) へ直撃
                 else
                 {
                     targetUri = targetBaseUrl + reqPath + context.Request.QueryString.Value;
@@ -135,7 +127,7 @@ namespace DotNetBridge.Services
 
             var proxyOrigin = $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}";
 
-            // --- 4. リクエストヘッダー転送 (IIS互換Cookie成形) ---
+            // --- 4. リクエストヘッダー転送 ---
             foreach (var header in context.Request.Headers)
             {
                 var key = header.Key;
@@ -192,16 +184,7 @@ namespace DotNetBridge.Services
                 return;
             }
 
-            // --- 5. 本家IIS 401 Unauthorized 遮断フィルター ---
-            if (upstreamResponse.StatusCode == System.Net.HttpStatusCode.Unauthorized)
-            {
-                context.Response.StatusCode = 200;
-                context.Response.ContentType = "text/html; charset=utf-8";
-                await context.Response.WriteAsync("<script>window.top.location.href='/Account/Login';</script>");
-                return;
-            }
-
-            // --- 6. レスポンスヘッダー転送 ---
+            // --- 5. レスポンスヘッダー転送 (ステータスコード・WWW-Authenticate等もそのまま透過) ---
             context.Response.StatusCode = (int)upstreamResponse.StatusCode;
 
             foreach (var header in upstreamResponse.Headers)
@@ -248,7 +231,7 @@ namespace DotNetBridge.Services
                 context.Response.Headers[key] = header.Value.ToArray();
             }
 
-            // --- 7. レスポンス本文処理 (CP932文字コード保持) ---
+            // --- 6. レスポンス本文処理 ---
             var contentType = upstreamResponse.Content.Headers.ContentType?.ToString() ?? string.Empty;
             bool isText = contentType.Contains("text/html", StringComparison.OrdinalIgnoreCase) ||
                          contentType.Contains("javascript", StringComparison.OrdinalIgnoreCase) ||

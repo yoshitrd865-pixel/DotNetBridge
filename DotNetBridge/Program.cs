@@ -143,38 +143,25 @@ using (var scope = app.Services.CreateScope())
     var subDb = scope.ServiceProvider.GetRequiredService<SubscriptionDbContext>();
     subDb.Database.EnsureCreated();
 
+    // 接続先マッピングテーブル（単一化）
     subDb.Database.ExecuteSqlRaw(@"
         CREATE TABLE IF NOT EXISTS ""TenantSubscriptions"" (
             ""Id"" INTEGER NOT NULL CONSTRAINT ""PK_TenantSubscriptions"" PRIMARY KEY AUTOINCREMENT,
             ""GoogleEmail"" TEXT NOT NULL,
             ""TargetAspUrl"" TEXT NOT NULL,
-            ""StripeCustomerId"" TEXT NULL,
-            ""StripeSubscriptionId"" TEXT NULL,
-            ""IsActive"" INTEGER NOT NULL,
-            ""PaidAt"" TEXT NOT NULL DEFAULT '0001-01-01 00:00:00',
             ""CreatedAt"" TEXT NOT NULL
         );
     ");
 
-    subDb.Database.ExecuteSqlRaw(@"
-        CREATE TABLE IF NOT EXISTS ""SystemSettings"" (
-            ""Id"" INTEGER NOT NULL CONSTRAINT ""PK_SystemSettings"" PRIMARY KEY AUTOINCREMENT,
-            ""Key"" TEXT NOT NULL,
-            ""Value"" TEXT NOT NULL
-        );
-    ");
-
-    EnsureColumnExists(subDb, "TenantSubscriptions", "PaidAt", "TEXT NOT NULL DEFAULT '0001-01-01 00:00:00'");
-
     try
     {
         subDb.Database.ExecuteSqlRaw(@"
-            INSERT INTO ""TenantSubscriptions"" (""GoogleEmail"", ""TargetAspUrl"", ""IsActive"", ""CreatedAt"")
-            SELECT 'eco@tfkankyo.com', 'https://hhc-eco11.com/EcoToubuF3/mobile60_ToubuF/', 1, '2026-01-01 00:00:00'
+            INSERT INTO ""TenantSubscriptions"" (""GoogleEmail"", ""TargetAspUrl"", ""CreatedAt"")
+            SELECT 'eco@tfkankyo.com', 'https://hhc-eco11.com/EcoToubuF3/mobile60_ToubuF/', '2026-01-01 00:00:00'
             WHERE NOT EXISTS (SELECT 1 FROM ""TenantSubscriptions"" WHERE ""GoogleEmail"" = 'eco@tfkankyo.com');
 
-            INSERT INTO ""TenantSubscriptions"" (""GoogleEmail"", ""TargetAspUrl"", ""IsActive"", ""CreatedAt"")
-            SELECT 'ecopro@tfkankyo.com', 'https://hhc-eco11.com/EcoToubuF3/Main/', 1, '2026-01-01 00:00:00'
+            INSERT INTO ""TenantSubscriptions"" (""GoogleEmail"", ""TargetAspUrl"", ""CreatedAt"")
+            SELECT 'ecopro@tfkankyo.com', 'https://hhc-eco11.com/EcoToubuF3/Main/', '2026-01-01 00:00:00'
             WHERE NOT EXISTS (SELECT 1 FROM ""TenantSubscriptions"" WHERE ""GoogleEmail"" = 'ecopro@tfkankyo.com');
         ");
     }
@@ -196,19 +183,15 @@ app.MapControllerRoute(
     defaults: new { controller = "Account" });
 
 // --------------------------------------------------
-// プロキシバイパス・ガード付きミドルウェア (完全補正)
+// プロキシバイパス（簡略版）
 // --------------------------------------------------
 app.Use(async (context, next) =>
 {
     var path = context.Request.Path.Value ?? "";
 
-    // C#専用ルート・OAuth・決済結果のみプロキシをバイパス
     if (path.StartsWith("/Account", StringComparison.OrdinalIgnoreCase) ||
         path.StartsWith("/admin", StringComparison.OrdinalIgnoreCase) ||
-        path.StartsWith("/Subscription", StringComparison.OrdinalIgnoreCase) ||
         path.StartsWith("/api", StringComparison.OrdinalIgnoreCase) ||
-        path.StartsWith("/success", StringComparison.OrdinalIgnoreCase) ||
-        path.StartsWith("/cancel", StringComparison.OrdinalIgnoreCase) ||
         path.StartsWith("/signin-google", StringComparison.OrdinalIgnoreCase))
     {
         await next();

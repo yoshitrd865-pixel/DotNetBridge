@@ -17,19 +17,16 @@ namespace DotNetBridge.Controllers
             _config = config;
         }
 
-        // 管理者認証チェック（未認証時はログイン画面へ）
         public override void OnActionExecuting(ActionExecutingContext context)
         {
             var actionName = context.ActionDescriptor.RouteValues["action"]?.ToLower();
             
-            // ログイン画面・認証処理自体はチェック対象外
             if (actionName == "login" || actionName == "auth")
             {
                 base.OnActionExecuting(context);
                 return;
             }
 
-            // セッションに認証フラグがない場合は /admin/login へ強制リダイレクト
             if (HttpContext.Session.GetString("IsAdminAuthenticated") != "true")
             {
                 context.Result = new RedirectToActionResult("Login", "Admin", null);
@@ -39,14 +36,9 @@ namespace DotNetBridge.Controllers
             base.OnActionExecuting(context);
         }
 
-        // 管理者ログイン画面 (/admin/login)
         [HttpGet("login")]
-        public IActionResult Login()
-        {
-            return View();
-        }
+        public IActionResult Login() => View();
 
-        // 認証処理 (/admin/auth)
         [HttpPost("auth")]
         public IActionResult Auth(string password)
         {
@@ -62,7 +54,6 @@ namespace DotNetBridge.Controllers
             return RedirectToAction(nameof(Login));
         }
 
-        // ログアウト (/admin/logout)
         [HttpPost("logout")]
         public IActionResult Logout()
         {
@@ -70,8 +61,7 @@ namespace DotNetBridge.Controllers
             return RedirectToAction(nameof(Login));
         }
 
-        // 一覧表示 (/admin)
-        [HttpGet("")]
+        [HttpGet]
         [HttpGet("index")]
         public async Task<IActionResult> Index()
         {
@@ -79,42 +69,9 @@ namespace DotNetBridge.Controllers
                 .OrderByDescending(t => t.CreatedAt)
                 .ToListAsync();
 
-            // 月額料金設定の取得（未設定時はデフォルト 5000 円）
-            var priceSetting = await _db.SystemSettings.FirstOrDefaultAsync(s => s.Key == "MonthlyPrice");
-            ViewBag.MonthlyPrice = priceSetting?.Value ?? "5000";
-
             return View(tenants);
         }
 
-        // SaaS利用料金（月額金額）の更新 (/admin/updateprice)
-        [HttpPost("updateprice")]
-        public async Task<IActionResult> UpdatePrice(string monthlyPrice)
-        {
-            if (long.TryParse(monthlyPrice, out long price) && price >= 100)
-            {
-                var setting = await _db.SystemSettings.FirstOrDefaultAsync(s => s.Key == "MonthlyPrice");
-                if (setting == null)
-                {
-                    setting = new SystemSetting { Key = "MonthlyPrice", Value = price.ToString() };
-                    _db.SystemSettings.Add(setting);
-                }
-                else
-                {
-                    setting.Value = price.ToString();
-                }
-
-                await _db.SaveChangesAsync();
-                TempData["Success"] = "月額利用料を更新しました。";
-            }
-            else
-            {
-                TempData["Error"] = "有効な金額を入力してください（100円以上）。";
-            }
-
-            return RedirectToAction(nameof(Index));
-        }
-
-        // 新規登録・既存編集 (/admin/save)
         [HttpPost("save")]
         public async Task<IActionResult> Save(TenantSubscription model)
         {
@@ -136,7 +93,6 @@ namespace DotNetBridge.Controllers
                 {
                     tenant.GoogleEmail = model.GoogleEmail;
                     tenant.TargetAspUrl = model.TargetAspUrl;
-                    tenant.IsActive = model.IsActive;
                 }
             }
 
@@ -145,20 +101,6 @@ namespace DotNetBridge.Controllers
             return RedirectToAction(nameof(Index));
         }
 
-        // アカウントの停止 / 有効化 切り替え (/admin/toggleactive)
-        [HttpPost("toggleactive")]
-        public async Task<IActionResult> ToggleActive(int id)
-        {
-            var tenant = await _db.TenantSubscriptions.FindAsync(id);
-            if (tenant != null)
-            {
-                tenant.IsActive = !tenant.IsActive;
-                await _db.SaveChangesAsync();
-            }
-            return RedirectToAction(nameof(Index));
-        }
-
-        // アカウント削除 (/admin/delete)
         [HttpPost("delete")]
         public async Task<IActionResult> Delete(int id)
         {

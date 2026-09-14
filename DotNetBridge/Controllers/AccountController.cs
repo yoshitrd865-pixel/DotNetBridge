@@ -28,13 +28,11 @@ namespace DotNetBridge.Controllers
                 var tenant = await _db.TenantSubscriptions
                     .FirstOrDefaultAsync(t => t.GoogleEmail == email);
 
-                // 有効な契約の場合は iframe 脱出スクリプトでトップ画面へ引っこ抜く
-                if (tenant != null && tenant.IsActive)
+                if (tenant != null && !string.IsNullOrEmpty(tenant.TargetAspUrl))
                 {
                     return Content("<script>window.top.location.href='/';</script>", "text/html");
                 }
 
-                // 未登録または無効アカウントの場合は認証情報を破棄して再ログインへ
                 await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
                 HttpContext.Session.Clear();
             }
@@ -76,22 +74,15 @@ namespace DotNetBridge.Controllers
             var tenant = await _db.TenantSubscriptions
                 .FirstOrDefaultAsync(t => t.GoogleEmail == email);
 
-            if (tenant == null)
+            if (tenant == null || string.IsNullOrEmpty(tenant.TargetAspUrl))
             {
-                ViewBag.Error = $"未登録のアカウントです ({email})。HHCアカウントの契約手続きを行ってください。";
-                return View("Login");
-            }
-
-            if (!tenant.IsActive)
-            {
-                ViewBag.Error = "サブスクリプション契約が無効または支払いが未完了です。";
+                ViewBag.Error = $"未登録のアカウントです ({email})。管理者に利用申請を行ってください。";
                 return View("Login");
             }
 
             HttpContext.Session.SetString("TargetAspUrl", tenant.TargetAspUrl);
             HttpContext.Session.SetString("UserEmail", tenant.GoogleEmail);
 
-            // OAuthログイン完了時も window.top で画面枠を強制更新
             return Content("<script>window.top.location.href='/';</script>", "text/html");
         }
 
@@ -101,13 +92,6 @@ namespace DotNetBridge.Controllers
             HttpContext.Session.Clear();
             await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
             return Content("<script>window.top.location.href='/Account/Login';</script>", "text/html");
-        }
-
-        // アカウント停止案内画面 (無限リダイレクト防止)
-        [HttpGet("Account/Suspended")]
-        public IActionResult Suspended()
-        {
-            return Content("【開発用】アカウント停止判定を検知しました。ProxyDispatcherの設定を確認してください。", "text/plain", System.Text.Encoding.UTF8);
         }
     }
 }

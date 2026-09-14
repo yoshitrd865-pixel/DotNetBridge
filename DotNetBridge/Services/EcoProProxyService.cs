@@ -15,18 +15,6 @@ namespace DotNetBridge.Services
             "transfer-encoding", "content-length", "content-encoding", "connection", "keep-alive"
         };
 
-        // アセット・共通帳票用ルートフォルダ群
-        private static readonly string[] RootFolders =
-        {
-            "report", "printdaily", "mobile60_hyojun", "icon", "css", "img", "images", "js"
-        };
-
-        // 静的ファイル拡張子
-        private static readonly string[] AssetExtensions =
-        {
-            ".css", ".js", ".png", ".jpg", ".jpeg", ".gif", ".ico", ".svg", ".woff", ".woff2", ".ttf"
-        };
-
         private readonly IHttpClientFactory _httpClientFactory;
 
         public EcoProProxyService(IHttpClientFactory httpClientFactory)
@@ -45,7 +33,7 @@ namespace DotNetBridge.Services
                 return;
             }
 
-            // 2. DBを参照し接続先URLを取得
+            // 2. DBを参照し接続先URLを取得 (課金チェック完全撤廃)
             var db = context.RequestServices.GetRequiredService<SubscriptionDbContext>();
             var tenant = await db.TenantSubscriptions
                 .FirstOrDefaultAsync(t => t.GoogleEmail == userEmail);
@@ -77,40 +65,32 @@ namespace DotNetBridge.Services
 
             string reqPath = context.Request.Path.Value?.TrimStart('/') ?? string.Empty;
             
-            // ★ ルート(/)アクセス時はブラウザのURLごと /Main/FrameMain.asp へリダイレクト
+            // ルート(/)アクセス時はブラウザのURLごと /Main/FrameMain.asp へ自動転送
             if (string.IsNullOrEmpty(reqPath))
             {
                 context.Response.Redirect("/Main/FrameMain.asp");
                 return;
             }
 
-            // --- 3. スマートパス判定 ---
+            // --- 3. スマートパス判定 (提示コードをベースに最適化) ---
             string targetUri;
 
             if (!string.IsNullOrEmpty(appRootName) && reqPath.StartsWith(appRootName, StringComparison.OrdinalIgnoreCase))
             {
                 targetUri = $"{schemeHostPort}/{reqPath}{context.Request.QueryString.Value}";
             }
-            else if (reqPath.StartsWith("main/", StringComparison.OrdinalIgnoreCase))
+            else if (reqPath.Contains('/'))
             {
+                // 階層を含む場合 (Check/..., Main/..., css/... 等) は appRootUrl (/EcoToubuF3/) 直下へ結合
                 targetUri = appRootUrl + reqPath + context.Request.QueryString.Value;
             }
             else
             {
-                var firstDir = reqPath.Contains('/') ? reqPath.Split('/')[0].ToLowerInvariant() : string.Empty;
-                var ext = Path.GetExtension(reqPath)?.ToLowerInvariant() ?? string.Empty;
-
-                if (RootFolders.Contains(firstDir) || AssetExtensions.Contains(ext))
-                {
-                    targetUri = appRootUrl + reqPath + context.Request.QueryString.Value;
-                }
-                else
-                {
-                    targetUri = targetBaseUrl + reqPath + context.Request.QueryString.Value;
-                }
+                // 階層なし単体ファイルの場合は targetBaseUrl (/EcoToubuF3/Main/) へ補完
+                targetUri = targetBaseUrl + reqPath + context.Request.QueryString.Value;
             }
 
-            // POSTリクエストボディの取得
+            // POSTリクエストボディの取得 (C# 12コレクション式 [] で警告解消)
             byte[] bodyBytes = [];
             if (HttpMethods.IsPost(context.Request.Method) ||
                 HttpMethods.IsPut(context.Request.Method) ||

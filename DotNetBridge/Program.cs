@@ -69,7 +69,7 @@ builder.Services.AddAuthentication(options =>
         options.ClientSecret = builder.Configuration["GOOGLE_CLIENT_SECRET"] ?? "";
     });
 
-builder.WebHost.UseUrls($"http://*:{Environment.GetEnvironmentVariable("PORT") ?? "8080"}");
+builder.WebHost.UseUrls($"http://0.0.0.0:{Environment.GetEnvironmentVariable("PORT") ?? "8080"}");
 
 builder.Services.AddDbContext<PaymentDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("PaymentConnection")));

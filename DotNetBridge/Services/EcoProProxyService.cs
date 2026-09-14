@@ -76,9 +76,12 @@ namespace DotNetBridge.Services
             }
 
             string reqPath = context.Request.Path.Value?.TrimStart('/') ?? string.Empty;
+            
+            // ★ ルート(/)アクセス時はブラウザのURLごと /Main/FrameMain.asp へリダイレクト
             if (string.IsNullOrEmpty(reqPath))
             {
-                reqPath = "login.html";
+                context.Response.Redirect("/Main/FrameMain.asp");
+                return;
             }
 
             // --- 3. スマートパス判定 ---
@@ -88,20 +91,16 @@ namespace DotNetBridge.Services
             {
                 targetUri = $"{schemeHostPort}/{reqPath}{context.Request.QueryString.Value}";
             }
+            else if (reqPath.StartsWith("main/", StringComparison.OrdinalIgnoreCase))
+            {
+                targetUri = appRootUrl + reqPath + context.Request.QueryString.Value;
+            }
             else
             {
                 var firstDir = reqPath.Contains('/') ? reqPath.Split('/')[0].ToLowerInvariant() : string.Empty;
                 var ext = Path.GetExtension(reqPath)?.ToLowerInvariant() ?? string.Empty;
 
-                if (RootFolders.Contains(firstDir))
-                {
-                    targetUri = appRootUrl + reqPath + context.Request.QueryString.Value;
-                }
-                else if (reqPath.StartsWith("main/", StringComparison.OrdinalIgnoreCase))
-                {
-                    targetUri = appRootUrl + reqPath + context.Request.QueryString.Value;
-                }
-                else if (AssetExtensions.Contains(ext))
+                if (RootFolders.Contains(firstDir) || AssetExtensions.Contains(ext))
                 {
                     targetUri = appRootUrl + reqPath + context.Request.QueryString.Value;
                 }
@@ -112,7 +111,7 @@ namespace DotNetBridge.Services
             }
 
             // POSTリクエストボディの取得
-            byte[] bodyBytes = Array.Empty<byte>();
+            byte[] bodyBytes = [];
             if (HttpMethods.IsPost(context.Request.Method) ||
                 HttpMethods.IsPut(context.Request.Method) ||
                 HttpMethods.IsPatch(context.Request.Method))

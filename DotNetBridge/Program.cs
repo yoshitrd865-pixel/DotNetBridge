@@ -203,20 +203,6 @@ app.UseSession();
 app.UseAuthentication();
 app.UseAuthorization();
 
-// ★ テスト用：Google認証をバイパスして強制ログイン状態にするミドルウェア
-app.Use(async (context, next) =>
-{
-    // EcoProテスト用: "ecopro@tfkankyo.com" / EcoMasterテスト用: "eco@tfkankyo.com"
-    var claims = new[] 
-    { 
-        new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Email, "eco@tfkankyo.com") 
-    };
-    var identity = new System.Security.Claims.ClaimsIdentity(claims, "TestAuth");
-    context.User = new System.Security.Claims.ClaimsPrincipal(identity);
-
-    await next();
-});
-
 app.Use(async (context, next) =>
 {
     var path = context.Request.Path.Value ?? "";

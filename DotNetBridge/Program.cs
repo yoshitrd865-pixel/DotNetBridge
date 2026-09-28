@@ -30,7 +30,7 @@ builder.Services.AddSession(options =>
     options.Cookie.IsEssential = true;
 });
 
-// ★ 修正①：本家サーバー通信に15秒のタイムアウトを設定し、長時間フリーズを防止
+// 本家サーバー通信に15秒のタイムアウトを設定
 builder.Services.AddHttpClient("NoRedirectClient", client => 
 {
     client.Timeout = TimeSpan.FromSeconds(15);
@@ -72,7 +72,6 @@ builder.Services.AddAuthentication(options =>
         options.ClientId = builder.Configuration["GOOGLE_CLIENT_ID"] ?? "";
         options.ClientSecret = builder.Configuration["GOOGLE_CLIENT_SECRET"] ?? "";
 
-        // ★ 修正②：Correlationエラー（Cookie切れ）発生時に500エラーにせずログイン画面へ脱出
         options.Events = new Microsoft.AspNetCore.Authentication.OAuth.OAuthEvents
         {
             OnRemoteFailure = context =>
@@ -158,25 +157,39 @@ using (var scope = app.Services.CreateScope())
     var subDb = scope.ServiceProvider.GetRequiredService<SubscriptionDbContext>();
     subDb.Database.EnsureCreated();
 
+    EnsureColumnExists(subDb, "TenantSubscriptions", "IsActive", "INTEGER NOT NULL DEFAULT 1");
+    EnsureColumnExists(subDb, "TenantSubscriptions", "PaidAt", "TEXT NULL");
+    EnsureColumnExists(subDb, "TenantSubscriptions", "StripeCustomerId", "TEXT NULL");
+    EnsureColumnExists(subDb, "TenantSubscriptions", "StripeSubscriptionId", "TEXT NULL");
+
     subDb.Database.ExecuteSqlRaw(@"
         CREATE TABLE IF NOT EXISTS ""TenantSubscriptions"" (
             ""Id"" INTEGER NOT NULL CONSTRAINT ""PK_TenantSubscriptions"" PRIMARY KEY AUTOINCREMENT,
             ""GoogleEmail"" TEXT NOT NULL,
             ""TargetAspUrl"" TEXT NOT NULL,
-            ""CreatedAt"" TEXT NOT NULL
+            ""CreatedAt"" TEXT NOT NULL,
+            ""IsActive"" INTEGER NOT NULL DEFAULT 1,
+            ""PaidAt"" TEXT NULL,
+            ""StripeCustomerId"" TEXT NULL,
+            ""StripeSubscriptionId"" TEXT NULL
         );
     ");
 
     try
     {
         subDb.Database.ExecuteSqlRaw(@"
-            INSERT INTO ""TenantSubscriptions"" (""GoogleEmail"", ""TargetAspUrl"", ""CreatedAt"")
-            SELECT 'eco@tfkankyo.com', 'https://hhc-eco11.com/EcoToubuF3/mobile60_ToubuF/', '2026-01-01 00:00:00'
+            INSERT INTO ""TenantSubscriptions"" (""GoogleEmail"", ""TargetAspUrl"", ""CreatedAt"", ""IsActive"")
+            SELECT 'eco@tfkankyo.com', 'https://hhc-eco11.com/EcoToubuF3/mobile60_ToubuF/', '2026-01-01 00:00:00', 1
             WHERE NOT EXISTS (SELECT 1 FROM ""TenantSubscriptions"" WHERE ""GoogleEmail"" = 'eco@tfkankyo.com');
 
-            INSERT INTO ""TenantSubscriptions"" (""GoogleEmail"", ""TargetAspUrl"", ""CreatedAt"")
-            SELECT 'ecopro@tfkankyo.com', 'https://hhc-eco11.com/EcoToubuF3/Main/', '2026-01-01 00:00:00'
+            INSERT INTO ""TenantSubscriptions"" (""GoogleEmail"", ""TargetAspUrl"", ""CreatedAt"", ""IsActive"")
+            SELECT 'ecopro@tfkankyo.com', 'https://hhc-eco11.com/EcoToubuF3/Main/', '2026-01-01 00:00:00', 1
             WHERE NOT EXISTS (SELECT 1 FROM ""TenantSubscriptions"" WHERE ""GoogleEmail"" = 'ecopro@tfkankyo.com');
+
+            -- ★ 追加：既存データのNULL値を補正して読み込みエラーを回避
+            UPDATE ""TenantSubscriptions"" SET ""CreatedAt"" = '2026-01-01 00:00:00' WHERE ""CreatedAt"" IS NULL OR ""CreatedAt"" = '';
+            UPDATE ""TenantSubscriptions"" SET ""PaidAt"" = '2026-01-01 00:00:00' WHERE ""PaidAt"" IS NULL OR ""PaidAt"" = '';
+            UPDATE ""TenantSubscriptions"" SET ""IsActive"" = 1 WHERE ""IsActive"" IS NULL;
         ");
     }
     catch { }
@@ -189,6 +202,20 @@ app.UseSession();
 
 app.UseAuthentication();
 app.UseAuthorization();
+
+// ★ テスト用：Google認証をバイパスして強制ログイン状態にするミドルウェア
+app.Use(async (context, next) =>
+{
+    // EcoProテスト用: "ecopro@tfkankyo.com" / EcoMasterテスト用: "eco@tfkankyo.com"
+    var claims = new[] 
+    { 
+        new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Email, "eco@tfkankyo.com") 
+    };
+    var identity = new System.Security.Claims.ClaimsIdentity(claims, "TestAuth");
+    context.User = new System.Security.Claims.ClaimsPrincipal(identity);
+
+    await next();
+});
 
 app.Use(async (context, next) =>
 {

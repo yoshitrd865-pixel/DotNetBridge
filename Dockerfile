@@ -47,5 +47,8 @@ EXPOSE 8080
 # (ファイル監視機能）の上限エラー対策
 ENV DOTNET_USE_POLLING_FILE_WATCHER=1
 
+# Dockerfile 内の適当な位置（ENTRYPOINT の手前など）に追加
+RUN mkdir -p /var/data
+
 COPY --from=build /app/publish .
 ENTRYPOINT ["dotnet", "DotNetBridge.dll"]

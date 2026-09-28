@@ -30,7 +30,11 @@ builder.Services.AddSession(options =>
     options.Cookie.IsEssential = true;
 });
 
-builder.Services.AddHttpClient("NoRedirectClient", client => { })
+// ★ 修正①：本家サーバー通信に15秒のタイムアウトを設定し、長時間フリーズを防止
+builder.Services.AddHttpClient("NoRedirectClient", client => 
+{
+    client.Timeout = TimeSpan.FromSeconds(15);
+})
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
     {
         AllowAutoRedirect = false,
@@ -67,6 +71,17 @@ builder.Services.AddAuthentication(options =>
     {
         options.ClientId = builder.Configuration["GOOGLE_CLIENT_ID"] ?? "";
         options.ClientSecret = builder.Configuration["GOOGLE_CLIENT_SECRET"] ?? "";
+
+        // ★ 修正②：Correlationエラー（Cookie切れ）発生時に500エラーにせずログイン画面へ脱出
+        options.Events = new Microsoft.AspNetCore.Authentication.OAuth.OAuthEvents
+        {
+            OnRemoteFailure = context =>
+            {
+                context.Response.Redirect("/Account/Login");
+                context.HandleResponse();
+                return Task.CompletedTask;
+            }
+        };
     });
 
 builder.WebHost.UseUrls($"http://0.0.0.0:{Environment.GetEnvironmentVariable("PORT") ?? "8080"}");
@@ -175,7 +190,6 @@ app.UseSession();
 app.UseAuthentication();
 app.UseAuthorization();
 
-// ★ 修正点：ルーティング実行前にプロキシ判定を割り込ませる
 app.Use(async (context, next) =>
 {
     var path = context.Request.Path.Value ?? "";

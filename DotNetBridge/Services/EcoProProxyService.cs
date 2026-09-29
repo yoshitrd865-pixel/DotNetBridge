@@ -25,7 +25,9 @@ namespace DotNetBridge.Services
         public async Task ProcessProxyAsync(HttpContext context)
         {
             // 1. Googleログイン情報からメールアドレスを取得
-            var userEmail = context.User.FindFirst(ClaimTypes.Email)?.Value;
+            var userEmail = context.User.FindFirst(ClaimTypes.Email)?.Value 
+                            ?? context.User.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress")?.Value
+                            ?? context.User.Identity?.Name;
 
             if (string.IsNullOrEmpty(userEmail))
             {
@@ -33,7 +35,7 @@ namespace DotNetBridge.Services
                 return;
             }
 
-            // 2. DBを参照し接続先URLを取得 (課金チェック完全撤廃)
+            // 2. DBを参照し接続先URLを取得
             var db = context.RequestServices.GetRequiredService<SubscriptionDbContext>();
             var tenant = await db.TenantSubscriptions
                 .FirstOrDefaultAsync(t => t.GoogleEmail == userEmail);
@@ -65,14 +67,13 @@ namespace DotNetBridge.Services
 
             string reqPath = context.Request.Path.Value?.TrimStart('/') ?? string.Empty;
             
-            // ★ ルート(/) または /FrameMain.asp 直アクセス時はブラウザのURL表示ごと /Main/FrameMain.asp へ正規化リダイレクト
             if (string.IsNullOrEmpty(reqPath) || reqPath.Equals("FrameMain.asp", StringComparison.OrdinalIgnoreCase))
             {
                 context.Response.Redirect("/Main/FrameMain.asp");
                 return;
             }
 
-            // --- 3. スマートパス判定 ---
+            // 3. スマートパス判定
             string targetUri;
 
             if (!string.IsNullOrEmpty(appRootName) && reqPath.StartsWith(appRootName, StringComparison.OrdinalIgnoreCase))
@@ -81,16 +82,13 @@ namespace DotNetBridge.Services
             }
             else if (reqPath.Contains('/'))
             {
-                // 階層を含む場合 (Check/..., Main/..., css/... 等) は appRootUrl (/EcoToubuF3/) 直下へ結合
                 targetUri = appRootUrl + reqPath + context.Request.QueryString.Value;
             }
             else
             {
-                // 階層なし単体ファイルの場合は targetBaseUrl (/EcoToubuF3/Main/) へ補完
                 targetUri = targetBaseUrl + reqPath + context.Request.QueryString.Value;
             }
 
-            // POSTリクエストボディの取得 (C# 12コレクション式 [])
             byte[] bodyBytes = [];
             if (HttpMethods.IsPost(context.Request.Method) ||
                 HttpMethods.IsPut(context.Request.Method) ||
@@ -106,7 +104,7 @@ namespace DotNetBridge.Services
 
             var proxyOrigin = $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}";
 
-            // --- 4. リクエストヘッダー転送 ---
+            // 4. リクエストヘッダー転送（.AspNetCore Cookieの除外処理を追加）
             foreach (var header in context.Request.Headers)
             {
                 var key = header.Key;
@@ -124,11 +122,14 @@ namespace DotNetBridge.Services
                     var cookieValues = header.Value
                         .SelectMany(v => v.Split(';'))
                         .Select(c => c.Trim())
-                        .Where(c => !string.IsNullOrEmpty(c))
+                        .Where(c => !string.IsNullOrEmpty(c) && !c.StartsWith(".AspNetCore", StringComparison.OrdinalIgnoreCase)) // ★ .AspNetCore 除去
                         .Distinct();
 
                     string formattedCookie = string.Join("; ", cookieValues);
-                    upstreamRequest.Headers.TryAddWithoutValidation("Cookie", formattedCookie);
+                    if (!string.IsNullOrEmpty(formattedCookie))
+                    {
+                        upstreamRequest.Headers.TryAddWithoutValidation("Cookie", formattedCookie);
+                    }
                     continue;
                 }
 
@@ -163,7 +164,7 @@ namespace DotNetBridge.Services
                 return;
             }
 
-            // --- 5. レスポンスヘッダー転送 ---
+            // 5. レスポンスヘッダー転送
             context.Response.StatusCode = (int)upstreamResponse.StatusCode;
 
             foreach (var header in upstreamResponse.Headers)
@@ -210,7 +211,7 @@ namespace DotNetBridge.Services
                 context.Response.Headers[key] = header.Value.ToArray();
             }
 
-            // --- 6. レスポンス本文処理 ---
+            // 6. レスポンス本文処理
             var contentType = upstreamResponse.Content.Headers.ContentType?.ToString() ?? string.Empty;
             bool isText = contentType.Contains("text/html", StringComparison.OrdinalIgnoreCase) ||
                          contentType.Contains("javascript", StringComparison.OrdinalIgnoreCase) ||

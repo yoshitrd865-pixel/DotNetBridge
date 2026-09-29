@@ -25,6 +25,7 @@ namespace DotNetBridge.Services
         public async Task ProcessProxyAsync(HttpContext context)
         {
             var userEmail = context.User.FindFirst(ClaimTypes.Email)?.Value 
+                            ?? context.User.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress")?.Value
                             ?? context.User.Identity?.Name;
 
             if (string.IsNullOrEmpty(userEmail))
@@ -46,10 +47,8 @@ namespace DotNetBridge.Services
             }
 
             var targetBaseUrl = tenant.TargetAspUrl;
-
             var uri = new Uri(targetBaseUrl);
             
-            // ★ ポート443の二重付与を防止し、綺麗なドメインURLを生成
             string schemeHostPort = uri.IsDefaultPort 
                 ? $"{uri.Scheme}://{uri.Host}" 
                 : $"{uri.Scheme}://{uri.Host}:{uri.Port}";
@@ -86,7 +85,6 @@ namespace DotNetBridge.Services
 
             var path = context.Request.Path.Value?.TrimStart('/') ?? string.Empty;
 
-            // ★ 本家IISの404回避：ルート(/)アクセス時は内部パスを login.html へ書き換えて取得
             if (string.IsNullOrEmpty(path))
             {
                 path = "login.html";
@@ -146,11 +144,14 @@ namespace DotNetBridge.Services
                     var cookieValues = header.Value
                         .SelectMany(v => v.Split(';'))
                         .Select(c => c.Trim())
-                        .Where(c => !string.IsNullOrEmpty(c))
+                        .Where(c => !string.IsNullOrEmpty(c) && !c.StartsWith(".AspNetCore", StringComparison.OrdinalIgnoreCase)) // ★ .AspNetCore 除去
                         .Distinct();
 
                     string formattedCookie = string.Join("; ", cookieValues);
-                    upstreamRequest.Headers.TryAddWithoutValidation("Cookie", formattedCookie);
+                    if (!string.IsNullOrEmpty(formattedCookie))
+                    {
+                        upstreamRequest.Headers.TryAddWithoutValidation("Cookie", formattedCookie);
+                    }
                     continue;
                 }
 
@@ -209,7 +210,6 @@ namespace DotNetBridge.Services
                     continue;
                 }
 
-                // ★ Locationヘッダーの書き換え（本家からの302リダイレクトによるプロキシ脱出を防止）
                 if (key.Equals("Location", StringComparison.OrdinalIgnoreCase))
                 {
                     var loc = header.Value.FirstOrDefault() ?? "";

@@ -42,7 +42,7 @@ builder.Services.AddSession(options =>
 
 builder.Services.AddHttpClient("NoRedirectClient", client => 
 {
-    client.Timeout = TimeSpan.FromSeconds(15);
+    client.Timeout = TimeSpan.FromSeconds(60);
 })
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
     {

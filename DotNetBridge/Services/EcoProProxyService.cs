@@ -165,12 +165,19 @@ namespace DotNetBridge.Services
             }
 
             HttpResponseMessage upstreamResponse;
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            Console.WriteLine($"[PROXY-REQ] {context.Request.Method} {targetUri}");
             try
             {
                 upstreamResponse = await client.SendAsync(upstreamRequest, HttpCompletionOption.ResponseHeadersRead, context.RequestAborted);
+                Console.WriteLine($"[PROXY-RES] {(int)upstreamResponse.StatusCode} {targetUri} headers in {sw.ElapsedMilliseconds}ms");
             }
-            catch (TaskCanceledException)
+            catch (Exception ex) when (ex is TaskCanceledException || ex is HttpRequestException)
             {
+                if (context.RequestAborted.IsCancellationRequested) return;
+                Console.WriteLine($"[PROXY-ERR] {targetUri} after {sw.ElapsedMilliseconds}ms: {ex.GetType().Name}: {ex.Message} / {ex.InnerException?.Message}");
+                context.Response.StatusCode = StatusCodes.Status504GatewayTimeout;
+                await context.Response.WriteAsync($"Upstream error: {ex.GetType().Name}");
                 return;
             }
 

@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.Google;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using DotNetBridge.Services;
 using DotNetBridge.Data;
@@ -23,11 +24,21 @@ builder.Services.AddScoped<EcoMasterProxyService>();
 builder.Services.AddScoped<EcoProProxyService>();
 builder.Services.AddScoped<ProxyDispatcher>();
 
+// ★ 追加: Cloud Run等のリバースプロキシ設定をコンテナサービス側へ登録
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+
 builder.Services.AddSession(options =>
 {
     options.IdleTimeout = TimeSpan.FromHours(8);
     options.Cookie.HttpOnly = true;
     options.Cookie.IsEssential = true;
+    options.Cookie.SecurePolicy = CookieSecurePolicy.Always; // ★ HTTPS強制
+    options.Cookie.SameSite = SameSiteMode.Lax;
 });
 
 // 本家サーバー通信に15秒のタイムアウトを設定
@@ -52,6 +63,7 @@ builder.Services.AddAuthentication(options =>
         options.ExpireTimeSpan = TimeSpan.FromHours(8);
         options.Cookie.SameSite = SameSiteMode.Lax;
         options.Cookie.HttpOnly = true;
+        options.Cookie.SecurePolicy = CookieSecurePolicy.Always; // ★ HTTPS環境でのCookie保持を強制
         options.SlidingExpiration = true;
 
         options.Events.OnRedirectToLogin = ctx =>
@@ -97,14 +109,15 @@ builder.Services.AddDbContext<SubscriptionDbContext>(options =>
 
 var app = builder.Build();
 
-var forwardedHeadersOptions = new ForwardedHeadersOptions
-{
-    ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto
-};
-forwardedHeadersOptions.KnownNetworks.Clear();
-forwardedHeadersOptions.KnownProxies.Clear();
+// ★ 修正点1: 最初に ForwardedHeaders ミドルウェアを確実に通過させる
+app.UseForwardedHeaders();
 
-app.UseForwardedHeaders(forwardedHeadersOptions);
+// ★ 修正点2: プロキシ経由でも Request.Scheme を強制的に https に補正する
+app.Use(async (context, next) =>
+{
+    context.Request.Scheme = "https";
+    await next();
+});
 
 using (var scope = app.Services.CreateScope())
 {

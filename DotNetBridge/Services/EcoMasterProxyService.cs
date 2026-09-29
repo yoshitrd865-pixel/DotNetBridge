@@ -130,21 +130,32 @@ namespace DotNetBridge.Services
 
             var proxyOrigin = $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}";
 
+            // ★ リクエストヘッダー転送（さくらが拒絶するヘッダーをカット）
             foreach (var header in context.Request.Headers)
             {
                 var key = header.Key;
-                if (key.Equals("Host", StringComparison.OrdinalIgnoreCase)) continue;
-                if (key.Equals("Content-Length", StringComparison.OrdinalIgnoreCase)) continue;
-                if (key.Equals("Accept-Encoding", StringComparison.OrdinalIgnoreCase)) continue;
+
                 if (key.StartsWith(":", StringComparison.Ordinal)) continue;
-                if (key.Equals("Content-Type", StringComparison.OrdinalIgnoreCase)) continue;
+
+                // Cloud Run や Chrome から送られる不要・危険ヘッダーを除外
+                if (key.StartsWith("Sec-", StringComparison.OrdinalIgnoreCase) ||
+                    key.StartsWith("X-", StringComparison.OrdinalIgnoreCase) ||
+                    key.Equals("Host", StringComparison.OrdinalIgnoreCase) ||
+                    key.Equals("Content-Length", StringComparison.OrdinalIgnoreCase) ||
+                    key.Equals("Accept-Encoding", StringComparison.OrdinalIgnoreCase) ||
+                    key.Equals("Content-Type", StringComparison.OrdinalIgnoreCase) ||
+                    key.Equals("Via", StringComparison.OrdinalIgnoreCase) ||
+                    key.Equals("Forwarded", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
 
                 if (key.Equals("Cookie", StringComparison.OrdinalIgnoreCase))
                 {
                     var cookieValues = header.Value
                         .SelectMany(v => v.Split(';'))
                         .Select(c => c.Trim())
-                        .Where(c => !string.IsNullOrEmpty(c) && !c.StartsWith(".AspNetCore", StringComparison.OrdinalIgnoreCase)) // ★ .AspNetCore 除去
+                        .Where(c => !string.IsNullOrEmpty(c) && !c.StartsWith(".AspNetCore", StringComparison.OrdinalIgnoreCase))
                         .Distinct();
 
                     string formattedCookie = string.Join("; ", cookieValues);

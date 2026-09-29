@@ -17,10 +17,13 @@ namespace DotNetBridge.Services
 
         public async Task DispatchAsync(HttpContext context)
         {
+            // Google OAuth や Cookie 認証から Email を柔軟に取得
             var userEmail = context.User.FindFirst(ClaimTypes.Email)?.Value 
+                            ?? context.User.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress")?.Value
+                            ?? context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
                             ?? context.User.Identity?.Name;
 
-            // 未認証時はログイン画面へ誘導
+            // 未認証（メールアドレスが取得できない）時はログイン画面へ強制リダイレクト
             if (string.IsNullOrEmpty(userEmail))
             {
                 context.Response.Redirect("/Account/Login");
@@ -31,7 +34,7 @@ namespace DotNetBridge.Services
             var tenant = await db.TenantSubscriptions
                 .FirstOrDefaultAsync(t => t.GoogleEmail == userEmail);
 
-            // 未登録・転送先未設定時はログイン画面へ誘導
+            // 未登録・転送先未設定時
             if (tenant == null || string.IsNullOrEmpty(tenant.TargetAspUrl))
             {
                 context.Response.Redirect("/Account/Login");

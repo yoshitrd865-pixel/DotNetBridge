@@ -128,6 +128,9 @@ namespace DotNetBridge.Services
             using var client = _httpClientFactory.CreateClient("NoRedirectClient");
             using var upstreamRequest = new HttpRequestMessage(new HttpMethod(context.Request.Method), targetUri);
 
+            // ★ 追加：さくらサーバーにgzip/br/zstd圧縮させず生のShift-JIS HTMLを返させる
+            upstreamRequest.Headers.AcceptEncoding.Clear();
+
             var proxyOrigin = $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}";
 
             // ★ リクエストヘッダー転送（さくらが拒絶するヘッダーをカット）

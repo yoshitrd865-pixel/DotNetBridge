@@ -16,8 +16,8 @@ builder.Configuration.AddJsonFile("appsettings.json", optional: true, reloadOnCh
 builder.Configuration.AddJsonFile($"appsettings.{builder.Environment.EnvironmentName}.json", optional: true, reloadOnChange: false);
 builder.Configuration.AddEnvironmentVariables();
 
-builder.Services.AddDataProtection()
-    .PersistKeysToFileSystem(new DirectoryInfo(@"./keys"));
+// ★ 修正：コンテナ再起動で鍵消失エラー（CryptographicException）が起きないよう DataProtection をシンプル化
+builder.Services.AddDataProtection();
 
 builder.Services.AddControllersWithViews();
 builder.Services.AddScoped<EcoMasterProxyService>();

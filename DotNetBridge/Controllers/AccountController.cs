@@ -32,7 +32,9 @@ namespace DotNetBridge.Controllers
         {
             if (User.Identity?.IsAuthenticated == true)
             {
-                var email = User.FindFirst(ClaimTypes.Email)?.Value;
+                var email = User.FindFirst(ClaimTypes.Email)?.Value 
+                            ?? User.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress")?.Value;
+
                 var tenant = await _db.TenantSubscriptions
                     .FirstOrDefaultAsync(t => t.GoogleEmail == email);
 
@@ -64,15 +66,17 @@ namespace DotNetBridge.Controllers
         [HttpGet]
         public async Task<IActionResult> GoogleResponse()
         {
-            var result = await HttpContext.AuthenticateAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+            // Google OAuth認証情報の取得
+            var result = await HttpContext.AuthenticateAsync(GoogleDefaults.AuthenticationScheme);
             
-            if (!result.Succeeded)
+            if (!result.Succeeded || result.Principal == null)
             {
                 ViewBag.Error = "Google認証に失敗しました。";
                 return View("Login");
             }
 
-            var email = result.Principal?.FindFirst(ClaimTypes.Email)?.Value;
+            var email = result.Principal.FindFirst(ClaimTypes.Email)?.Value
+                        ?? result.Principal.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress")?.Value;
 
             if (string.IsNullOrEmpty(email))
             {
@@ -89,8 +93,26 @@ namespace DotNetBridge.Controllers
                 return View("Login");
             }
 
-            HttpContext.Session.SetString("TargetAspUrl", tenant.TargetAspUrl);
-            HttpContext.Session.SetString("UserEmail", tenant.GoogleEmail);
+            // ★ 修正：Cookie認証プロファイルを構築して明確にログイン(SignIn)を実行
+            var claims = new List<Claim>
+            {
+                new Claim(ClaimTypes.NameIdentifier, email),
+                new Claim(ClaimTypes.Email, email),
+                new Claim(ClaimTypes.Name, email)
+            };
+
+            var claimsIdentity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
+            var authProperties = new AuthenticationProperties
+            {
+                IsPersistent = true,
+                ExpiresUtc = DateTimeOffset.UtcNow.AddHours(8)
+            };
+
+            await HttpContext.SignInAsync(
+                CookieAuthenticationDefaults.AuthenticationScheme,
+                new ClaimsPrincipal(claimsIdentity),
+                authProperties
+            );
 
             // 認証成功時、テナントに応じたURLへ動的遷移
             var destinationUrl = GetDestinationUrl(tenant.TargetAspUrl);

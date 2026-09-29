@@ -24,7 +24,6 @@ builder.Services.AddScoped<EcoMasterProxyService>();
 builder.Services.AddScoped<EcoProProxyService>();
 builder.Services.AddScoped<ProxyDispatcher>();
 
-// ★ 追加: Cloud Run等のリバースプロキシ設定をコンテナサービス側へ登録
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
     options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
@@ -37,11 +36,10 @@ builder.Services.AddSession(options =>
     options.IdleTimeout = TimeSpan.FromHours(8);
     options.Cookie.HttpOnly = true;
     options.Cookie.IsEssential = true;
-    options.Cookie.SecurePolicy = CookieSecurePolicy.Always; // ★ HTTPS強制
+    options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
     options.Cookie.SameSite = SameSiteMode.Lax;
 });
 
-// 本家サーバー通信に15秒のタイムアウトを設定
 builder.Services.AddHttpClient("NoRedirectClient", client => 
 {
     client.Timeout = TimeSpan.FromSeconds(15);
@@ -63,7 +61,7 @@ builder.Services.AddAuthentication(options =>
         options.ExpireTimeSpan = TimeSpan.FromHours(8);
         options.Cookie.SameSite = SameSiteMode.Lax;
         options.Cookie.HttpOnly = true;
-        options.Cookie.SecurePolicy = CookieSecurePolicy.Always; // ★ HTTPS環境でのCookie保持を強制
+        options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
         options.SlidingExpiration = true;
 
         options.Events.OnRedirectToLogin = ctx =>
@@ -109,10 +107,8 @@ builder.Services.AddDbContext<SubscriptionDbContext>(options =>
 
 var app = builder.Build();
 
-// ★ 修正点1: 最初に ForwardedHeaders ミドルウェアを確実に通過させる
 app.UseForwardedHeaders();
 
-// ★ 修正点2: プロキシ経由でも Request.Scheme を強制的に https に補正する
 app.Use(async (context, next) =>
 {
     context.Request.Scheme = "https";
@@ -199,7 +195,6 @@ using (var scope = app.Services.CreateScope())
             SELECT 'ecopro@tfkankyo.com', 'https://hhc-eco11.com/EcoToubuF3/Main/', '2026-01-01 00:00:00', 1
             WHERE NOT EXISTS (SELECT 1 FROM ""TenantSubscriptions"" WHERE ""GoogleEmail"" = 'ecopro@tfkankyo.com');
 
-            -- ★ 追加：既存データのNULL値を補正して読み込みエラーを回避
             UPDATE ""TenantSubscriptions"" SET ""CreatedAt"" = '2026-01-01 00:00:00' WHERE ""CreatedAt"" IS NULL OR ""CreatedAt"" = '';
             UPDATE ""TenantSubscriptions"" SET ""PaidAt"" = '2026-01-01 00:00:00' WHERE ""PaidAt"" IS NULL OR ""PaidAt"" = '';
             UPDATE ""TenantSubscriptions"" SET ""IsActive"" = 1 WHERE ""IsActive"" IS NULL;
@@ -216,9 +211,15 @@ app.UseSession();
 app.UseAuthentication();
 app.UseAuthorization();
 
+// ★ ログ出力機能付きミドルウェア
 app.Use(async (context, next) =>
 {
     var path = context.Request.Path.Value ?? "";
+    var isAuth = context.User.Identity?.IsAuthenticated ?? false;
+    var userEmail = context.User.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value 
+                    ?? context.User.Identity?.Name ?? "NONE";
+
+    Console.WriteLine($"[BRIDGE-LOG] Path: '{path}', IsAuth: {isAuth}, UserEmail: '{userEmail}'");
 
     if (path.StartsWith("/Account", StringComparison.OrdinalIgnoreCase) ||
         path.StartsWith("/admin", StringComparison.OrdinalIgnoreCase) ||
